@@ -17,60 +17,39 @@ OBJECTIVE:
 
 QUESTION:
 
-- Генераторы и итераторы
+- __init__, __new__, __call__
 
 ====
 
 Вот список вопросов:
 
-# 1. Основы
-
-- GIL (Global Interpreter Lock)
-
-# 2. ООП
+# ООП
 
 - __init__, __new__, __call__
 - @property, @staticmethod, @classmethod
 - Множественное наследование, MRO
 - ABC (Abstract Base Classes)
-- Протоколы (Protocol) — вы используете в Shadowstep
+- Протоколы (Protocol)
+- Паттерны проектирования
+- SOLID
+- Специфика ООП в Python
+- Наследование и композиция (Композиция vs Наследование, Миксины, Diamond Problem)
+- Метапрограммирование
+- Подводные камни ООП в Python
 
-# 3. Типизация
+# Типизация
 
 - typing: Optional, Union, TypeVar, Generic
 - Literal, TypedDict, Protocol
 - Covariance/Contravariance (редко, но бывает)
 
-Область видимости
+# Инструменты
 
-Различие между copy() и глубоким копированием
+- Cubernetes
+- pytest
+- pytest hooks
 
-Списковые выражения (List Comprehension)
-
-Lambda функции
-
-Асинхронность (Async/Await)
-
-Изменение списка во время итерации
-
-Встроенные функции map, filter, reduce, zip, enumerate
-
-Garbage Collector
-
-Сложность кода
-
-Cubernetes
-
-pytest
-
-pytest hooks
-
-паттерны проектирования
-
-dataclass
-enum
-
-Теория тестирования
+# Теория тестирования
 
 1. Пирамида тестирования
     - Unit → Integration → E2E
@@ -97,25 +76,5 @@ enum
 5. Автоматизация
     - Когда автоматизировать, когда нет?
     - ROI автотестов
-    - Page Object Pattern (вы эксперт)
+    - Page Object Pattern
     - Screenplay Pattern
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
