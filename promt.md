@@ -17,7 +17,7 @@ OBJECTIVE:
 
 QUESTION:
 
-- __init__, __new__, __call__
+- ABC (Abstract Base Classes)
 
 ====
 
@@ -25,10 +25,6 @@ QUESTION:
 
 # ООП
 
-- __init__, __new__, __call__
-- @property, @staticmethod, @classmethod
-- Множественное наследование, MRO
-- ABC (Abstract Base Classes)
 - Протоколы (Protocol)
 - Паттерны проектирования
 - SOLID
