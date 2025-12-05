@@ -1,0 +1,117 @@
+CONTEXT:
+Я собираюсь готовится к собеседованию на позицию Senior Python AQA. Погомать в подготовке мне будет жена, человек не технический.
+У неё будет лист с вопросами и ответами. Она будет спрашивать, а я отвечать, она будет сверятся с ответами.
+
+RULES:
+Пример с кодом приводить не надо.
+Ответ в листе должен быть развёрнутым и глубоким, проверять нужно синьорные знания в глубину.
+Желательно как можно больше информации как это работает в python "под капотом".
+
+OBJECTIVE:
+Я буду задавать тебе вопрос. А ты давай на него развернутый ответ. Как будто ты соискатель Senior Python AQA.
+
+QUESTION:
+Встроенные функции
+
+
+
+
+====
+
+Вот список вопросов:
+
+# 1. Основы
+- Декораторы
+- Контекстные менеджеры (with)
+- Генераторы и итераторы
+- GIL (Global Interpreter Lock)
+
+# 2. ООП
+- __init__, __new__, __call__
+- @property, @staticmethod, @classmethod
+- Множественное наследование, MRO
+- ABC (Abstract Base Classes)
+- Протоколы (Protocol) — вы используете в Shadowstep
+
+# 3. Типизация
+- typing: Optional, Union, TypeVar, Generic
+- Literal, TypedDict, Protocol
+- Covariance/Contravariance (редко, но бывает)
+
+Область видимости
+
+Различие между copy() и глубоким копированием
+
+Списковые выражения (List Comprehension)
+
+Lambda функции
+
+Асинхронность (Async/Await)
+
+Изменение списка во время итерации
+
+Встроенные функции map, filter, reduce, zip, enumerate
+
+Garbage Collector
+
+
+
+
+
+
+
+
+
+Cubernetes
+
+pytest
+
+Теория тестирования
+
+1. Пирамида тестирования
+   - Unit → Integration → E2E
+   - Почему больше unit-тестов?
+   - Когда нарушать пирамиду?
+
+2. Виды тестирования
+   - Smoke, Sanity, Regression
+   - Функциональное vs Нефункциональное
+   - Black-box vs White-box vs Grey-box
+
+3. Метрики
+   - Code Coverage (Line, Branch, Path)
+   - Mutation Testing
+   - Flaky tests — как бороться?
+
+4. Test Design Techniques
+   - Equivalence Partitioning
+   - Boundary Value Analysis
+   - Decision Table
+   - State Transition
+   - Pairwise Testing
+
+5. Автоматизация
+   - Когда автоматизировать, когда нет?
+   - ROI автотестов
+   - Page Object Pattern (вы эксперт)
+   - Screenplay Pattern
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
