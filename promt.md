@@ -17,7 +17,7 @@ OBJECTIVE:
 
 QUESTION:
 
-- ABC (Abstract Base Classes)
+- SOLID
 
 ====
 
@@ -25,9 +25,6 @@ QUESTION:
 
 # ООП
 
-- Протоколы (Protocol)
-- Паттерны проектирования
-- SOLID
 - Специфика ООП в Python
 - Наследование и композиция (Композиция vs Наследование, Миксины, Diamond Problem)
 - Метапрограммирование
