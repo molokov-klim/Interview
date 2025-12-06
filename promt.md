@@ -19,7 +19,7 @@ OBJECTIVE:
 
 QUESTION:
 
-- Подводные камни ООП в Python
+- Covariance/Contravariance (Типизация)
 
 ====
 
