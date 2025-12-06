@@ -19,7 +19,7 @@ OBJECTIVE:
 
 QUESTION:
 
-- Декораторы классов и методов
+- SOLID
 
 ====
 
