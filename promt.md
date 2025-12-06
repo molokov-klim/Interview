@@ -19,7 +19,7 @@ OBJECTIVE:
 
 QUESTION:
 
-- Асинхронность (Async/Await)
+- Enum
 
 ====
 
