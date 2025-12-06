@@ -19,7 +19,7 @@ OBJECTIVE:
 
 QUESTION:
 
-- SOLID
+- Подводные камни ООП в Python
 
 ====
 
