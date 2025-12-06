@@ -18,7 +18,7 @@ OBJECTIVE:
 
 QUESTION:
 
-- multiprocessing
+- Мультипроцессинг
 
 ====
 
