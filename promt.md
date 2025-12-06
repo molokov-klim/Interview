@@ -19,7 +19,7 @@ OBJECTIVE:
 
 QUESTION:
 
-- Миксины
+- Diamond Problem
 
 ====
 
