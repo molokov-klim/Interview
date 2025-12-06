@@ -23,6 +23,11 @@ QUESTION:
 
 ====
 
+multiprocessing
+threading
+
+
+
 Вот список вопросов:
 
 # Базовые знания

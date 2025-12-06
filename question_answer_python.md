@@ -1362,7 +1362,7 @@ CLEANUP_THROW           # Очистка
 - Декораторы для мокирования (`@unittest.mock.patch`)
 - Декораторы для setup/teardown (`@pytest.fixture`)
 
-## **Senior Level (Байткод, фреймы и байты до мозга костей)**
+## **Senior Level**
 
 1. **Байткод декоратора**:
 
