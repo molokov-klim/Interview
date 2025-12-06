@@ -19,7 +19,7 @@ OBJECTIVE:
 
 QUESTION:
 
-- Изменение списка во время итерации
+- Асинхронность (Async/Await)
 
 ====
 
@@ -163,3 +163,6 @@ QUESTION:
 - [Diamond Problem](#diamond-problem)
 
 - [Содержание](#содержание)
+
+
+
