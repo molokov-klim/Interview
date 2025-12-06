@@ -589,7 +589,7 @@ d.__dictoffset__  # Смещение для __dict__ в объектах
 - **Математические**: `abs()`, `divmod()`, `pow()`, `round()`, `sum()`, `min()`, `max()`
 - **Преобразования и проверки**: `bool()`, `complex()`, `float()`, `hash()`, `id()`, `isinstance()`, `issubclass()`,
   `callable()`
-- **Работа с последовательностями**: `len()`, `sorted()`, `reversed()`, `enumerate()`, `zip()`, `filter()`, `map()`,
+- **Работа с коллекциями**: `len()`, `sorted()`, `reversed()`, `enumerate()`, `zip()`, `filter()`, `map()`,
   `all()`, `any()`, `slice()`
 - **Итераторы и генераторы**: `iter()`, `next()`, `range()`
 - **Ввод-вывод**: `print()`, `input()`, `open()`
