@@ -19,7 +19,7 @@ OBJECTIVE:
 
 QUESTION:
 
-- Covariance/Contravariance (Типизация)
+- Пирамида тестирования
 
 ====
 
