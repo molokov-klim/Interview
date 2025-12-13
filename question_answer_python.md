@@ -2156,155 +2156,128 @@ list/set/dict.
 
 ## **Senior Level**
 
-**1. Реализация корутин в CPython**
+В CPython `async`/`await` — это специальные флаги в `PyCodeObject`, отдельные типы объектов (`PyCoroObject`,
+`PyAsyncGenObject`) и несколько опкодов (`GET_AWAITABLE`, `YIELD_FROM`, `RETURN_GENERATOR`/`ASYNC_GEN_WRAP` и др.), плюс
+протокол `__await__`/`am_await` в `PyTypeObject`. Ниже только подкапотная реализация.
 
-Корутины строятся на генераторах. Асинхронная функция компилируется с флагом `CO_COROUTINE` (0x80) в `code.co_flags`.
-Объект корутины имеет тип `PyCoroObject` (наследуется от `PyGenObject`):
+## async def: флаги кода и RETURN_GENERATOR
 
-```c
-typedef struct {
-    PyGenObject gen;
-    PyObject *cr_origin;  // Для отладки
-} PyCoroObject;
-```
+При компиляции `async def` создаётся `PyCodeObject` с флагом `CO_COROUTINE` (и без `CO_GENERATOR`). В CPython 3.11+ в
+конец тела такой функции компилятор вставляет спец‑опкод `RETURN_GENERATOR` вместо классического
+`RETURN_VALUE`.
 
-При вызове `async def` функции:
+- При первом вызове `async def`‑функции выполняется её пролог до `RETURN_GENERATOR`.
+- `RETURN_GENERATOR` не возвращает обычное значение: он создаёт `PyCoroObject` через
+  `_Py_MakeCoro(PyFunctionObject *func)` (в `genobject.c`), инициализируя внутренний `_PyInterpreterFrame` копией
+  текущего фрейма и помечая флагами `CO_COROUTINE/CO_ASYNC_GENERATOR`.
+- Текущий фрейм функции выкидывается со стека, вызывающему коду возвращается объект‑корутина, у которого `cr_frame`
+  содержит приостановленный байткод с `f_lasti` до первой инструкции тела (или после уже выполненного пролога).
 
-- Байткод `MAKE_FUNCTION` создаёт объект функции с флагом `CO_COROUTINE`
-- Вызов функции возвращает объект корутины (не выполняя код)
-- Для запуска корутины вызывается `coro.send(None)` или `await`
+Таким образом, `async def` не запускает тело сразу: байткод тела будет исполняться только при `coro.send(None)`/
+`__await__()`/драйвером event‑loop’а.
 
-**2. Механизм `await` на уровне байткода**
+## Объект корутины (PyCoroObject) и __await__
 
-Байткод для `await` в Python 3.9+ использует инструкции `GET_AWAITABLE` и `YIELD_FROM`:
+`PyCoroObject` реализован в `genobject.c` и по структуре очень близок к `PyGenObject`. Основные поля:
 
-```
-async def foo():
-    await bar()
+- `cr_weakreflist`, `cr_frame` (`_PyInterpreterFrame *`), `cr_code` (`PyCodeObject *`).
+- `cr_origin`/`cr_origin_depth` (для трейсинга места создания).
+- Флаги в `cr_code->co_flags` (`CO_COROUTINE`, `CO_ASYNC_GENERATOR`).
 
-# Байткод foo():
-0 LOAD_GLOBAL              0 (bar)
-2 CALL_FUNCTION            0
-4 GET_AWAITABLE
-6 LOAD_CONST               0 (None)
-8 YIELD_FROM
-10 POP_TOP
-12 LOAD_CONST               0 (None)
-14 RETURN_VALUE
-```
+Метод `__await__` у nativе‑корутин реализован так, что возвращает итератор, по которому `await` будет делать
+`YIELD_FROM`. В CPython:
 
-`GET_AWAITABLE` проверяет, является ли объект awaitable (имеет метод `__await__`). `YIELD_FROM` приостанавливает
-корутину и передаёт управление.
+- Для `PyCoroObject` `__await__` обычно возвращает сам объект или специальный wrapper‑итератор (исторически был
+  `coro_wrapper`), который реализует `tp_iternext` через `cr_send`.
+- В C‑API это маппится на `tp_as_async.am_await` в `PyTypeObject`; для произвольного типа реализация может вернуть любой
+  итератор, который будет использоваться как источник значений для `YIELD_FROM` в `await`.
 
-**3. Цикл событий (Event Loop)**
+## await: GET_AWAITABLE + YIELD_FROM
 
-Реализация цикла событий в `asyncio` использует селекторы (select, epoll, kqueue) для мониторинга файловых дескрипторов.
-Основные компоненты:
+Выражение `await EXPR` компилируется почти как `yield from`, но с явной проверкой «awaitability»:
 
-- **Ready Queue**: Очередь готовых к выполнению задач (корутин)
-- **Scheduled Queue**: Очередь отложенных задач (через `asyncio.sleep`)
-- **Selector**: Мониторит сокеты и файловые дескрипторы
+Типичный байткод:
 
-Работа цикла:
+- вычисление `EXPR` → на стеке объект `obj`;
+- `GET_AWAITABLE` — берёт `obj` и проверяет:
+    - если `obj` — native coroutine (`PyCoroObject`) или generator‑based coroutine (флаг `CO_ITERABLE_COROUTINE`),
+      использовать его напрямую;
+    - иначе пытается вызвать `obj.__await__()` (через `am_await`), получить итератор;
+    - если не получилось — бросает `TypeError`.
+- затем `YIELD_FROM` — тот же опкод, что и для `yield from`, реализующий протокол PEP 380:
+    - выполняет `send()`/`throw()` в под‑итератор до его завершения;
+    - при каждом `YIELD_VALUE` из под‑итератора текущий coroutine «отдаёт управление наружу», сохраняя свой `cr_frame`
+      внутри `PyCoroObject`;
+    - при финальном `StopIteration` извлекает `value` и пушит его на стек как результат `await`.
+
+Фактически, `await` — это «`GET_AWAITABLE` + `YIELD_FROM` с ограничением на типы».
+
+## async for / async with: специальные опкоды
+
+### async for
+
+Конструкция:
 
 ```python
-while True:
-    # 1. Выполнить готовые задачи
-    while ready_queue:
-        task = ready_queue.popleft()
-        task._step()  # Продвинуть выполнение
-
-    # 2. Ожидать событий ввода-вывода
-    timeout = calculate_timeout()
-    events = selector.select(timeout)
-    for fd, event in events:
-        callback = fd_to_callback[fd]
-        callback()
-
-    # 3. Проверить отложенные задачи
-    current_time = time()
-    while scheduled_queue and scheduled_queue[0].when <= current_time:
-        task = scheduled_queue.pop(0)
-        ready_queue.append(task)
+async for x in aiter:
+    body
 ```
 
-**4. Задачи (Tasks) и Future**
+компилируется в паттерн:
 
-`Task` наследуется от `Future`. `Future` представляет результат асинхронной операции. Структура `PyTaskObject` включает:
+- получить асинхронный итератор: вызвать `aiter.__aiter__()`;
+- в цикле: вызывать `await aiter.__anext__()`; ловить `StopAsyncIteration`.
 
-- `_coro`: ссылка на корутину
-- `_state`: состояние (PENDING, CANCELLED, FINISHED)
-- `_result`: результат или исключение
-- `_callbacks`: список колбэков при завершении
+В байткоде это реализовано через опкоды:
 
-Когда задача завершается, она устанавливает результат во `Future` и запускает прикреплённые колбэки.
+- `GET_AITER` — вызывает `__aiter__` и проверяет, что результат awaitable/корутина, возвращающая async‑итератор.
+- внутри цикла используется `GET_ANEXT` и `YIELD_FROM`/`GET_AWAITABLE`: фактически «`await aiter.__anext__()`» размотан
+  на уровне VM.
+- при получении `StopAsyncIteration` VM завершает цикл (аналог обычного `FOR_ITER` и `StopIteration`).
 
-**5. Асинхронные генераторы**
+Детали реализации `GET_AITER`/`GET_ANEXT` описаны в PEP 492 и реализованы в `ceval.c` как специальные ветви для
+async‑итераторов.
 
-Асинхронные генераторы (`async def` с `yield`) используют отдельный тип `PyAsyncGenObject`. Они поддерживают:
+### async with
 
-- `__anext__()` для асинхронной итерации
-- `asend()`, `athrow()`, `aclose()` аналогично обычным генераторам
-- Финализацию через `async_gen_finalizer()`
+`async with cm:` аналогичен контекстным менеджерам, но использует `__aenter__`/`__aexit__` и `await` вокруг них.
 
-**6. Протокол `__await__`**
+Под капотом:
 
-Любой объект может стать awaitable, реализовав `__await__()`, который должен возвращать итератор. Цикл событий будет
-итерировать по нему до завершения.
+- при входе: вызывается `GET_AWAITABLE`/`YIELD_FROM` вокруг `cm.__aenter__()`, через отдельный опкод
+  `BEFORE_ASYNC_WITH`/`SETUP_ASYNC_WITH` (в разных версиях).
+- при выходе (нормальном/через исключение) компилятор генерирует cleanup‑код, который делает
+  `await cm.__aexit__(exc_type, exc_val, exc_tb)` с использованием тех же `GET_AWAITABLE` + `YIELD_FROM`.
 
-**7. Отладка и интроспекция**
+Всё это завязано на тот же протокол coroutine/awaitable и поддержку в `ceval.c`, что и обычные `await`.
 
-- `asyncio.current_task()`: текущая задача
-- `asyncio.all_tasks()`: все активные задачи
-- `task.get_stack()`: стек вызовов корутины
-- `asyncio.get_event_loop_policy()`: политика цикла событий
+## async generators: CO_ASYNC_GENERATOR и ASYNC_GEN_WRAP
 
-**8. Производительность и оптимизации**
+`async def` с `yield` даёт async‑генератор.
 
-- **Быстрый путь для локального event loop**: `asyncio.get_running_loop()` кэширует ссылку на текущий цикл
-- **Инлайн-кэширование в Python 3.11**: байткод `ASYNC_GEN_WRAP` оптимизирует асинхронные генераторы
-- **Протокол буферизации**: асинхронные итераторы могут реализовать `__aiter__`, возвращающий асинхронный итератор, и
-  `__anext__` для получения элементов
+- `co_flags` содержит `CO_ASYNC_GENERATOR`.
+- Вместо `PyCoroObject` создаётся `PyAsyncGenObject` через `ASYNC_GEN_WRAP` (новый опкод, появившийся к 3.11) или
+  эквивалентную логику в старых версиях.
+- Тело использует `YIELD_VALUE`/`YIELD_FROM`, но протокол ожидания/закрытия другой (`__anext__`, `aclose`, `athrow`),
+  реализованный в `genobject.c` в ветках async‑генераторов.
 
-**9. GIL и асинхронность**
+`async for` поверх async‑генератора использует `GET_AITER`/`GET_ANEXT`, как описано выше.
 
-Асинхронный код выполняется в одном потоке, поэтому GIL не препятствует параллелизму. Однако:
+## Event loop / asyncio: взаимодействие с VM
 
-- Блокирующие вызовы блокируют весь цикл событий
-- Для CPU-интенсивных задач используется `run_in_executor()` (пул потоков/процессов)
-- Освобождение GIL в `await` происходит автоматически при вызове системных функций
+`asyncio` сам по себе — чистый Python (с небольшими C‑вставками), который выступает **драйвером** для корутин:
 
-**10. Системные вызовы и обратные вызовы**
+- Планировщик (`loop.run_until_complete`, `loop._run_once`) хранит очередь задач (`Task`), каждая из которых оборачивает
+  корутину (`PyCoroObject`).
+- Для запуска/продолжения задачи `Task` делает `coro.send(None)` или `coro.throw(exc)` — это зовёт `gen_send_ex`/
+  `coro_send` в `genobject.c`, которые передают управление в `_PyEval_EvalFrameDefault` для соответствующего
+  `cr_frame`.
+- Когда внутри корутины выполняется `await`, `YIELD_FROM` возвращает управление обратно в event loop, передавая
+  «awaited» объект (фьючер/Task/IO‑обёртку), по завершении которого loop снова дернёт `send()` на корутине.
 
-При асинхронном I/O:
-
-- Системный вызов (например, `socket.recv`) регистрируется в селекторе
-- Цикл событий добавляет колбэк, который будет вызван при готовности данных
-- Колбэк возобновляет корутину через `task.set_result()`
-
-**11. Обработка исключений**
-
-Исключения в корутинах пробрасываются через механизм `throw()`:
-
-- Если корутина не обрабатывает исключение, оно устанавливается в задачу
-- `await` пробрасывает исключение вызывающей корутине
-- `asyncio.gather()` собирает исключения из нескольких задач
-
-**12. Тестирование асинхронного кода**
-
-Для AQA критически важно:
-
-- **Изоляция тестов**: Каждый тест должен запускаться в новом цикле событий
-- **Мокирование**: Подмена асинхронных функций через `unittest.mock.AsyncMock`
-- **Таймауты**: Контроль времени выполнения тестов
-- **Обработка исключений**: Проверка асинхронных исключений через `pytest.raises()`
-- **Нагрузочное тестирование**: Проверка поведения при множестве одновременных корутин
-
-**13. Расширенные паттерны**
-
-- **Шардинг циклов событий**: Несколько циклов в разных потоках
-- **Custom Event Loop**: Реализация своего цикла событий для специализированных нужд
-- **Протоколы транспорта**: Низкоуровневая работа с сокетами через `asyncio.Protocol`
+Для байткода и `ceval.c` `asyncio` — просто обычный пользовательский код, который активно использует `PyCoroObject`,
+`PyGenObject` и протокол awaitable/iterator; никаких специальных VM‑опкодов под event loop нет, всё основано на
+описанных выше примитивах async/await.
 
 - [Содержание](#содержание)
 
