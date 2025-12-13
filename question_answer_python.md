@@ -1646,42 +1646,361 @@ case DICT_MERGE: {
 
 ## **Senior Level**
 
-## Реализация встроенных функций в CPython
+В CPython 3.9+ **встроенные функции** реализуются через **PyCFunctionObject**/**PyCMethodObject** в модуле
+`bltinmodule.c`, регистрируемые в `__builtins__` через `builtin_functions[]`. Поддерживают **vectorcall** (
+METH_FASTCALL) и классические **METH_VARARGS**. `Python/bltinmodule.c`,`Objects/methodobject.c`
 
-Встроенные функции (built-in functions) в CPython реализованы преимущественно на языке C и располагаются в файле
-`Python/bltinmodule.c`. Эти функции доступны без импорта и являются частью глобального пространства имен `builtins`.
+## 1. PyCFunctionObject - структура встроенной функции
 
-### Архитектура и расположение
+```c
+typedef struct {
+    PyObject_HEAD              // Стандартный заголовок (refcnt + type)
+    PyMethodDef *m_ml;         // Указатель на PyMethodDef (имя + C-функция)
+    PyObject *m_self;          // self (NULL для функций, класс для методов)
+    PyObject *m_module;        // Модуль (__module__)
+    vectorcallfunc vectorcall; // Быстрый вызов (3.9+)
+    PyObject *m_weakreflist;   // Список слабых ссылок
+} PyCFunctionObject;
+```
 
-Большинство встроенных функций находятся в `Python/bltinmodule.c`, но есть исключения:
+**Объяснение для людей:** Встроенная функция `len()` в памяти — это 64-байт структура: заголовок + указатель на
+C-функцию `len_func` + `__module__="builtins"`. `vectorcall` — быстрый путь вызова без tuple.
 
-- **Встроенные типы** (`str`, `dict`, `list`, `int`) имеют собственные C-файлы в директории `Objects/`
-- **Встроенные типы**: файлы с именами `Objects/<builtin>object.c` (например, `listobject.c`, `dictobject.c`)
-- **Специальные модули**: `sys` находится в `Python/sysmodule.c`, `marshal` в `Python/marshal.c`
+## 2. PyMethodDef - таблица встроенных функций
 
-### Механизм работы
+```c
+static PyMethodDef builtin_functions[] = {
+    {"abs",         builtin_abs,        METH_VARARGS, abs_doc},
+    {"aiter",       builtin_aiter,      METH_O, aiter_doc},
+    {"all",         builtin_all,        METH_O, all_doc},
+    {"any",         builtin_any,        METH_O, any_doc},
+    {"ascii",       builtin_ascii,      METH_O, ascii_doc},
+    {"bin",         builtin_bin,        METH_O, bin_doc},
+    {"bool",        builtin_bool,       METH_VARARGS, bool_doc},
+    {"bytearray",   builtin_bytearray,  METH_VARARGS|METH_KEYWORDS, bytearray_doc},
+    {"bytes",       builtin_bytes,      METH_VARARGS|METH_KEYWORDS, bytes_doc},
+    {"callable",    builtin_callable,   METH_O, callable_doc},
+    {"chr",         builtin_chr,        METH_O, chr_doc},
+    {"classmethod", builtin_classmethod,METH_O, classmethod_doc},
+    {"compile",     builtin_compile,    METH_VARARGS|METH_KEYWORDS, compile_doc},
+    {"complex",     builtin_complex,    METH_VARARGS|METH_KEYWORDS, complex_doc},
+    {"delattr",     builtin_delattr,    METH_VARARGS, delattr_doc},
+    {"dict",        builtin_dict,       METH_VARARGS|METH_KEYWORDS, dict_doc},
+    {"dir",         builtin_dir,        METH_VARARGS, dir_doc},
+    {"divmod",      builtin_divmod,     METH_VARARGS, divmod_doc},
+    {"enumerate",   builtin_enumerate,  METH_VARARGS|METH_KEYWORDS, enumerate_doc},
+    {"eval",        builtin_eval,       METH_VARARGS|METH_KEYWORDS, eval_doc},
+    {"exec",        builtin_exec,       METH_VARARGS|METH_KEYWORDS, exec_doc},
+    {"filter",      builtin_filter,     METH_VARARGS, filter_doc},
+    {"float",       builtin_float,      METH_VARARGS|METH_KEYWORDS, float_doc},
+    {"format",      builtin_format,     METH_VARARGS, format_doc},
+    {"frozenset",   builtin_frozenset,  METH_VARARGS|METH_KEYWORDS, frozenset_doc},
+    {"getattr",     builtin_getattr,    METH_VARARGS, getattr_doc},
+    {"globals",     builtin_globals,    METH_NOARGS, globals_doc},
+    {"hasattr",     builtin_hasattr,    METH_VARARGS, hasattr_doc},
+    {"hash",        builtin_hash,       METH_O, hash_doc},
+    {"hex",         builtin_hex,        METH_O, hex_doc},
+    {"id",          builtin_id,         METH_O, id_doc},
+    {"input",       builtin_input,      METH_VARARGS, input_doc},
+    {"int",         builtin_int,        METH_VARARGS|METH_KEYWORDS, int_doc},
+    {"isinstance",  builtin_isinstance, METH_VARARGS, isinstance_doc},
+    {"issubclass",  builtin_issubclass, METH_VARARGS, issubclass_doc},
+    {"iter",        builtin_iter,       METH_VARARGS, iter_doc},
+    {"len",         builtin_len,        METH_O, len_doc},
+    {"list",        builtin_list,       METH_VARARGS, list_doc},
+    {"locals",      builtin_locals,     METH_NOARGS, locals_doc},
+    {"map",         builtin_map,        METH_VARARGS, map_doc},
+    {"max",         builtin_max,        METH_VARARGS|METH_KEYWORDS, max_doc},
+    {"memoryview",  builtin_memoryview, METH_O, memoryview_doc},
+    {"min",         builtin_min,        METH_VARARGS|METH_KEYWORDS, min_doc},
+    {"next",        builtin_next,       METH_VARARGS|METH_KEYWORDS, next_doc},
+    {"object",      builtin_object,     METH_VARARGS|METH_KEYWORDS, object_doc},
+    {"oct",         builtin_oct,        METH_O, oct_doc},
+    {"open",        builtin_open,       METH_VARARGS|METH_KEYWORDS, open_doc},
+    {"ord",         builtin_ord,        METH_O, ord_doc},
+    {"pow",         builtin_pow,        METH_VARARGS|METH_KEYWORDS, pow_doc},
+    {"print",       builtin_print,      METH_VARARGS|METH_KEYWORDS, print_doc},
+    {"property",    builtin_property,   METH_VARARGS|METH_KEYWORDS, property_doc},
+    {"range",       builtin_range,      METH_VARARGS|METH_KEYWORDS, range_doc},
+    {"repr",        builtin_repr,       METH_O, repr_doc},
+    {"reversed",    builtin_reversed,   METH_O, reversed_doc},
+    {"round",       builtin_round,      METH_VARARGS|METH_KEYWORDS, round_doc},
+    {"set",         builtin_set,        METH_VARARGS|METH_KEYWORDS, set_doc},
+    {"setattr",     builtin_setattr,    METH_VARARGS, setattr_doc},
+    {"slice",       builtin_slice,      METH_VARARGS|METH_KEYWORDS, slice_doc},
+    {"sorted",      builtin_sorted,     METH_VARARGS|METH_KEYWORDS, sorted_doc},
+    {"staticmethod",builtin_staticmethod,METH_O, staticmethod_doc},
+    {"str",         builtin_str,        METH_VARARGS, str_doc},
+    {"sum",         builtin_sum,        METH_VARARGS|METH_KEYWORDS, sum_doc},
+    {"super",       builtin_super,      METH_VARARGS|METH_KEYWORDS, super_doc},
+    {"tuple",       builtin_tuple,      METH_VARARGS, tuple_doc},
+    {"type",        builtin_type,       METH_VARARGS|METH_KEYWORDS, type_doc},
+    {"vars",        builtin_vars,       METH_VARARGS, vars_doc},
+    {"zip",         builtin_zip,        METH_VARARGS, zip_doc},
+    {NULL,          NULL}              /* Sentinel */
+};
+```
 
-Встроенные функции реализуются как C-функции, которые регистрируются в таблице методов модуля `builtins`. При вызове
-функции из Python:
+**Объяснение для людей:** Это **таблица методов** — массив структур `{имя, C_функция, флаги, docstring}`. `builtin_len`
+принимает METH_O (1 аргумент). Регистрируется в `__builtins__`.
 
-1. **Интерпретатор CPython** ищет имя функции в глобальном пространстве имен `__builtins__`
-2. **Вызов C-функции**: происходит через Python C API, где каждая функция принимает указатели на PyObject
-3. **Обработка аргументов**: используются функции `PyArg_ParseTuple()` или `PyArg_ParseTupleAndKeywords()` для
-   извлечения параметров
-4. **Возврат результата**: C-функция возвращает новый `PyObject*` или `NULL` при ошибке
+## 3. Регистрация в bltinmodule.c: builtinmodule_exec
 
-### Примеры реализации
+```c
+static struct PyModuleDef builtindef = {
+    PyModuleDef_HEAD_INIT,
+    .m_name = "builtins",
+    .m_doc = builtin_module_doc,
+    .m_size = 0,
+    .m_methods = builtin_functions,  // <- Таблица выше
+};
 
-Функции типа `len()`, `abs()`, `print()` реализованы как статические C-функции в `bltinmodule.c` с сигнатурой типа
-`static PyObject* builtin_len(PyObject *self, PyObject *v)`. Функции `eval()` и `exec()` имеют доступ к контролю
-пространства имен через параметр `__builtins__`, что позволяет ограничивать доступные функции в исполняемом коде.
+PyMODINIT_FUNC
+PyInit_builtins(void) {
+    PyObject *m, *d;
+    
+    // Создаём модуль builtins
+    m = PyModule_Create(&builtindef);
+    if (m == NULL)
+        return NULL;
+    
+    d = PyModule_GetDict(m);           // __dict__ модуля
+    
+    // Добавляем все builtin функции
+    if (builtin_add_funcs(d, builtin_functions) < 0) {
+        Py_DECREF(m);
+        return NULL;
+    }
+    
+    // Добавляем константы
+    if (builtin_add_constants(d) < 0) {
+        Py_DECREF(m);
+        return NULL;
+    }
+    
+    return m;
+}
 
-### Важные детали для собеседования
+static int builtin_add_funcs(PyObject *mod_dict, PyMethodDef *functions) {
+    PyMethodDef *ml;
+    
+    for (ml = functions; ml->ml_name != NULL; ml++) {
+        PyObject *descr;
+        descr = PyCFunction_NewEx(ml, NULL, mod_dict);  // Создаём PyCFunctionObject
+        if (descr == NULL) {
+            return -1;
+        }
+        if (PyDict_SetItemString(mod_dict, ml->ml_name, descr) < 0) {
+            Py_DECREF(descr);
+            return -1;
+        }
+        Py_DECREF(descr);
+    }
+    return 0;
+}
+```
 
-- Функция `id()` в CPython возвращает адрес объекта в памяти
-- Встроенные функции кэшируются в глобальном словаре и не требуют поиска в `sys.path`
-- Типы данных наследуются от базового `PyObject` и используют единую систему подсчета ссылок для управления памятью
+**Объяснение для людей:** `PyInit_builtins()` создаёт модуль `builtins`, проходит по таблице `builtin_functions[]`,
+вызывает `PyCFunction_NewEx` (создаёт PyCFunctionObject для каждой функции), кладёт в `__dict__` модуля как `len`,
+`print`, `abs`.
 
+## 4. PyCFunction_NewEx - создание PyCFunctionObject
+
+```c
+PyObject *PyCFunction_NewEx(PyMethodDef *ml, PyObject *self, PyObject *module) {
+    PyCFunctionObject *op;
+    
+    // Выделяем память
+    op = PyObject_GC_New(PyCFunctionObject, &PyCFunction_Type);
+    if (op == NULL)
+        return NULL;
+    
+    // Заполняем поля
+    op->m_ml = ml;                    // Ссылка на PyMethodDef
+    Py_XSETREF(op->m_self, Py_XNewRef(self));  // self (NULL для функций)
+    Py_XSETREF(op->m_module, Py_XNewRef(module));  // "builtins"
+    
+    // Выбираем vectorcall функцию по флагам
+    op->vectorcall = _PyCFunction_VectorcallByFlags(ml->ml_flags);
+    
+    _PyObject_GC_TRACK(op);           // Регистрируем в GC
+    return (PyObject *)op;
+}
+```
+
+**Объяснение людей:** Для `len` создаётся PyCFunctionObject: `m_ml=&builtin_len_def`, `m_self=NULL`,
+`m_module="builtins"`, `vectorcall=cfunction_vectorcall_FASTCALL`.
+
+## 5. Вызов len(obj): vectorcall путь (3.9+)
+
+```c
+static PyObject *cfunction_vectorcall_FASTCALL(
+    PyObject *func, PyObject *const *args, size_t nargsf, PyObject *kwnames) {
+    PyCFunctionObject *self = _PyCFunctionObject_CAST(func);
+    PyMethodDef *ml = self->m_ml;
+    Py_ssize_t nargs = PyVectorcall_NARGS(nargsf);
+    
+    assert(nargs == 1);                // METH_O: 1 аргумент
+    assert(kwnames == NULL);           // Без kwargs
+    
+    // Вызываем C-функцию напрямую
+    PyCFunction meth = PyCFunction_GET_FUNCTION(self);
+    PyObject *self_or_module = PyCFunction_GET_SELF(self);
+    
+    PyObject *result = meth(self_or_module, args[0]);  // len(NULL, obj)
+    
+    if (result != NULL && !(ml->ml_flags & METH_COEXIST)) {
+        /* steal reference to result */
+        Py_DECREF(result);
+        PyErr_Format(PyExc_TypeError,
+                     "%.200s() takes no arguments (1 given)",
+                     ml->ml_name);
+        return NULL;
+    }
+    
+    return result;
+}
+```
+
+**Объяснение для людей:** `len(obj)` → `cfunction_vectorcall_FASTCALL` → `builtin_len(NULL, obj)` → C-функция получает
+`self=NULL`, `arg=obj`. Без создания tuple/list — **максимальная скорость**.
+
+## 6. builtin_len - реализация len()
+
+```c
+static PyObject *builtin_len(PyObject *self, PyObject *obj) {
+    Py_ssize_t res;
+    
+    // Пытаемся взять tp_as_sequence->sq_length
+    res = PyObject_Length(obj);
+    if (res < 0 && PyErr_Occurred()) {
+        return NULL;
+    }
+    
+    return PyLong_FromSsize_t(res);
+}
+
+Py_ssize_t PyObject_Length(PyObject *o) {
+    PySequenceMethods *m;
+    
+    if (o == NULL) {
+        PyErr_BadInternalCall();
+        return -1;
+    }
+    
+    m = o->ob_type->tp_as_sequence;
+    if (m && m->sq_length) {
+        Py_ssize_t len = m->sq_length(o);  // Вызываем sq_length (list_length)
+        if (len < 0 && !_PyErr_ExceptionMatches(PyExc_TypeError)) {
+            return len;
+        }
+        // Если TypeError - пробуем mapping
+        if (len < 0) {
+            PyObject *r = PyObject_CallMethod(o, "__len__", NULL);
+            if (r == NULL)
+                return -1;
+            len = PyLong_AsSsize_t(r);
+            Py_DECREF(r);
+        }
+        return len;
+    }
+    
+    return PyMapping_Size(o);          // dict.__len__
+}
+```
+
+**Объяснение для людей:** `len(lst)` → `PyObject_Length(lst)` → `PyList_Type.tp_as_sequence->sq_length(lst)` →
+`list_length()` возвращает `self->ob_size`. Если нет `sq_length` — пробует `__len__()`.
+
+## 7. list_length - sq_length для PyListObject
+
+```c
+static Py_ssize_t list_length(PyListObject *self) {
+    return Py_SIZE(self);              // Просто ob_size из PyVarObject
+}
+```
+
+**Объяснение для людей:** `len([1,2,3])` возвращает `ob_size=3` из заголовка PyVarObject. **Мгновенно** — поле в самом
+объекте.
+
+## 8. Байткод: LOAD_GLOBAL -> builtins.len
+
+```python
+# len(lst)
+0
+LOAD_GLOBAL
+0(len)  # Ищем len в globals -> builtins
+2
+LOAD_FAST
+0(lst)  # lst на стек
+4
+CALL
+1  # len(lst)
+6
+RETURN_VALUE  # Возвращаем результат
+```
+
+**LOAD_GLOBAL в ceval.c (3.9+):**
+
+```c
+case LOAD_GLOBAL: {
+    PyObject *name = PyCode_GET_GLOBAL(frame->f_code, oparg>>1);
+    
+    // Поиск: locals -> globals -> builtins
+    PyObject *res = _PyDict_GetItemWithCache(
+        frame->f_globals, name, (hash_t)arg & 0xfffff);
+    
+    if (res == NULL) {
+        // Не в globals -> ищем в builtins
+        res = _PyDict_GetItemWithCache(
+            frame->f_builtins, name, (hash_t)arg & 0xfffff);
+    }
+    
+    if (res == NULL) {
+        // NameError
+        format_exc_check_arg(PyExc_NameError,
+            MODULE_FUNC_STR "name '%U' is not defined", name);
+        goto error;
+    }
+    
+    Py_INCREF(res);                    // +refcnt
+    STACK_GROW(1);                     // Увеличиваем стек
+    PEEK(0) = res;                     // len() на вершину стека
+    DISPATCH();
+}
+```
+
+**Объяснение для людей:** `LOAD_GLOBAL len` ищет имя `"len"` сначала в `globals()`, потом в `builtins`. Находит
+PyCFunctionObject, увеличивает refcnt, кладёт на стек.
+
+## 9. Vectorcall диспетчеризация (3.9+)
+
+```c
+PyObject *_PyObject_Vectorcall(PyObject *callable,
+                               PyObject *const *args,
+                               size_t nargsf, PyObject *kwnames) {
+    if (PyCFunction_Check(callable)) {
+        // Быстрый путь для PyCFunctionObject
+        return _PyCFunction_Vectorcall(callable, args, nargsf, kwnames);
+    }
+    
+    // Медленный путь через tp_call
+    vectorcallfunc func = _PyObject_GetVectorcall(callable);
+    if (func != NULL) {
+        return func(callable, args, nargsf, kwnames);
+    }
+    
+    // Fallback на PyObject_Call
+    return PyObject_Call(callable, args[0], NULL);
+}
+```
+
+**Объяснение для людей:** `CALL 1` → `_PyObject_Vectorcall(len_obj, [lst], 1, NULL)` → `_PyCFunction_Vectorcall` →
+`builtin_len(NULL, lst)`. **Без tuple создания**.
+
+**Встроенные функции** в CPython 3.9+ — **PyCFunctionObject** из `bltinmodule.c`, **vectorcall** (METH_FASTCALL) для
+скорости, **PyMethodDef таблица**, поиск через `LOAD_GLOBAL` → `globals/builtins`, диспетч `PyObject_Length` →
+`sq_length`.
 
 - [Содержание](#содержание)
 
