@@ -2728,200 +2728,115 @@ Dataclass поддерживает наследование, собирая по
 
 ## **Senior Level**
 
-**1. Внутренняя реализация в CPython**
+В CPython `dataclass` — это чистый Python‑декоратор из `Lib/dataclasses.py`, который на вход получает уже созданный
+класс и дальше генерирует для него методы через `exec` с динамически собранным исходником и работу с `__annotations__`/
+`__dict__`. Ни один специальный байткод или поддержка в интерпретаторе под это не добавлялись.
 
-Модуль `dataclasses` написан на чистом Python, но использует низкоуровневые механизмы CPython:
+## Сбор полей и метаданных
 
-```python
-# Логика генерации методов
-def _create_fn(name, args, body, *, globals=None, locals=None):
-    # Создание объекта кода через compile()
-    # Исполнение через exec() для создания функции
-    pass
-```
+1. `dataclass(cls, ...)` вызывает `_process_class(cls, params)` и вешает на класс:
+    - `cls.__dataclass_params__ = _DataclassParams(...)`;
+    - `cls.__dataclass_fields__ = {name: Field(...), ...}`.
+2. `_process_class` обходит `cls.__mro__` (кроме `object`), собирает все `__dataclass_fields__` из базовых dataclass’ов,
+   а затем добавляет/переопределяет поля текущего класса, анализируя `cls.__annotations__` и атрибуты в
+   `cls.__dict__`.
+3. Для каждого поля создаётся `Field` (класс с `__slots__`), где фиксируются `name`, `type`, `default`,
+   `default_factory`, `init`, `repr`, `compare`, `kw_only`, `_field_type` (REGULAR/CLASSVAR/INITVAR).
+4. После сортировки по порядку объявления список `Field` используется для генерации кода методов.
 
-Декоратор `@dataclass` работает в несколько этапов:
+Все эти шаги — обычное манипулирование классом и словарями в Python, байткода тут нет.
 
-1. Сканирование аннотаций класса
-2. Сбор информации о полях через `Field` объекты
-3. Генерация исходного кода методов как строк
-4. Компиляция и привязка методов к классу
+## Генерация __init__
 
-**2. Генерация `__init__`**
+`_init_fn(fields, frozen, has_post_init, ...)` строит *строку* исходника функции `__init__` и компилирует её через
+`exec`.
 
-Для класса:
+1. Сигнатура:
+    - В буфер пишется текст `def __init__(self, ...):`, где список параметров собирается по `Field.init`, `kw_only`,
+      `default`, `default_factory`, `InitVar`.
+    - Для типов полей используются имена вроде `__dataclass_type_<name>__`, заранее положенные в `locals` mapping, чтобы
+      не тянуть `typing` и не ломать окружение.
 
-```python
-@dataclass
-class Point:
-    x: int
-    y: int = 0
-```
+2. Тело:
+    - Для обычных полей генерируются строки `self.x = x` (или, для `InitVar`, только локальные переменные без записи в
+      `self`).
+    - Для `default_factory` подставляется вызов вида `self.x = __dataclass_field_x__.default_factory()` с проверкой
+      маркера `_HAS_DEFAULT_FACTORY`.
+    - Для `frozen=True` вместо присваиваний генерируются вызовы
+      `__dataclass_builtins_object__.__setattr__(self, 'x', x)`, где `__dataclass_builtins_object__` — это `object`,
+      заранее положенный в `locals`.
+    - Если есть `__post_init__`, в конец добавляется вызов `self.__post_init__(initvar1, ...)`.
 
-Генерируется код, эквивалентный:
+3. Компиляция и привязка:
+    - Формируется `locals` dict:
+      `{f'__dataclass_type_{f.name}__': f.type, '__dataclass_HAS_DEFAULT_FACTORY__': _HAS_DEFAULT_FACTORY, '__dataclass_builtins_object__': object, ...}`.[2]
+    - Вызывается `exec(src, module_globals, locals)`, где `module_globals` — `sys.modules[cls.__module__].__dict__`.
+    - Полученная функция берётся из `locals['__init__']` и присваивается `cls.__init__`.
 
-```python
-def __init__(self, x: int, y: int = 0):
-    self.x = x
-    self.y = y
-```
+В результате `__init__` — обычный `PyFunctionObject` с кодом, созданным DSL‑ом dataclasses; байткод стандартный:
+`LOAD_FAST`, `STORE_ATTR`, `CALL_FUNCTION`, `RETURN_NONE` и т.п.
 
-Но реальная реализация использует `object.__setattr__` для обхода возможных ограничений (например, для frozen классов
-или классов со `__slots__`).
+## Генерация __repr__, __eq__, order, __hash__
 
-**3. Сбор полей и разрешение MRO**
+По той же схеме: в `dataclasses.py` есть функции `_repr_fn`, `_cmp_fn`, `_hash_fn`, которые генерируют исходник методом
+string‑template.
 
-Алгоритм сбора полей:
+- `__repr__`: строится f‑строка с использованием только полей, где `Field.repr=True`; код вида
+  `return f'Cls(x={self.x!r}, y={self.y!r})'`.
+- `__eq__` и операторы порядка: сравнение кортежей из `compare=True` полей, со строгой проверкой
+  `other.__class__ is self.__class__` перед сравнением; генерируется один `__eq__`/`__lt__` и при `order=True` через
+  него строятся остальные.
+- `__hash__`: логика зависит от `unsafe_hash`, `eq`, `frozen`:
+    - может явно запретить `__hash__` (ставит `None`);
+    - может сгенерировать функцию, хеширующую кортеж из сравниваемых полей.
 
-- Обход MRO от базовых классов к производным
-- Сбор полей в порядке определения
-- Разрешение конфликтов: поля из производных классов переопределяют поля из базовых
-- Обработка полей без аннотаций (игнорируются в Python 3.10+)
+Каждая такая функция результат `exec` и обычный `PyFunctionObject`.
 
-**4. Оптимизация с `__slots__`**
+## frozen: подмена __setattr__/__delattr__
 
-Начиная с Python 3.10, можно использовать `slots=True`:
+`frozen=True` реализован целиком на Python‑уровне.
 
-```python
-@dataclass(slots=True)
-class Point:
-    x: int
-    y: int
-```
+1. В `_process_class` при `frozen=True` создаются две функции:
 
-Это:
+   ```python
+   def _frozen_setattr(self, name, value):
+       raise FrozenInstanceError(...)
+   def _frozen_delattr(self, name):
+       raise FrozenInstanceError(...)
+   ```
 
-- Создаёт `__slots__` автоматически
-- Уменьшает потребление памяти на ~40%
-- Ускоряет доступ к атрибутам
-- Но запрещает добавление новых атрибутов
+   и они вешаются на `cls.__setattr__` и `cls.__delattr__`.
 
-Реализация: декоратор динамически создаёт класс с помощью `type()`.
+2. Как уже выше, генерированный `__init__` обходит это, используя `object.__setattr__` через
+   `__dataclass_builtins_object__`.
 
-**5. Хеширование и frozen-классы**
+С точки зрения байткода «заморозка» — это просто другой код `__setattr__` в MRO; никаких флагов в объектах или проверок
+на уровне VM нет, поэтому `object.__setattr__(obj, ...)` по‑прежнему работает.
 
-Для frozen dataclass:
+## slots=True и преобразование класса
 
-- `__hash__` генерируется на основе всех полей
-- Используется кортеж из хешей полей: `hash((self.x, self.y, ...))`
-- При `unsafe_hash=True` хеш генерируется даже для изменяемых классов (опасно!)
+`dataclass(slots=True)` меняет layout класса через динамическое создание нового типа.
 
-**6. Паттерн-матчинг (Python 3.10+)**
+- `_process_class` вычисляет список имён слотов из полей (`Field` с `init`/`compare` и т.п.), добавляет опциональный
+  `__weakref__` при `weakref_slot=True`.
+- Создаёт новый namespace с нужным `__slots__`, переносит туда существующие атрибуты класса (кроме `__dict__`), и
+  вызывает `type(cls.__name__, cls.__bases__, namespace)` для получения нового класса.
+- Старый `cls` при этом подменяется новым типом, к которому затем уже привешиваются сгенерированные `__init__` и прочие
+  методы.
 
-При `match_args=True` (по умолчанию) генерируется `__match_args__`:
+Под капотом это обычная динамическая генерация класса через `type`, после чего на уровне интерпретатора новый type имеет
+слотовый layout (C‑сторона видит `tp_members`/`tp_dictoffset` по стандартным правилам).
 
-```python
-Point.__match_args__ = ('x', 'y')
-```
+## Наследование dataclass’ов
 
-Это позволяет использовать dataclass в match:
+При наследовании:
 
-```python
-match point:
-    case Point(x=0, y=0):
-        print("Origin")
-```
+- `_process_class` собирает поля всех базовых dataclass’ов (по `__dataclass_fields__`) и полей текущего;
+- генерирует один `__init__`, который инициализирует *все* поля (базовые и текущие) и по умолчанию **не** вызывает
+  `super().__init__` (это поведение намеренно, описано в docs/PEP).
 
-**7. Поля с `init=False`**
-
-Поля, исключённые из `__init__`, часто вычисляются в `__post_init__`. Пример:
-
-```python
-@dataclass
-class Rectangle:
-    width: float
-    height: float
-    area: float = field(init=False)
-
-    def __post_init__(self):
-        self.area = self.width * self.height
-```
-
-**8. Наследование и default-значения**
-
-Проблема: mutable default values. Решение — использовать `default_factory`:
-
-```python
-@dataclass
-class Node:
-    children: list = field(default_factory=list)  # А не children: list = []
-```
-
-При наследовании важно: сначала идут поля без значений по умолчанию, затем с значениями по умолчанию.
-
-**9. Методы сравнения при `order=True`**
-
-Генерируются все методы сравнения на основе кортежа полей:
-
-```python
-def __lt__(self, other):
-    if isinstance(other, self.__class__):
-        return (self.x, self.y) < (other.x, other.y)
-    return NotImplemented
-```
-
-Этот подход гарантирует тотальный порядок.
-
-**10. Производительность**
-
-- **Плюсы**: Сгенерированный код на C-уровне быстрее, чем ручной Python-код
-- **Минусы**: На создание класса уходит больше времени (генерация методов)
-- **Память**: Обычные dataclass используют `__dict__`, что увеличивает потребление памяти
-
-Оптимизация: `@dataclass(slots=True)` + `__slots__` для экономии памяти.
-
-**11. Интроспекция**
-
-Dataclass предоставляет API для интроспекции:
-
-- `fields(class_or_instance)`: Список полей
-- `asdict(instance)`: Конвертация в словарь
-- `astuple(instance)`: Конвертация в кортеж
-- `is_dataclass(obj)`: Проверка, является ли dataclass
-
-**12. Кастомные дескрипторы и property**
-
-Можно комбинировать с property:
-
-```python
-@dataclass
-class Circle:
-    radius: float
-
-    @property
-    def diameter(self):
-        return self.radius * 2
-```
-
-Но property не участвует в автогенерации методов.
-
-**13. Тестирование для AQA**
-
-При тестировании dataclass важно проверять:
-
-1. **Корректность генерации методов**: `__init__`, `__repr__`, `__eq__`, etc.
-2. **Наследование**: Правильный порядок и обработка полей
-3. **Frozen-классы**: Неизменяемость после создания
-4. **Значения по умолчанию**: Особенно изменяемые (list, dict)
-5. **Хеширование**: Для frozen классов и при `unsafe_hash`
-6. **Сериализация**: `asdict()` и `astuple()`
-7. **Паттерн-матчинг**: Корректность работы с match/case
-8. **Производительность**: Время создания экземпляров, сравнения
-9. **Память**: Потребление при использовании `slots=True` vs обычных
-
-**14. Отладка и внутренние структуры**
-
-Можно исследовать сгенерированный код:
-
-```python
-import dis
-
-dis.dis(Point.__init__)  # Посмотреть байткод __init__
-print(Point.__annotations__)  # Аннотации
-from dataclasses import fields
-
-print(fields(Point))  # Объекты Field
-```
+То есть инициализация через dataclass’ы реализуется полностью на уровне сгенерированного Python‑кода без какого‑либо
+магического участия байткод‑интерпретатора.
 
 - [Содержание](#содержание)
 
