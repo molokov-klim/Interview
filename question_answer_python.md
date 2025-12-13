@@ -1925,19 +1925,12 @@ static Py_ssize_t list_length(PyListObject *self) {
 
 ## 8. Байткод: LOAD_GLOBAL -> builtins.len
 
-```python
+```
 # len(lst)
-0
-LOAD_GLOBAL
-0(len)  # Ищем len в globals -> builtins
-2
-LOAD_FAST
-0(lst)  # lst на стек
-4
-CALL
-1  # len(lst)
-6
-RETURN_VALUE  # Возвращаем результат
+  0 LOAD_GLOBAL         0 (len)       # Ищем len в globals -> builtins
+  2 LOAD_FAST           0 (lst)       # lst на стек
+  4 CALL                1             # len(lst)
+  6 RETURN_VALUE                    # Возвращаем результат
 ```
 
 **LOAD_GLOBAL в ceval.c (3.9+):**
