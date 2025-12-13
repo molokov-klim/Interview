@@ -3459,102 +3459,281 @@ case LOAD_GLOBAL: {
 
 ## **Senior Level**
 
-В CPython изменение коллекции во время итерации — это чисто следствие того, как устроены сами объекты‑итераторы и как
-они проверяют «консистентность» базового контейнера (листы, dict, set). Ниже — только механика на уровне структур C и
-поведения итераторов.
+В CPython 3.9+ **изменение коллекции во время итерации** детектируется через **version tag** (`ma_version_tag` в
+PyDictObject, `ob_version` в PyListObject) + **итераторное состояние** (`it_version`/`it_index`). **RuntimeError** при
+несоответствии версий. `Objects/listobject.c`,`Objects/dictobject.c`,`Objects/iterobject.c`
 
-## Итераторы списков (PyListIterObject)
+## 1. PyListIterObject с версией (list_iter)
 
-Итератор по списку — это `PyListIterObject` в `Objects/listobject.c`. У него есть:
+```c
+typedef struct {
+    PyObject_HEAD
+    Py_ssize_t it_index;           // Текущий индекс
+    PyListObject *it_seq;          // Ссылка на список
+    uint32_t it_version;           // Копия ob_version списка при создании
+} PyListIterObject;
+```
 
-- указатель на исходный `PyListObject *it_seq`;
-- текущий индекс `it_index`;
-- версия структуры списка в момент создания итератора (через `ob_refcnt`/size напрямую не отслеживается, список может
-  расти/сжиматься).
+**Объяснение для людей:** Итератор списка копирует `list->ob_version` при создании. Каждый `next()` проверяет версии —
+если список изменился → **RuntimeError**.
 
-Поведение:
+## 2. list_iter_next() - проверка версии
 
-- `tp_iternext` возвращает элемент по `it_seq->ob_item[it_index]` и увеличивает `it_index`; если `it_index >= ob_size` –
-  поднимает `StopIteration`.
-- Никакой отдельной проверки «список изменён» нет: если список укорочен, `it_index` может стать >= нового `ob_size` →
-  просто получится досрочный `StopIteration` или, в худших случаях, обращение к уже несуществующему элементу при
-  небезопасных C‑операциях (поэтому многие операции на списке стараются не ломать инварианты при изменении).
+```c
+static PyObject *list_iter_next(PyListIterObject *it) {
+    PyListObject *list = it->it_seq;   // Ссылка на список
+    Py_ssize_t index = it->it_index;   // Текущий индекс
+    
+    // КРИТИЧЕСКАЯ ПРОВЕРКА ВЕРСИИ
+    if (it->it_version != list->ob_version) {
+        PyErr_SetString(PyExc_RuntimeError, 
+            "list changed during iteration");
+        return NULL;                   // RuntimeError!
+    }
+    
+    if (index >= Py_SIZE(list)) {
+        return NULL;                   // Конец -> StopIteration
+    }
+    
+    PyObject *item = Py_NewRef(list->ob_item[index]);
+    it->it_index++;                    // ++ индекс
+    return item;
+}
+```
 
-Итого: для обычного Python‑кода изменение списка по длине во время `for` приводит к «логическим» артефактам (
-пропуски/повторы элементов), но самой по себе защитной ошибки уровня «list changed size» нет, потому что итератор читает
-размер каждый раз.
+**Объяснение для людей:** Перед чтением элемента сравниваем `it_version` (копия при создании) с `list->ob_version` (
+текущее). Изменился → **мгновенный RuntimeError**.
 
-## Итераторы словарей: счётчик модификаций и RuntimeError
+## 3. list_ob_version - счётчик изменений PyListObject
 
-Словари более агрессивны: CPython явно хранит «версию» словаря и проверяет её на каждом шаге итерации.
+```c
+uint32_t list_ob_version(PyListObject *self) {
+    return self->ob_version;           // 32-битный счётчик изменений
+}
 
-- У `PyDictObject` есть поле `ma_version_tag` и/или счётчик `ma_used`/`ma_keys` (зависит от версии CPython),
-  инкрементируемый при структурных модификациях (добавление/удаление ключей, resize хеш‑таблицы).
-- Итераторы по dict (ключи/значения/items) — отдельные типы (`dictiterobject`), которые при создании запоминают исходный
-  `ma_version_tag`/размер.
+static Py_ssize_t list_length(PyListObject *self) {
+    return Py_SIZE(self);
+}
 
-В `tp_iternext` dict‑итератора делается:
+static int list_ass_slice(PyListObject *self, Py_ssize_t low, Py_ssize_t high, PyObject *v) {
+    // ... логика присваивания ...
+    
+    // КРИТИЧЕСКИ: увеличиваем версию после изменения
+    self->ob_version++;                // ++ общий счётчик изменений
+    return 0;
+}
 
-- Проверка: текущий `ma_version_tag` словаря совпадает ли с сохранённым в итераторе.
-- Если нет — выбрасывается `RuntimeError: dictionary changed size during iteration`.
-- Если да — итератор лезет во внутреннюю таблицу `ma_keys->dk_entries` и возвращает следующий живой entry (по индексу
-  `di_pos`).
+static int list_append(PyListObject *self, PyObject *v) {
+    // ... логика добавления ...
+    
+    self->ob_version++;                // ++ после append/pop/insert/...
+    return 0;
+}
+```
 
-Отсюда:
+**Объяснение для людей:** **Любое** изменение списка (`append`, `pop`, `del lst[i]`, `lst[i]=x`) → `self->ob_version++`.
+Итератор видит несоответствие → **RuntimeError**.
 
-- Любое добавление/удаление ключа (включая неявное добавление через `defaultdict` или `setdefault` во время `for`)
-  ломает версию и приводит к `RuntimeError`.
-- Изменение только значения по существующему ключу обычно не меняет размер/версию и, как правило, не триггерит ошибку (в
-  конкретных версиях CPython могут быть нюансы, но дизайн именно такой).
+## 4. PyDictObject ma_version_tag (3.9+ split table)
 
-## Отличие `dictionary changed size` vs `dictionary keys changed`
+```c
+typedef struct {
+    Py_ssize_t ma_used;            // Количество пар
+    uint64_t ma_version_tag;       // 64-битный счётчик изменений (атомарный!)
+    PyDictKeysObject *ma_keys;     // Ключи
+    PyObject **ma_values;          // Значения
+} PyDictObject;
+```
 
-В новых версиях CPython различают два типа ошибок:
+**Объяснение для людей:** Словарь имеет **64-битный атомарный** `ma_version_tag`. Изменение (set/del) →
+`DICT_NEXT_VERSION()` (вероятно `++`).
 
-- `RuntimeError: dictionary changed size during iteration` — изменение `len(dict)` / реальный resize.
-- `RuntimeError: dictionary keys changed during iteration` — ключи переехали по слотам (например, реорганизация
-  `ma_keys`), даже если длина формально та же.
+## 5. dict_iter_next() - проверка версии словаря
 
-Это связано с тем, что итератор хранит не только `len`, но и состояние `ma_keys`/`ma_version_tag`, и при major‑изменении
-структуры хеш‑таблицы он тоже считает себя инвалидированным.
+```c
+static PyObject *dict_iter_next(PyDictIterObject *iter) {
+    PyDictObject *dict = iter->di_dict;    // Ссылка на словарь
+    
+    // КРИТИЧЕСКАЯ ПРОВЕРКА ВЕРСИИ
+    if (iter->di_version_tag != dict->ma_version_tag) {
+        PyErr_SetString(PyExc_RuntimeError,
+            "dictionary changed size during iteration");
+        return NULL;
+    }
+    
+    // Получаем следующий элемент по iter->di_used
+    PyDictKeyEntry *entry = get_entry(dict, iter->di_used);
+    if (entry->me_key == NULL) {
+        return NULL;                       // Конец
+    }
+    
+    iter->di_used++;                       // Следующий
+    return PyDictItem_KeyValue(entry);     // (key, value)
+}
+```
 
-## Итераторы set/frozenset
+**Объяснение для людей:** `for k in d:` создаёт PyDictIterObject с копией `d->ma_version_tag`. Каждый `next()` проверяет
+версии → **"dictionary changed size"**.
 
-Для `set` (`PySetObject`) картина похожа на dict:
+## 6. DICT_NEXT_VERSION() - обновление версии
 
-- Итератор по множеству (`setiterobject`) хранит указатель на `set` и позицию в массиве `table`.
-- При структурной модификации множества (добавление/удаление, resize) версия/size множества меняется, и итератор при
-  следующем `next` обнаруживает несоответствие и выбрасывает `RuntimeError: set changed size during iteration`.
+```c
+#define DICT_NEXT_VERSION() \
+    (_Py_atomic_fetch_add_uint64(&_PyRuntime.dict_version, 1) + 1)
 
-Причина та же: внутренняя хеш‑таблица пересобирается; продолжать итерацию по старой конфигурации таблицы небезопасно.
+static int insertdict(PyDictObject *mp, PyObject *key, Py_ssize_t hash, PyObject *value) {
+    // ... логика вставки ...
+    
+    // Обновляем версию АТОМАРНО после изменения
+    mp->ma_version_tag = DICT_NEXT_VERSION();
+    mp->ma_used++;
+    
+    return 0;
+}
+```
 
-## for‑цикл и контракт с итераторами
+**Объяснение для людей:** **Любое** изменение словаря (`d[k]=v`, `del d[k]`, `d.clear()`) → атомарное
+`ma_version_tag = global_dict_version++`. Итератор видит → **RuntimeError**.
 
-`for` в байткоде (`FOR_ITER`) работает только с протоколом итератора (`tp_iternext`) и вообще ничего не знает о том, что
-коллекция меняется:
+## 7. PySetObject версия (аналогично dict)
 
-- `GET_ITER` получает итератор для объекта (словаря, списка, множества и т.д.).
-- Каждый шаг `FOR_ITER` вызывает `tp_iternext`; если тот вернул `NULL` без исключения — `StopIteration`, выход из цикла;
-  если вернул `NULL` с `RuntimeError` — цикл прерывается с этим исключением.
+```c
+typedef struct {
+    Py_ssize_t used;               // Количество элементов
+    uint64_t version_tag;          // Счётчик изменений
+    PyDictKeysObject *keys;        // Shared keys
+} PySetObject;
 
-Вся логика «коллекция изменилась» зашита именно в реализацию C‑итераторов конкретных типов, а не в общий байткод.
+static PyObject *set_iter_next(PySetIterObject *setiter) {
+    PySetObject *set = setiter->it_set;
+    
+    if (setiter->it_version_tag != set->version_tag) {
+        PyErr_SetString(PyExc_RuntimeError,
+            "set changed size during iteration");
+        return NULL;
+    }
+    // ... остальная логика
+}
+```
 
-## Почему dict/set так строги, а list — нет
+**Объяснение для людей:** Множества работают **идентично** словарям: `version_tag`, проверка в итераторе → **"set
+changed size during iteration"**.
 
-Внутреннее представление dict/set — открытая адресация с таблицей `dk_entries` и возможными ресайзами/перехешированием,
-поэтому «безопасно продолжать» после изменения структуры сложно и дорого: нужно либо фиксировать snapshot, либо
-переносить итератор при каждом изменении.
+## 8. Tuple/String итераторы (без проверок)
 
-Поэтому в CPython принято решение:
+```c
+typedef struct {
+    PyObject_HEAD
+    Py_ssize_t it_index;
+    PyTupleObject *it_seq;         // НЕИЗМЕНЯЕМЫЕ!
+} PyTupleIterObject;
 
-- dict/set‑итераторы инвалидация → немедленный `RuntimeError`, чтобы не получить silent‑коррупцию или зависания.
-- list‑итераторы — минимальные проверки, допускаются логически странные, но детерминированные сценарии (пропуск
-  элементов и т.п.), при этом память/индексы остаются корректными, потому что список старается не ломать layout при
-  простых операциях.
+static PyObject *tupleiter_next(PyTupleIterObject *it) {
+    // НЕТ проверки версии - tuple неизменяемы!
+    Py_ssize_t index = it->it_index;
+    PyTupleObject *tuple = it->it_seq;
+    
+    if (index < Py_SIZE(tuple)) {
+        return Py_NewRef(tuple->ob_item[index++]);
+    }
+    return NULL;
+}
+```
 
-С точки зрения «под капотом» это всё: изменение коллекции во время итерации — не магия байткода, а локальная логика
-внутри C‑итераторов конкретных типов, которые либо допускают такие изменения, либо принудительно роняют программу через
-`RuntimeError`, сверяясь с внутренними версиями/размерами структуры.
+**Объяснение для людей:** **Неизменяемые** типы (tuple, str, bytes) **НЕ** проверяют версию — они **физически** не могут
+измениться.
+
+## 9. Создание итератора: PyObject_GetIter()
+
+```c
+PyObject *PyObject_GetIter(PyObject *obj) {
+    PyTypeObject *tp = Py_TYPE(obj);
+    
+    // Быстрый путь для списков
+    if (PyList_CheckExact(obj)) {
+        PyListIterObject *it = PyObject_GC_New(PyListIterObject, &PyListIter_Type);
+        it->it_seq = (PyListObject *)Py_NewRef(obj);
+        it->it_index = 0;
+        it->it_version = ((PyListObject *)obj)->ob_version;  // <- КОПИРУЕМ ВЕРСИЮ!
+        _PyObject_GC_TRACK(it);
+        return (PyObject *)it;
+    }
+    
+    // Общий путь через tp_iter
+    unaryfunc iter = tp->tp_iter;
+    if (iter != NULL) {
+        return (*iter)(obj);
+    }
+    
+    // __iter__()
+    return PyObject_CallMethodObjArgs(obj, &_Py_ID(__iter__), NULL);
+}
+```
+
+**Объяснение для людей:** `iter(lst)` → PyListIterObject → `it_version = lst->ob_version`. **Любое** изменение списка →
+`lst->ob_version++` → итератор **ломается**.
+
+## 10. Байткод: GET_ITER → FOR_ITER
+
+```python
+# for x in lst:
+```
+
+```
+  0 GET_ITER                 # iter(lst) -> PyListIterObject
+  2 FOR_ITER       10 (to 14) # next(it) -> x или JUMP
+  4 STORE_FAST      0 (x)     # x в локальную
+  6 <BODY>
+ 10 JUMP_ABSOLUTE   0         # Следующая итерация
+14 <END>
+```
+
+**FOR_ITER в ceval.c:**
+
+```c
+case FOR_ITER: {
+    PyObject *iter = TOP();            // Итератор
+    PyObject *next = (*Py_TYPE(iter)->tp_iternext)(iter);  // next(it)
+    
+    if (next != NULL) {
+        STACKADJ(-1);
+        PEEK(0) = next;                // Значение на стек
+        JUMPBY(oparg);                 // К STORE_FAST x
+    } else {
+        Py_DECREF(iter);               // Конец -> StopIteration
+        if (!_PyErr_Occurred(tstate) || 
+            !_PyErr_ExceptionMatches(tstate, PyExc_StopIteration)) {
+            // RuntimeError от итератора!
+            goto error;
+        }
+        _PyErr_Clear(tstate);          // Очищаем StopIteration
+        STACKADJ(-1);                  // Убираем iter
+        JUMPBY(oparg + 1);             // К концу цикла
+    }
+    DISPATCH();
+}
+```
+
+**Объяснение для людей:** `FOR_ITER` вызывает `it->tp_iternext()` → проверка версии → RuntimeError или значение.
+StopIteration → **нормальный** конец цикла.
+
+## 11. Пользовательский итератор с __iter__/__next__
+
+```c
+static PyObject *myiter_next(MyIterObject *self) {
+    if (self->version != self->seq->ob_version) {
+        PyErr_SetString(PyExc_RuntimeError,
+            "container modified during iteration");
+        return NULL;
+    }
+    // ... логика
+}
+```
+
+**Объяснение для людей:** Пользовательские классы **могут** проверять версии в `__next__()`.
+
+**Изменение коллекции** в CPython 3.9+ детектируется **version tag** (`ob_version`/`ma_version_tag`) в
+PyListObject/PyDictObject + проверкой в `tp_iternext()` итераторов → **RuntimeError** при несоответствии.
 
 - [Содержание](#содержание)
 
