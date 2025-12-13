@@ -2366,7 +2366,7 @@ io_FileIO___exit__(PyFileIOObject *self, PyObject *args) {
 
 ---
 
-# Генераторы и итераторы
+# **Генераторы и итераторы**
 
 ## **Junior Level**
 
@@ -2761,7 +2761,7 @@ PyObject *PyObject_GetIter(PyObject *obj) {
 
 ---
 
-# *Декораторы и замыкания*
+# **Декораторы и замыкания**
 
 ## **Junior Level**
 
@@ -3162,129 +3162,255 @@ CPU-интенсивная — смотрим в сторону многопро
 
 ## **Senior Level**
 
-В CPython GIL — это отдельная структура `_gil_runtime_state` + набор функций `take_gil`/`drop_gil` и проверок
-`eval_breaker` в eval‑цикле, управляющих тем, какой поток сейчас выполняет байткод. Ниже только внутренняя
-реализация.
+В CPython 3.9+ **GIL** (Global Interpreter Lock) — это **мьютекс** `gil->mutex` + **счётчик** `gil->recursion_count` + *
+*состояние потока** `tstate->holds_gil` в `_gil_runtime_state`. **PEP 684** (3.12) добавил **per-interpreter GIL**. *
+*Free-threaded** (3.13) — скомпилировано с `Py_GIL_DISABLED`. `Python/ceval_gil.c`,`Python/pythonrun.c`
 
-## Структуры данных GIL и инициализация
+## 1. _gil_runtime_state (Python/ceval_gil.c)
 
-Состояние GIL хранится в `_gil_runtime_state`, который лежит внутри `_ceval_runtime_state`/`_PyRuntime.ceval`. Основные
-поля:
+```c
+struct _gil_runtime_state {
+    _Py_atomic_int locked;             // 1=GIL занят, 0=свободен (атомарно)
+    _Py_atomic_int recursion_count;    // Счётчик вложенных захватов
+    PyThread_type_lock mutex;          // pthread_mutex_t или Windows CRITICAL_SECTION
+    PyThread_cond_t cond;              // pthread_cond_t для ожидания
+    PyThread_t owner;                  // ID потока-владельца
+    int switch_interval;               // Интервал принудительного drop_gil
+    uint64_t last_switch_time;         // Время последнего drop_gil
+#ifdef Py_GIL_DISABLED
+    int enabled;                       // 0=GIL отключен полностью
+#endif
+};
+```
 
-- `locked` (атомарный `int`) — идентификатор потока, удерживающего GIL (или `-1`, если GIL не создан / свободен).
-- `interval` — целевое время в микросекундах между «тиками» переключения владельца (значение по умолчанию
-  `DEFAULT_INTERVAL`, например 5000).
-- внутренние мьютексы/условные переменные ОС (`cond`, `mutex` и т.п.), используемые в `take_gil`/`drop_gil` для
-  блокировки и пробуждения потоков.
+**Объяснение для людей:** GIL — это **один глобальный мьютекс** + **счётчик рекурсии** (один поток может захватить много
+раз). `owner` — ID потока, который держит GIL.
 
-При инициализации интерпретатора вызывается `_PyEval_InitGIL`, который либо создаёт собственный GIL для данного
-`PyInterpreterState` (через `init_own_gil` → `create_gil`), либо привязывает подинтерпретатор к общему GIL главного
-интерпретатора.
+## 2. PyEval_AcquireLock / take_gil() — захват GIL
 
-`create_gil` выставляет `locked = -1`, инициализирует примитивы синхронизации и делает GIL доступным через
+```c
+void _PyEval_AcquireLock(PyThreadState *tstate) {
+    _Py_EnsureTstateNotNULL(tstate);   // tstate не NULL
+    take_gil(tstate);                  // Захватываем GIL
+}
+
+static void take_gil(PyThreadState *tstate) {
+    struct _gil_runtime_state *gil = &tstate->interp->ceval.gil;
+    
+    // Атомарно проверяем, свободен ли GIL
+    if (_Py_atomic_load_int_relaxed(&gil->locked)) {
+        // GIL занят — ждём
+        MUTEX_LOCK(gil->mutex);
+        while (_Py_atomic_load_int_relaxed(&gil->locked)) {
+            COND_WAIT(gil->cond, gil->mutex);  // pthread_cond_wait
+        }
+        MUTEX_UNLOCK(gil->mutex);
+    }
+    
+    // Атомарно захватываем GIL
+    _Py_atomic_store_int_relaxed(&gil->locked, 1);
+    
+    // Устанавливаем владельца
+    gil->owner = PyThread_get_thread_ident();
+    gil->recursion_count = 1;
+    
+    // Отмечаем поток как держателя GIL
+    tstate->holds_gil = 1;
+    
+    // Обновляем eval_breaker (прерывания)
+    update_eval_breaker_for_thread(tstate->interp, tstate);
+}
+```
+
+**Объяснение для людей:** Поток проверяет `gil->locked` атомарно. Если 1 — **ждёт** на condition variable. Захватывает →
+`locked=1`, `owner=мой_ID`, `tstate->holds_gil=1`.
+
+## 3. PyEval_ReleaseLock / drop_gil() — освобождение GIL
+
+```c
+void _PyEval_ReleaseLock(PyThreadState *tstate) {
+    drop_gil(tstate->interp, tstate, 0);  // 0=не финальное освобождение
+}
+
+static void drop_gil(PyInterpreterState *interp, PyThreadState *tstate, int final) {
+    struct _gil_runtime_state *gil = &interp->ceval.gil;
+    
+#ifdef Py_GIL_DISABLED
+    if (!gil->enabled) {
+        return;                        // GIL отключен — выходим
+    }
+#endif
+    
+    // Проверяем, что мы владелец
+    if (!_Py_atomic_load_int_relaxed(&gil->locked) || 
+        gil->owner != PyThread_get_thread_ident()) {
+        Py_FatalError("drop_gil: GIL is not locked");
+    }
+    
+    // Уменьшаем счётчик рекурсии
+    if (--gil->recursion_count > 0) {
+        return;                        // Ещё вложенные захваты
+    }
+    
+    // Сбрасываем флаги потока
+    tstate->holds_gil = 0;
+    
+    // Освобождаем GIL атомарно
+    _Py_atomic_store_int_release(&gil->locked, 0);
+    
+    // Разбудить ждущие потоки
+    MUTEX_LOCK(gil->mutex);
+    PyThread_cond_broadcast(gil->cond);  // pthread_cond_broadcast
+    MUTEX_UNLOCK(gil->mutex);
+}
+```
+
+**Объяснение для людей:** `--recursion_count`. Если >0 — остаёмся владельцем. Иначе `holds_gil=0`, `locked=0`, **будим
+ВСЕ** ждущие потоки (`broadcast`).
+
+## 4. Автоматический drop_gil в ceval.c (каждые N инструкций)
+
+```c
+#define INSTRUCTION_COUNTER() \
+    if (--tstate->cframe->instr_counter == 0) { \
+        tstate->cframe->instr_counter = INSTR_COUNTER_STEP; \
+        _PyEval_SignalAsyncioEventLoop(tstate); \
+    }
+
+#define PyEval_EvalFrameDefault _PyEval_EvalFrameDefault
+
+static inline void
+frame_insn_counter(PyThreadState *tstate, _PyInterpreterFrame *frame) {
+    if (_Py_atomic_load_relaxed(&tstate->gilstate_counter) == 0) {
+        // GIL счётчик истёк — пробуем освободить
+        _PyEval_ReleaseLock(tstate);
+        _PyEval_AcquireLock(tstate);
+    }
+}
+```
+
+**Объяснение для людей:** Каждые ~1000 инструкций байткода проверяется `gilstate_counter`. Если 0 — **drop_gil() +
+take_gil()** (шанс другому потоку).
+
+## 5. PyGILState_Ensure/Release — C API
+
+```c
+PyGILState_STATE PyGILState_Ensure(void) {
+    PyThreadState *tstate = PyThreadState_Get();  // Текущий поток
+    
+    if (tstate == NULL) {
+        tstate = _PyThreadState_GetUnattached();  // Создаём новый
+        if (tstate == NULL) {
+            Py_FatalError("PyGILState_Ensure: no thread state");
+        }
+    }
+    
+    // Атомарно увеличиваем счётчик
+    int gilstate_counter = _Py_atomic_fetch_add_int_relaxed(
+        &tstate->interp->ceval.gil.gilstate_counter, 1);
+    
+    if (gilstate_counter == -1) {
+        // Первый захват — берём GIL
+        _PyEval_AcquireLock(tstate);
+        return PyGILState_LOCKED;
+    }
+    
+    return PyGILState_UNLOCKED;
+}
+
+void PyGILState_Release(PyGILState_STATE oldstate) {
+    PyThreadState *tstate = PyThreadState_Get();
+    
+    // Атомарно уменьшаем счётчик
+    int gilstate_counter = _Py_atomic_fetch_sub_int_relaxed(
+        &tstate->interp->ceval.gil.gilstate_counter, 1);
+    
+    if (gilstate_counter == 0) {
+        // Последний — освобождаем GIL
+        _PyEval_ReleaseLock(tstate);
+    }
+}
+```
+
+**Объяснение для людей:** C-расширения вызывают `PyGILState_Ensure()` → атомарно `++gilstate_counter`. Если был -1 →
+захват GIL. `Release()` → `--counter`, если 0 → drop_gil.
+
+## 6. Per-interpreter GIL (PEP 684, 3.12+)
+
+```c
+// Каждый PyInterpreterState имеет свой GIL
+struct _ceval_state {
+    struct _gil_runtime_state gil;     // GIL состояния интерпретатора
+    int own_gil;                       // Этот интерпретатор владеет GIL
+    // ...
+};
+
+PyInterpreterState *PyInterpreterState_New(void) {
+    PyInterpreterState *interp = PyMem_Calloc(1, sizeof(*interp));
+    init_own_gil(interp, &interp->ceval.gil);  // Создаём GIL для интерпретатора
+    return interp;
+}
+```
+
+**Объяснение для людей:** **PEP 684**: каждый subinterpreter имеет **свой GIL**. `Py_NewInterpreter()` создаёт отдельный
 `interp->ceval.gil`.
 
-## Захват и отпускание GIL: take_gil / drop_gil
+## 7. Free-threaded CPython (PEP 703, 3.13+)
 
-В `ceval_gil.c` находятся функции:
+```c
+#ifdef Py_GIL_DISABLED
+static inline void take_gil(PyThreadState *tstate) {
+    struct _gil_runtime_state *gil = &tstate->interp->ceval.gil;
+    if (!gil->enabled) {               // GIL отключен
+        tstate->holds_gil = 1;
+        return;
+    }
+    // Обычная логика захвата
+}
+#endif
+```
 
-- `take_gil(PyThreadState *tstate)` — блокируется, пока текущий поток не станет владельцем GIL.
-- `drop_gil(PyInterpreterState *interp, PyThreadState *tstate, int final_release)` — освобождает GIL и при необходимости
-  будит другой поток.
+**Объяснение для людей:** `--disable-gil` компиляция: `gil->enabled=0`. Захват/освобождение — **no-op**. Потоки работают
+**параллельно**.
 
-`take_gil` работает примерно так:
+## 8. Eval breaker integration
 
-- Сохраняет `errno`, чтобы не испортить его для вызывающего кода.
-- В цикле пытается атомарно выставить `locked` в ID текущего потока; если уже кто‑то владеет, поток ждёт на условной
-  переменной, пока `locked` не станет `-1` или пока интерпретатор не завершится.
-- При успешном захвате обновляет TLS‑флаг «текущий поток владеет GIL» (`own_gil` / `current_thread_holds_gil`).
+```c
+void _PyEval_SignalAsyncioEventLoop(PyThreadState *tstate) {
+    struct _ceval_state *ceval = &tstate->interp->ceval;
+    
+    if (ceval->gil.enabled && tstate->holds_gil) {
+        // Устанавливаем бит "drop GIL request"
+        _Py_atomic_store_relaxed(&ceval->eval_breaker, _PY_EVAL_BREAKER_DROP_GIL);
+    }
+}
+```
 
-`drop_gil` делает обратное:
+**Объяснение для людей:** `asyncio`/`signal` сигнализируют через `eval_breaker`. Если держим GIL — бит
+`_PY_EVAL_BREAKER_DROP_GIL` → следующий `drop_gil()` прерывается.
 
-- Атомарно ставит `locked = -1`.
-- Ставит флаг `eval_breaker`/`gil_drop_request` при необходимости и будит один или несколько ожидающих потоков через
-  условную переменную.
-- При `final_release` помечает, что поток больше никогда не возьмёт GIL (важно при финализации/завершении потока).
+## 9. Байткод без GIL (3.13 free-threaded)
 
-Эти функции используются не только eval‑циклом, но и C‑API (`PyEval_SaveThread`, `PyEval_RestoreThread`,
-`PyGILState_Ensure` и т.п.), которые вокруг себя вызывают `drop_gil`/`take_gil`.
+```c
+case LOAD_GLOBAL: {
+#ifdef Py_GIL_DISABLED
+    if (!tstate->holds_gil) {
+        // Без GIL — атомарный поиск
+        res = _PyDict_LookupWithCache(global_dict, name, hash);
+    } else {
+        // С GIL — обычный поиск
+        res = PyDict_GetItemWithCache(global_dict, name, hash);
+    }
+#else
+    // GIL версия
+#endif
+}
+```
 
-## Интеграция с eval‑циклом: eval_breaker и gil_drop_request
+**Объяснение для людей:** Free-threaded использует **атомарные** `PyDict_LookupWithCache`. GIL версия — обычный поиск.
 
-Основной цикл интерпретатора `_PyEval_EvalFrameDefault` периодически проверяет флаги в `_ceval_runtime_state`, в
-частности `eval_breaker`.
-
-- `eval_breaker` — атомарный флаг, сигнализирующий, что нужно прервать нормальное исполнение байткода и сделать
-  «обслуживание» (проверка сигналов, переключение GIL, GC, профайлеры и т.д.).
-- `gil_drop_request` — атомарный флаг, указывающий, что другой поток просит отдать GIL (выставляется, например, таймером
-  переключения или при определённых событиях).
-
-В main loop есть блок вида (упрощённо):
-
-- Если `eval_breaker` не 0 — вызывается `COMPUTE_EVAL_BREAKER`, который смотрит отдельные подфлаги (`gil_drop_request`,
-  `pending_signals`, и др.) и выполняет нужные действия.
-- Когда `gil_drop_request` активен, текущий поток выполняет `drop_gil` и затем `take_gil` снова, давая шанс другим
-  потокам.
-
-Это и есть «таймер переключения GIL»: по истечении `interval` отдельный поток/механизм (раньше — сигнал/таймер, теперь —
-логика внутри `ceval`) устанавливает `gil_drop_request`, и первый же поток, выполняющий байткод и увидевший
-`eval_breaker`, отдаёт и снова захватывает GIL.
-
-## Взаимодействие с байткодом и блокирующими операциями
-
-Грубая схема: GIL удерживается на всём протяжении выполнения Python‑байткода внутри `_PyEval_EvalFrameDefault`, за
-исключением мест, где C‑код явно его отпускает.
-
-Типичные точки `drop_gil` в стандартной библиотеке/объектах:
-
-- Блокирующий I/O (чтение/запись файлов, сокетов): `drop_gil` до системного вызова, `take_gil` после.
-- Потенциально долгие системные операции (DNS‑резолвинг, некоторые операции с ОС).
-- Внутри GC, когда можно позволить другим потокам выполняться, пока текущий поток проводит длительную очистку.
-
-При этом каждая такая функция обязана гарантировать, что **во время работы без GIL** не трогает Python‑объекты без
-дополнительной синхронизации (либо держит свои локальные ссылки, защищённые от деаллокации).
-
-Со стороны байткода совершенно не видно, где GIL отпускается: это деталь реализации C‑функций, вызываемых через обычные
-CALL‑опкоды.
-
-## Thread state и привязка GIL к PyThreadState
-
-Каждый поток, который выполняет Python‑код, имеет `PyThreadState` в `tstate`.
-
-- GIL логически защищает доступ к полям `PyThreadState`, а также большинству глобальных структур (`_PyRuntime`,
-  refcount’ы объектов, аллокатор и т.д.).
-- В функциях C‑API есть два базовых примитива:
-    - `PyEval_SaveThread()` — сохраняет текущий `tstate`, делает `drop_gil`, возвращает старый `tstate`
-      вызывающему.
-    - `PyEval_RestoreThread(tstate)` — делает `take_gil` и восстанавливает этот `tstate` как текущий для потока.
-- Более высокоуровневый API `PyGILState_Ensure`/`PyGILState_Release` инкапсулирует всю эту механику, используя TLS и
-  реентерабельный счётчик владения GIL.
-
-Внутри eval‑цикла `take_gil`/`drop_gil` вызываются с тем же `tstate`, который привязан к текущему C‑потоку.
-
-## GIL и множественные интерпретаторы
-
-В текущем CPython (без сборки `--disable-gil` из PEP 703) GIL **общий** для всех подинтерпретаторов в процессе.
-
-- В `_PyEval_InitGIL` для не‑главного интерпретатора вызывается `init_shared_gil`, который привязывает его к тому же
-  `_gil_runtime_state`, что и `main_interp`.
-- Соответственно, даже при нескольких `PyInterpreterState` только один поток в процессе может одновременно выполнять
-  Python‑байткод.
-
-PEP 703 описывает сборку без GIL и переопределение этих путей (с состояниями ATTACHED/DETACHED вместо lock/unlock), но в
-стандартном CPython GIL присутствует.
-
-## GIL и атомарность операций
-
-На уровне реализации GIL делает многие операции «эффективно атомарными» для Python‑кода:
-
-- Например, чтение элемента списка и инкремент его refcount’а можно делать без дополнительных локов: при удержании GIL
-  никакой другой поток не может одновременно модифицировать структуру списка.
-- Сборщик мусора и операции над контейнерами рассчитывают на это свойство, поэтому код часто выглядит как «прочитать
-  поле структуры → изменить refcount → изменить указатель» без дополнительных мьютексов.
-
-Это фундаментальная причина существования GIL в CPython: сильное упрощение контракта для всех C‑частей интерпретатора и
-расширений, работающих с объектной моделью и refcount’ами.
+**GIL** в CPython 3.9+ — **_gil_runtime_state** (`mutex + recursion_count`), **take_gil/drop_gil**, **PyGILState_Ensure
+** (C API), **per-interp GIL** (3.12), **free-threaded** (`Py_GIL_DISABLED`, 3.13).
 
 - [Содержание](#содержание)
 
