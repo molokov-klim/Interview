@@ -5349,49 +5349,315 @@ class P(Protocol[T]):
 
 # ## **Senior Level**
 
-На этом уровне мы рассматриваем композицию и агрегацию как фундаментальные паттерны управления зависимостями, памятью и
-состоянием в сложных системах.
+### **Пример 1: Композиция (Сильная связь)**
 
-1. **Управление памятью и ссылочные циклы:**
-    * При **композиции**, если используются двунаправленные ссылки (владелец знает о части, а часть хранит ссылку на
-      владельца), возникает риск циклической ссылки. В Python до версии 3.4 это могло приводить к утечке памяти, так как
-      сборщик мусора на основе подсчета ссылок (reference counting) не мог автоматически очистить такие объекты. Для
-      решения использовались `weakref` (слабые ссылки) со стороны части на владельца. Современный сборщик мусора (GC) с
-      алгоритмом обнаружения циклов справляется с этим, но `weakref` остаются важным инструментом для явного управления
-      жизненным циклом и предотвращения непреднамеренного удержания объектов в памяти.
-    * При **агрегации** риск циклических ссылок еще выше, так как объекты живут дольше и могут образовывать сложные
-      графы зависимостей. Для тестовых фреймворков, которые создают тысячи объектов за прогон, это критично.
+```python
+class DatabaseConnection:
+    def __init__(self, connection_string: str):
+        self.connection_string = connection_string
+        self._connect()
 
-2. **Инверсия управления (IoC) и внедрение зависимостей (DI):** Агрегация — это механическая основа для DI. Объект не
-   создает свои зависимости, а получает их извне. В продвинутых сценариях это реализуется через **IoC-контейнеры**,
-   которые автоматически разрешают граф зависимостей, учитывая их жизненный цикл (синглтон, на запрос и т.д.). Для
-   тестов это позволяет легко подменять реальные реализации на моки.
+    def _connect(self):
+        print(f"Соединение с БД: {self.connection_string}")
 
-3. **Протоколы и абстракции:** Истинная мощь агрегации раскрывается, когда объект-владелец зависит не от конкретного
-   класса части, а от абстракции (ABC или Protocol). Это превращает агрегацию в инструмент соблюдения **Dependency
-   Inversion Principle (DIP)**. Владелец объявляет контракт, а часть (переданная извне) его выполняет. Это делает код
-   идеально тестируемым.
+    def close(self):
+        print("Закрытие соединения с БД")
 
-4. **Для AQA:**
-    * **Жизненный цикл тестовых контекстов:** При построении собственного тестового фреймворка senior-инженер должен
-      спроектировать, как будут создаваться и уничтожаться контексты выполнения (test suites, fixtures, драйверы). Здесь
-      композиция (вложенные контексты) и агрегация (разделяемые ресурсы, например, пул соединений с БД или экземпляр
-      браузера) играют ключевую роль. Неправильный выбор приведет либо к утечкам памяти и состояния между тестами (
-      недостаточная изоляция), либо к непомерному росту времени выполнения (избыточное создание).
-    * **Мокирование в сложных графах:** Когда система представляет собой глубокий граф агрегированных объектов, простое
-      мокирование одного интерфейса может быть недостаточно. Нужно понимать, какие связи являются композиционными (и,
-      следовательно, их можно безопасно "вырвать" и заменить целиком), а какие — агрегационными (где замена одной части
-      может повлиять на другие владельцы). Это важно для **shallow vs deep mocks**.
-    * **Стратегия очистки (Tear-down):** При композиции очистка обычно каскадная и автоматическая. При агрегации —
-      требуется явная стратегия: либо владелец не очищает часть, либо используется модель совместного владения с
-      подсчетом ссылок, либо применяются паттерны вроде **Resource Acquisition Is Initialization (RAII)**, который в
-      Python эмулируется через контекстные менеджеры (`__enter__`/`__exit__`) и `finally`-блоки.
 
-5. **Отношение к другим паттернам:**
-    * **Компоновщик (Composite)** — это структурный паттерн, часто строящийся на композиции, чтобы treat individual
-      objects and compositions uniformly.
-    * **Фасад (Facade)** — часто является агрегатором множества сложных подсистем, скрывая их за простым интерфейсом.
-    * **Стратегия (Strategy)** и **Состояние (State)** — обычно агрегируются, так как должны быть заменяемы в runtime.
+class UserRepository:
+    """UserRepository СОЗДАЕТ и УПРАВЛЯЕТ жизненным циклом DatabaseConnection"""
+
+    def __init__(self, connection_string: str):
+        # Композиция: создание объекта внутри конструктора
+        self._db = DatabaseConnection(connection_string)  # Часть не существует без целого
+
+    def get_user(self, user_id: int):
+        return f"User {user_id} from {self._db.connection_string}"
+
+    def __del__(self):
+        self._db.close()  # При удалении репозитория закрывается соединение
+
+
+# Использование
+repo = UserRepository("postgresql://localhost:5432/mydb")
+print(repo.get_user(1))
+# При удалении repo автоматически закроется соединение с БД
+```
+
+### **Пример 2: Агрегация (Слабая связь)**
+
+```python
+class Logger:
+    """Независимый компонент, может использоваться в разных контекстах"""
+
+    def __init__(self, name: str):
+        self.name = name
+
+    def log(self, message: str):
+        print(f"[{self.name}] {message}")
+
+
+class PaymentService:
+    """PaymentService ИСПОЛЬЗУЕТ Logger, но не управляет его жизненным циклом"""
+
+    def __init__(self, logger: Logger):  # Агрегация: передача извне
+        self._logger = logger  # Часть существует независимо от целого
+
+    def process_payment(self, amount: float):
+        self._logger.log(f"Processing payment: ${amount}")
+        return True
+
+
+class NotificationService:
+    """Тот же логгер может использоваться в разных сервисах"""
+
+    def __init__(self, logger: Logger):
+        self._logger = logger
+
+    def send_notification(self, message: str):
+        self._logger.log(f"Sending: {message}")
+
+
+# Использование
+shared_logger = Logger("AppLogger")  # Общий ресурс
+
+payment_service = PaymentService(shared_logger)
+notification_service = NotificationService(shared_logger)  # Один логгер в двух сервисах
+
+payment_service.process_payment(100.0)
+notification_service.send_notification("Payment successful")
+```
+
+### **Пример 3: Практический пример для AQA (Page Object с композицией и агрегацией)**
+
+```python
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+
+class BaseElement:
+    """Базовый элемент - может существовать самостоятельно"""
+
+    def __init__(self, driver, locator):
+        self.driver = driver
+        self.locator = locator
+        self.element = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located(locator)
+        )
+
+    def click(self):
+        self.element.click()
+
+    def get_text(self):
+        return self.element.text
+
+
+class Button(BaseElement):
+    """Специализированный элемент"""
+
+    def is_enabled(self):
+        return self.element.is_enabled()
+
+
+class LoginForm:
+    """Композиция: форма создает свои элементы внутри"""
+
+    def __init__(self, driver):
+        self.driver = driver
+        # Композиция: элементы создаются внутри формы
+        self.username_input = BaseElement(
+            driver, (By.ID, "username")
+        )  # Не существует без формы
+        self.password_input = BaseElement(
+            driver, (By.ID, "password")
+        )  # Не существует без формы
+        self.submit_button = Button(
+            driver, (By.CSS_SELECTOR, "button[type='submit']")
+        )  # Не существует без формы
+
+    def login(self, username: str, password: str):
+        self.username_input.element.send_keys(username)
+        self.password_input.element.send_keys(password)
+        self.submit_button.click()
+
+
+class Header:
+    """Агрегация: хедер может быть переиспользован на разных страницах"""
+
+    def __init__(self, driver):
+        self.driver = driver
+        self.logo = BaseElement(driver, (By.CLASS_NAME, "logo"))
+        self.cart_button = Button(driver, (By.ID, "cart"))
+
+
+class HomePage:
+    """Агрегация: страница использует готовый хедер"""
+
+    def __init__(self, driver, header: Header = None):  # Агрегация через DI
+        self.driver = driver
+        # Агрегация: хедер может быть передан извне
+        self.header = header if header else Header(driver)
+        # Композиция: форма логина создается внутри страницы
+        self.login_form = LoginForm(driver)
+
+    def go_to_cart(self):
+        self.header.cart_button.click()
+
+
+# Тестовый пример
+def test_login_with_shared_header():
+    driver = webdriver.Chrome()
+
+    # Создаем хедер один раз (агрегация)
+    shared_header = Header(driver)
+
+    # Переиспользуем хедер на разных страницах
+    home_page = HomePage(driver, shared_header)
+    product_page = ProductPage(driver, shared_header)  # Предположим, такой класс существует
+
+    # Тестируем
+    home_page.login_form.login("user", "pass")
+    assert home_page.header.logo.get_text() == "MyStore"
+
+    # Хедер продолжает существовать при переходе между страницами
+    product_page.header.cart_button.click()
+```
+
+### **Пример 4: Фикстуры Pytest с учетом композиции/агрегации**
+
+```python
+import pytest
+
+
+class Database:
+    """Дорогой в создании ресурс"""
+
+    def __init__(self):
+        print("Creating expensive database connection...")
+
+    def query(self, sql):
+        return f"Result of {sql}"
+
+    def close(self):
+        print("Closing database connection...")
+
+
+class UserService:
+    """Сервис агрегирует базу данных"""
+
+    def __init__(self, db: Database):
+        self.db = db  # Агрегация
+
+    def get_user(self, user_id):
+        return self.db.query(f"SELECT * FROM users WHERE id = {user_id}")
+
+
+# Фикстура с композицией (создает новый экземпляр для каждого теста)
+@pytest.fixture
+def user_service_with_composition():
+    """Каждый тест получает свой изолированный сервис с собственной БД"""
+    db = Database()  # Композиция внутри фикстуры
+    service = UserService(db)
+    yield service
+    db.close()
+
+
+# Фикстура с агрегацией (разделяемый ресурс)
+@pytest.fixture(scope="session")
+def shared_database():
+    """Одно соединение на всю сессию тестов"""
+    db = Database()
+    yield db
+    db.close()
+
+
+@pytest.fixture
+def user_service_with_aggregation(shared_database):
+    """Каждый тест получает сервис, но все используют одну БД"""
+    return UserService(shared_database)  # Агрегация
+
+
+# Тесты
+def test_user_1(user_service_with_composition):
+    result = user_service_with_composition.get_user(1)
+    assert "SELECT" in result
+    # После теста БД будет закрыта
+
+
+def test_user_2(user_service_with_aggregation):
+    result = user_service_with_aggregation.get_user(2)
+    assert "SELECT" in result
+    # БД остается открытой для других тестов
+```
+
+### **Пример 5: Dependency Injection как реализация агрегации**
+
+```python
+from abc import ABC, abstractmethod
+from typing import Protocol
+
+
+# Определяем протокол (интерфейс)
+class LoggerProtocol(Protocol):
+    def log(self, message: str) -> None: ...
+
+
+class ConsoleLogger:
+    def log(self, message: str) -> None:
+        print(f"LOG: {message}")
+
+
+class FileLogger:
+    def __init__(self, filename: str):
+        self.filename = filename
+
+    def log(self, message: str) -> None:
+        with open(self.filename, 'a') as f:
+            f.write(f"{message}\n")
+
+
+class OrderService:
+    """Сервис агрегирует логгер через внедрение зависимости"""
+
+    def __init__(self, logger: LoggerProtocol):  # Агрегация + Dependency Injection
+        self.logger = logger
+
+    def place_order(self, order_id: str):
+        self.logger.log(f"Placing order {order_id}")
+        # Логика заказа
+        return True
+
+
+# Конфигурация зависимостей (в продакшене может быть в DI-контейнере)
+def create_order_service(logger_type: str = "console") -> OrderService:
+    if logger_type == "console":
+        logger = ConsoleLogger()
+    else:
+        logger = FileLogger("app.log")
+
+    return OrderService(logger)  # Агрегация
+
+
+# Тестирование с моками
+from unittest.mock import Mock
+
+
+def test_order_service_with_mock():
+    # Создаем mock логгера
+    mock_logger = Mock(spec=LoggerProtocol)
+    mock_logger.log = Mock()
+
+    # Внедряем mock в сервис
+    service = OrderService(mock_logger)  # Агрегация для тестирования
+
+    # Выполняем тест
+    result = service.place_order("ORDER123")
+
+    # Проверяем взаимодействие
+    assert result is True
+    mock_logger.log.assert_called_once_with("Placing order ORDER123")
+```
 
 - [Содержание](#содержание)
 
