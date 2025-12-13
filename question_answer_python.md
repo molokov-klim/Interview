@@ -4164,112 +4164,290 @@ typedef struct _PyCodeObject {
 
 ## **Senior Level**
 
-В CPython `lambda` — это просто синтаксический сахар, который на этапе компиляции превращается в обычный
-`PyFunctionObject` c именем `"<lambda>"`, создаваемый через тот же байткод `MAKE_FUNCTION`, что и для `def`. Ниже —
-только детали компиляции, code object, замыкания и байткода.
+В CPython 3.9+ **lambda-функции** компилируются в **отдельный PyCodeObject** через `compiler_lambda()` (
+Python/compile.c), создаются через `MAKE_FUNCTION 0` байткод (без defaults/closure), выполняются как обычные
+PyFunctionObject. `Python/compile.c`,`Python/ceval.c`,`Objects/funcobject.c`
 
-## Компиляция lambda в AST, symbol table и code object
+## 1. compiler_lambda() - компиляция lambda (compile.c)
 
-На этапе разбора `lambda args: expr` создаётся AST‑узел `Lambda`, который обрабатывается теми же частями компилятора,
-что и `FunctionDef`, с двумя ключевыми отличиями: одно выражение в теле и отсутствие явного имени в исходнике.
+```c
+static int
+compiler_lambda(struct compiler *c, location loc, expr_ty e) {
+    PyCodeObject *co;
+    PyObject *qualname;
+    stmt_ty s = e->v.Lambda.body;      // Тело lambda: x + y
+    arguments_ty a = e->v.Lambda.args; // Аргументы: (x, y)
+    
+    // Создаём уникальное имя <lambda N>
+    qualname = _PyCompiler_QualifiedName(c, "<lambda>", loc);
+    if (qualname == NULL) {
+        return -1;
+    }
+    
+    // Компилируем тело lambda как expr
+    if (!compiler_enter_scope(c, qualname, COMPILER_SCOPE_LAMBDA, 
+                              a, loc)) {
+        goto error;
+    }
+    
+    VISIT(c, expr, s);                 // Компилируем x + y -> байткод
+    
+    // Генерируем PyCodeObject
+    co = compiler_make_closure(c, 0, 0, qualname);  // 0 defaults, 0 closure
+    compiler_exit_scope(c);
+    
+    if (co == NULL) {
+        goto error;
+    }
+    
+    ADDINSTR(c, loc, MAKE_FUNCTION, 0);  // MAKE_FUNCTION 0 (lambda code)
+    ADDINSTR(c, loc, LOAD_CONST, add(co));  // Константа PyCodeObject
+    FREE(qualname);
+    return 0;
+    
+error:
+    Py_XDECREF(qualname);
+    return -1;
+}
+```
 
-- Symbol table строит новый scope для lambda, как для функции: параметрам и локальным именам присваиваются слоты в
-  `co_varnames`, free/cell‑переменные попадают в `co_freevars`/`co_cellvars`.
-- Компилятор генерирует отдельный `PyCodeObject` с `co_name = "<lambda>"`, `co_flags` (включая `CO_NEWLOCALS`,
-  `CO_OPTIMIZED`, `CO_NESTED` и флаги для `*args/**kwargs`), и телом‑байткодом для `expr` плюс обязательный
-  `RETURN_VALUE`.
-- В отличие от `def`, нет отдельной инструкции `STORE_NAME` для имени функции — результат `MAKE_FUNCTION` сразу
-  используется как значение выражения (например, кладётся на стек и передаётся в `CALL`/`STORE_*` внешнего кода).
+**Объяснение для людей:** `lambda x: x+1` → компилятор создаёт **отдельный scope** с именем `<lambda>`, компилирует тело
+`x+1` в PyCodeObject, генерирует `MAKE_FUNCTION 0 + LOAD_CONST(code)`.
 
-С точки зрения `co_code` сам «внутренний» байткод тела lambda почти идентичен телу обычной функции с одним `return`
-выражения.
+## 2. Байткод lambda x: x + 1
 
-## Создание объекта функции: LOAD_CONST + MAKE_FUNCTION
+```
+# Эквивалентный байткод:
+  0 LOAD_FAST           0 (x)      # x на стек
+  2 LOAD_CONST           1 (1)     # 1 на стек
+  4 BINARY_ADD                 # x + 1
+  6 RETURN_VALUE              # Возврат результата
+```
 
-Сгенерированный для `lambda` байткод во внешнем фрейме выглядит по схеме:
+**Полный байткод вызова:**
 
-- `LOAD_CONST` индекс кода (`PyCodeObject`) для lambda из `co_consts`.
-- При наличии default‑аргументов, annotations, closure — дополнительные `LOAD_CONST`/`LOAD_CLOSURE`/`BUILD_TUPLE` для
-  упаковки их в стек.
-- `MAKE_FUNCTION flags` — читает со стека `defaults`, `kwdefaults`, `annotations`, `closure` (в зависимости от флагов) и
-  сам code object, создаёт `PyFunctionObject`.
+```python
+lambda_func = lambda x: x + 1
+result = lambda_func(42)
+```
 
-`MAKE_FUNCTION` под капотом:
+```
+# Создание lambda:
+  0 LOAD_CONST           0 (<code object <lambda> at 0x...>)
+  2 MAKE_FUNCTION        0          # PyFunctionObject(code)
+  4 STORE_FAST           0 (lambda_func)
 
-- Берёт `PyCodeObject *code` (верх стека) и массив возможных дополнительных объектов (defaults, kwdefaults, annotations,
-  closure‑tuple).
-- Вызывает `PyFunction_NewWithQualName(code, globals, qualname)`; для lambda `qualname` формируется вида
-  `"outer.<locals>.<lambda>"` при вложенности.
-- Устанавливает в новом `PyFunctionObject` поля `func_defaults`, `func_kwdefaults`, `func_closure` в соответствии с
-  флагами.
+# Вызов:
+  6 LOAD_FAST            0 (lambda_func)
+  8 LOAD_CONST           1 (42)
+ 10 CALL                 1          # lambda_func(42)
+```
 
-Полученный объект `function` остаётся на стеке как значение выражения `lambda`, после чего может быть:
+**Объяснение для людей:** Lambda — **обычная функция** с **автогенерированным** PyCodeObject `<lambda>`.
+`MAKE_FUNCTION 0` = без параметров/замыканий.
 
-- сразу вызван (`CALL`), если lambda написана в пози `(...)` (`(lambda x: x+1)(2)`);
-- присвоен имени (`STORE_FAST`/`STORE_NAME`) — `f = lambda ...`;
-- передан дальше как аргумент и т.п.
+## 3. MAKE_FUNCTION 0 байткод (ceval.c)
 
-## Замыкания в lambda: LOAD_CLOSURE и free/cell vars
+```c
+case MAKE_FUNCTION: {
+    Py_ssize_t flags = POP();          // oparg (0 для lambda)
+    PyCodeObject *code = POP();        // PyCodeObject lambda
+    PyObject *qualname = POP();        // "<lambda>"
+    
+    // Создаём PyFunctionObject
+    PyFunctionObject *func = PyFunction_New(code, frame->f_globals);
+    if (func == NULL) {
+        goto error;
+    }
+    
+    // flags == 0: чистая lambda (без defaults/kwdefaults/closure)
+    if (flags & 0xFF) {                // defaults
+        func->func_defaults = POP();
+    }
+    if (flags & 0xFF00) {              // kwdefaults
+        func->func_kwdefaults = POP();
+    }
+    if (flags & 0xFF0000) {            // closure
+        func->func_closure = POP();
+    }
+    
+    func->func_name = qualname;        // __name__ = "<lambda>"
+    Py_INCREF(qualname);
+    
+    PUSH((PyObject *)func);            // Lambda на стек
+    DISPATCH();
+}
+```
 
-Если lambda использует внешние переменные (`lambda: x` внутри функции), компилятор отмечает их как `freevars`/`cellvars`
-и добавляет работу с closure:
+**Объяснение для людей:** `MAKE_FUNCTION 0` берёт PyCodeObject → создаёт PyFunctionObject → `func_name="<lambda>"`,
+`func_code=code`. Без closure/defaults (flags=0).
 
-- Во внешней функции имя, используемое во вложенных функциях/lambda, перемещается в `co_cellvars` и хранится в
-  `PyCellObject`.
-- Внутренний `code` для lambda получает это имя в `co_freevars` и внутри тела использует `LOAD_DEREF`/`STORE_DEREF` для
-  доступа к ячейке.
-- При генерации `MAKE_FUNCTION` для lambda компилятор вставляет последовательность `LOAD_CLOSURE` по каждой захваченной
-  переменной и `BUILD_TUPLE n`, а `flags` `MAKE_FUNCTION` включает бит `MAKE_CLOSURE` (в старых версиях) или
-  соответствующий бит `closure` во флагах.
+## 4. PyFunction_New - создание PyFunctionObject
 
-`MAKE_FUNCTION` в этом режиме получает на стеке готовый tuple ячеек (`PyCellObject *`) и кладёт его в `func_closure`
-нового `PyFunctionObject`.
+```c
+PyObject *PyFunction_New(PyCodeObject *code, PyObject *globals) {
+    PyFunctionObject *op;
+    
+    // Выделяем PyFunctionObject
+    op = PyObject_GC_New(PyFunctionObject, &PyFunction_Type);
+    if (op == NULL) {
+        return NULL;
+    }
+    
+    // Заполняем базовые поля
+    Py_INCREF(code);
+    op->func_code = code;              // Сохраняем PyCodeObject
+    
+    Py_XINCREF(globals);
+    op->func_globals = globals;        // globals() на момент создания
+    
+    // builtins из globals или интерпретатора
+    PyObject *builtins = _PyDict_GetItemIdWithCache(globals, &PyId___builtins__);
+    if (builtins == NULL) {
+        builtins = PyEval_GetBuiltins();
+        Py_INCREF(builtins);
+    }
+    op->func_builtins = builtins;
+    
+    // Пустые значения по умолчанию
+    op->func_defaults = NULL;
+    op->func_kwdefaults = NULL;
+    op->func_closure = NULL;
+    op->func_doc = NULL;
+    op->func_name = NULL;
+    op->func_qualname = NULL;
+    op->func_dict = NULL;
+    op->func_weakreflist = NULL;
+    
+    _PyObject_GC_TRACK(op);            // Регистрируем в GC
+    return (PyObject *)op;
+}
+```
 
-Поведение capture‑по‑ссылке (классические грабли `lambda i: i` в цикле) — чистое следствие того, что в `PyCellObject`
-хранится одна ссылка, и все lambda указывают на один и тот же `cell`, а не на копию значения.
+**Объяснение для людей:** Lambda = PyFunctionObject с `func_code=<lambda bytecode>`, `func_globals=текущие globals`,
+`func_builtins=builtins`. Остальное NULL.
 
-## Отличия от `def` на уровне байткода
+## 5. Вызов lambda: CALL_FUNCTION (ceval.c)
 
-С точки зрения входа в VM lambda и `def` различаются только окружением их создания:
+```c
+case CALL_FUNCTION: {
+    PyObject *callable = PEEK(oparg);      // lambda_func
+    Py_ssize_t na = oparg;                 // Количество аргументов
+    
+    // Быстрый vectorcall путь
+    if (_PyObject_HasVectorcall(callable)) {
+        PyObject *const *args = (PyObject **)PyMem_Malloc(na * sizeof(PyObject *));
+        for (Py_ssize_t i = 0; i < na; i++) {
+            args[i] = PEEK(oparg - i);     // Аргументы на стек
+        }
+        
+        PyObject *result = _PyObject_Vectorcall(callable, args, na, NULL);
+        PyMem_Free(args);
+        
+        if (result == NULL) {
+            goto error;
+        }
+        
+        STACKADJ(-(oparg + 1));            // Убираем lambda + args
+        PUSH(result);                      # Результат на стек
+        DISPATCH();
+    }
+    
+    // Медленный путь PyObject_Call
+    // ...
+}
+```
 
-- Для `def f(...): body` компилятор генерирует:
-    - `LOAD_CONST` code object;
-    - `LOAD_CONST`/`LOAD_CLOSURE` и т.п.;
-    - `MAKE_FUNCTION`;
-    - `STORE_NAME "f"` / `STORE_FAST` в локальный scope.
-- Для `lambda`:
-    - `LOAD_CONST` code object;
-    - `LOAD_CONST`/`LOAD_CLOSURE` и т.п.;
-    - `MAKE_FUNCTION`;
-    - дальше **нет** `STORE_*` — функция остаётся без имени и используется как выражение.
+**Объяснение для людей:** `lambda_func(42)` → `CALL_FUNCTION 1` → `_PyObject_Vectorcall(lambda, [42], 1, NULL)` →
+выполнение lambda bytecode.
 
-Внутренний `code` обеих функций будет использовать одинаковый набор опкодов (`LOAD_FAST`, `BINARY_ADD`, `RETURN_VALUE` и
-т.п.), и `dis` показывает идентичный bytecode для эквивалентных `lambda` и `def`.
+## 6. Выполнение lambda bytecode: _PyEval_EvalFrameDefault
 
-## Атрибуты code object и function для lambda
+```c
+PyObject *_PyEval_EvalFrameDefault(PyThreadState *tstate, PyFrameObject *f) {
+    // ...
+    while (1) {
+        // Читаем следующую инструкцию
+        uint16_t opcode = NEXT_BYTE;       # LOAD_FAST 0
+        uint16_t oparg = NEXT_UINT16;      # Индекс x
+        
+        switch (opcode) {
+        case LOAD_FAST: {
+            PyObject *value = GETLOCAL(oparg);  # f_localsplus[0] = x
+            if (value == NULL) {
+                unboundlocal_error();          # UnboundLocalError
+            }
+            Py_INCREF(value);
+            PUSH(value);
+            FAST_DISPATCH();                   # Быстрый переход
+        }
+        
+        case BINARY_ADD: {
+            PyObject *b = POP();               # 1
+            PyObject *a = POP();               # x
+            PyObject *result = PyNumber_Add(a, b);
+            Py_DECREF(a);
+            Py_DECREF(b);
+            if (result == NULL) {
+                goto error;
+            }
+            PUSH(result);
+            DISPATCH();
+        }
+        
+        case RETURN_VALUE: {
+            PyObject *retval = POP();          # x + 1
+            Py_DECREF(f);                      # Освобождаем фрейм
+            return retval;                     # Возвращаем результат
+        }
+        }
+    }
+}
+```
 
-`PyCodeObject` и `PyFunctionObject` для lambda настраиваются немного иначе, чем для «именованных» функций:
+**Объяснение для людей:** Lambda выполняется в **новом фрейме** с `f_localsplus[0]=x=42`. `LOAD_FAST 0` → `42`,
+`LOAD_CONST 1 1` → `1`, `BINARY_ADD` → `43`, `RETURN_VALUE 43`.
 
-- `co_name` у кода — всегда строка `"<lambda>"`, независимо от того, в какую переменную потом присвоен результат.
-- `__name__` у функции (`func->func_name`) тоже `"<lambda>"` до тех пор, пока пользовательский код его явно не
-  переприсвоит.
-- `__qualname__` формируется компилятором на этапе `MAKE_FUNCTION`/`PyFunction_New` с учётом вложенности (включая имена
-  внешних функций и `"<locals>"`).
+## 7. Lambda с замыканием
 
-Эти отличия нужны в первую очередь для трассировок и дебаггинга; на исполнение байткода они не влияют.
+```python
+def outer(y):
+    return lambda x: x + y  # Замыкание на y
+```
 
-## Вызов lambda: обычный CALL‑путь
+```
+# Байткод outer():
+  0 LOAD_CLOSURE        0 (y)        # Берём ячейку y
+  2 BUILD_TUPLE         1            # (cell_y,)
+  4 LOAD_CONST          1 (<code>)
+  6 MAKE_CLOSURE        1            # closure=(cell_y,)
+  8 RETURN_VALUE
 
-С точки зрения исполнения:
+# Байткод lambda:
+  0 LOAD_FAST           0 (x)        # x
+  2 LOAD_DEREF          0 (y)        # cell_y->ob_ref
+  4 BINARY_ADD                # x + y
+  6 RETURN_VALUE
+```
 
-- Объект lambda — это обычный `PyFunctionObject`, у которого `func_code` сгенерирован из AST `Lambda`.
-- Байткод `CALL` (`CALL_FUNCTION` и др. в старших версиях) снимает этот объект со стека, распаковывает аргументы и
-  создаёт новый `PyFrameObject` с `f_code = func_code`, `f_localsplus` и т.д., как для любой функции.
-- Далее `_PyEval_EvalFrameDefault` исполняет `co_code` функции; никакого специального пути «если имя `<lambda>` — делать
-  что‑то иное» нет.
+**Объяснение для людей:** `lambda x: x + y` захватывает `y` в **ячейку**. `outer(10)` → lambda с
+`func_closure=(cell_y=10)`. Вызов → `LOAD_DEREF 0` читает `cell_y->ob_ref=10`.
 
-То есть все оптимизации (специализация CALL, inline‑кэши и проч.) применимы к lambda‑функциям в точности так же, как к
-функциям из `def`.
+## 8. Различия lambda vs def (компилятор)
+
+```c
+// compiler_function() для def f():
+COMPILER_SCOPE_FUNCTION  // co_flags |= CO_NEWLOCALS
+
+// compiler_lambda() для lambda:
+COMPILER_SCOPE_LAMBDA    // co_flags без CO_NEWLOCALS (использует globals)
+```
+
+**Объяснение для людей:** **def** создаёт **локальные** переменные (`f_localsplus`). **lambda** — **выражение**,
+использует **globals** внешней функции (без CO_NEWLOCALS).
+
+**Lambda** в CPython 3.9+ — **PyCodeObject** из `compiler_lambda()`, `MAKE_FUNCTION 0`, **отдельный PyFrameObject** при
+вызове, **без локальных** (CO_NEWLOCALS=0), поддержка замыканий через `LOAD_DEREF`.
 
 - [Содержание](#содержание)
 
