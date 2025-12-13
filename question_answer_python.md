@@ -110,74 +110,307 @@
 
 ## **Senior Level**
 
-В CPython все данные — это объекты с единым базовым заголовком `PyObject`, а конкретные типы (int, list, dict и т.д.)
-реализованы как структуры C, начинающиеся с этого заголовка или его расширения `PyVarObject` для переменного размера.
-Типы сами являются объектами (`type` — метакласс), и поведение каждого типа задаётся через таблицу слотов
-`PyTypeObject`.
+В CPython **все типы данных** наследуют от базовой структуры `PyObject`, которая содержит refcount и указатель на тип.
+Каждый тип описывается массивом **слотов** в `PyTypeObject`. [Include/object.h][Include/cpython/object.h]
 
-## Базовая объектная модель
+## 1. Базовая структура PyObject
 
-- Любой объект в CPython представляется как `PyObject`:
-    - поля: указатель на тип (`ob_type`) и счётчик ссылок (`ob_refcnt`).
-- Для объектов переменного размера (строки, списки, кортежи и т.п.) используется `PyVarObject`, который добавляет поле
-  `ob_size` — логический размер (например, количество элементов).
+```c
+typedef struct _object {
+    _PyObject_HEAD_EXTRA       // Платформо-зависимые поля для отладки (PyDebug)
+    Py_ssize_t ob_refcnt;      // Счётчик ссылок - при 0 вызывается tp_dealloc
+    struct _typeobject *ob_type; // Указатель на PyTypeObject описывающий тип
+} PyObject;
+```
 
-Следствие: любой указатель на объект можно привести к `PyObject*`/`PyVarObject*`, а дальше через `ob_type` понять, как
-его интерпретировать.
+**Объяснение для людей:** Каждый объект в памяти начинается с 16-24 байт заголовка. `ob_refcnt` считает, сколько ссылок
+на объект существует. Когда он доходит до 0, объект уничтожается. `ob_type` говорит, какого он типа (int/list/dict).
 
-## Тип как объект: PyTypeObject
+## 2. PyVarObject для контейнеров
 
-- Каждый тип (включая встроенные, пользовательские классы и `type` itself) представлен структурой `PyTypeObject`.
-- В `PyTypeObject` есть:
-    - метаданные (имя, размер базовой части, размер элемента для var‑объектов, флаги);
-    - набор «слотов» — указателей на функции, реализующие операции: арифметика, сравнение, итерация, индексирование,
-      доступ к атрибутам и т.д. (`tp_as_number`, `tp_as_sequence`, `tp_as_mapping`, `tp_repr`, `tp_hash`, `tp_call` и
-      др.).
+```c
+typedef struct {
+    PyObject ob_base;          // Встроенный PyObject (refcnt + type)
+    Py_ssize_t ob_size;        // Количество элементов (длина строки/списка)
+} PyVarObject;
+```
 
-За счёт этого один и тот же байт‑код (`BINARY_ADD`, `LOAD_ATTR`, `FOR_ITER` и т.п.) работает с разными типами, просто
-дергая разные функции из их `PyTypeObject`.
+**Объяснение для людей:** Контейнеры (списки, строки, словари) имеют дополнительное поле `ob_size` сразу после заголовка
+PyObject. Это длина коллекции.
 
-## PyObject vs PyVarObject и контейнеры
+## 3. PyTypeObject - "паспорт" каждого типа
 
-- Непеременного размера (пример: `int`):
-    - структура типа `PyLongObject` начинается с `PyVarObject`, но фактические данные — массив «цифр» фиксированной
-      длины, встроенный после заголовка; размер хранится в `ob_size`.
-- Переменного размера (пример: `tuple`, `bytes`):
-    - структура содержит `PyVarObject` + «открытый массив» элементов/байт в конце структуры; аллоцируется на один блок
-      памяти сразу с нужным количеством элементов.
+```c
+typedef struct _typeobject {
+    PyVarObject ob_base;       // Тип сам является объектом (можно наследовать)
+    
+    const char *tp_name;       // Имя типа ("list", "dict", "int")
+    Py_ssize_t tp_basicsize;   // Размер в байтах без переменной части
+    Py_ssize_t tp_itemsize;    // Размер одного элемента переменной части
+    
+    destructor tp_dealloc;     // Функция уничтожения (list_dealloc)
+    printfunc tp_print;        // Для print()
+    reprfunc tp_repr;          // Для repr()
+    
+    // Протокол чисел
+    PyNumberMethods *tp_as_number;  // nb_add, nb_sub, nb_multiply...
+    
+    // Протокол последовательностей
+    PySequenceMethods *tp_as_sequence; // sq_item, sq_ass_slice...
+    
+    // Протокол маппингов
+    PyMappingMethods *tp_as_mapping;  // mp_subscript, mp_ass_subscript
+    
+    // Поиск атрибутов
+    getattrofunc tp_getattro;      // obj.attr
+    setattrofunc tp_setattro;      // obj.attr = value
+    
+    // Дескрипторы (property, method)
+    descrgetfunc tp_descr_get;     // __get__
+    descrsetfunc tp_descr_set;     // __set__
+    
+    Py_ssize_t tp_dictoffset;      // Смещение __dict__ (или -1)
+    Py_ssize_t tp_weaklistoffset;  // Смещение weakref списка
+    
+    PyObject *tp_mro;              // Method Resolution Order (tuple типов)
+    PyObject *tp_cache;            // Кеш атрибутов (free-threaded)
+    unsigned int tp_subclasses;    // Количество живых подклассов
+    
+    PyObject *tp_dict;             // __dict__ класса
+    // ... 100+ слотов
+} PyTypeObject;
+```
 
-Списки (`list`) обычно содержат внутри указатель на отдельный C‑массив `PyObject*` (динамически растёт/сжимается), а
-размер и capacity лежат в структуре списка.
+**Объяснение для людей:** PyTypeObject - это как "техпаспорт" типа. Он говорит интерпретатору размер объекта, как его
+уничтожать, как складывать/умножать, как брать по индексу `lst[0]`, как искать атрибуты `obj.attr`. Без этого паспорта
+интерпретатор не знает, что делать с объектом.
 
-## Категории встроенных типов (уровень Python)
+## 4. PyLongObject (int) - переменной точности
 
-С точки зрения языка стандартные типы делятся на:
+```c
+typedef uint32_t digit;        // 30-битная цифра (2^30 = ~1e9)
 
-- Числовые: `int`, `float`, `complex`.
-- Последовательности: `list`, `tuple`, `range`, `str`, `bytes`, `bytearray`.
-- Отображения: `dict`.
-- Множества: `set`, `frozenset`.
-- Прочие: `bool`, `NoneType`, пользовательские классы, функции, генераторы, файлы, исключения и т.д.
+typedef struct _longobject {
+    PyObject_VAR_HEAD          // PyObject + ob_size (кол-во цифр)
+    digit ob_digit[1];         // Массив цифр (размер ob_size)
+} PyLongObject;
+```
 
-Внутри CPython эта классификация отражается в том, какие слоты реализованы: числам заполняют `tp_as_number`,
-последовательностям — `tp_as_sequence`, отображениям — `tp_as_mapping`.
+**Объяснение для людей:** Целые числа хранятся как массив 30-битных "цифр". Маленькие числа (-5..256) кешируются как
+singletons для экономии памяти.
 
-## type, object и метаклассы
+**Создание PyLongObject:**
 
-- `type` — это и тип объектов (метакласс), и обычный объект:
-    - `type.__bases__ == (object,)`, у `object` базовый тип — `type`;
-    - `isinstance(type, object)` и `isinstance(object, type)` обе истина.
-- Создание класса (через `class` или `type(...)`) по сути вызывает конструктор `type`, который формирует `PyTypeObject`,
-  заполняет слоты и регистрирует новый тип.
+```c
+PyObject *_PyLong_New(Py_ssize_t size) {
+    PyLongObject *result;
+    
+    size = Py_ABS(size);  // Берем модуль размера
+    
+    // Выделяем память под заголовок + массив цифр
+    result = PyObject_MALLOC(sizeof(PyLongObject) + 
+                             (size-1) * sizeof(digit));
+    if (!result) {
+        return PyErr_NoMemory();
+    }
+    
+    // Инициализируем как PyObject
+    PyObject_INIT(result, &PyLong_Type);
+    Py_SET_SIZE(result, size);  // Устанавливаем ob_size
+    result->ob_digit[0] = 0;    // Нулевая цифра
+    
+    return (PyObject *)result;
+}
+```
 
+**Объяснение для людей:** Выделяем ровно столько памяти, сколько нужно под заголовок + нужное количество 30-битных цифр.
+Например, число 1e18 требует ~6 цифр (6*30=180 бит).
+
+## 5. PyListObject со слотами протоколов
+
+```c
+typedef struct {
+    PyObject_VAR_HEAD         // PyObject + ob_size (длина)
+    PyObject **ob_item;       // Указатели на элементы
+    Py_ssize_t allocated;     // Выделенная ёмкость (> ob_size)
+} PyListObject;
+```
+
+**Объяснение для людей:** Список - это массив указателей на PyObject*. `allocated` больше `ob_size` для оптимизации (
+over-allocation ~1.125x).
+
+**Слоты PyList_Type:**
+
+```c
+PyTypeObject PyList_Type = {
+    PyVarObject_HEAD_INIT(&PyType_Type, 0)  // Наследуем от type
+    "list",                    // tp_name
+    sizeof(PyListObject),      // tp_basicsize
+    0,                         // tp_itemsize (переменная часть в ob_item)
+    
+    (destructor)list_dealloc,  // tp_dealloc
+    0,                         // tp_print
+    0,                         // tp_getattr
+    0,                         // tp_setattr
+    0,                         // tp_reserved
+    list_repr,                 // tp_repr -> str(list)
+    
+    0,                         // tp_as_number
+    &list_as_sequence,         // tp_as_sequence <- ВАЖНО!
+    0,                         // tp_as_mapping
+    (hashfunc)PyObject_HashNotImplemented,  // tp_hash (списки не хешируемы)
+};
+```
+
+**Объяснение для людей:** `tp_as_sequence` указывает на таблицу со слотами `sq_item` (lst), `sq_slice` (lst[1:3]),
+`sq_ass_slice` (lst[1:3]=[]).
+
+**list_as_sequence.sq_item (lst[i]):**
+
+```c
+static PyObject *list_item(PyListObject *self, Py_ssize_t i) {
+    if (i < 0 || i >= Py_SIZE(self)) {
+        PyErr_SetString(PyExc_IndexError, "list index out of range");
+        return NULL;
+    }
+    Py_INCREF(self->ob_item[i]);   // Увеличиваем refcnt
+    return self->ob_item[i];       // Возвращаем элемент
+}
+```
+
+**Объяснение для людей:** Проверяем индекс, увеличиваем refcnt элемента (теперь владелец отвечает за его жизнь),
+возвращаем указатель.
+
+## 6. PyDictObject с split table (с 3.6)
+
+```c
+typedef struct {
+    Py_ssize_t ma_used;        // Кол-во ключей (не слотов!)
+    uint64_t ma_version_tag;   // Версия для итераторов
+    PyDictKeysObject *ma_keys; // Общие ключи
+    PyObject **ma_values;      // Массив значений
+} PyDictObject;
+```
+
+**Объяснение для людей:** С 3.6 словари компактные: ключи вынесены в отдельную `PyDictKeysObject`, значения в массиве.
+`ma_used` считает реальные пары, а не слоты.
+
+**PyDictKeysObject:**
+
+```c
+struct _dictkeysobject {
+    Py_ssize_t dk_size;        // Размер хеш-таблицы
+    enum dict_keys_kind dk_kind; // DICT_KEYS_UNICODE и т.д.
+    union {
+        PyDictUnicodeEntry *dk_entries;  // Полная таблица key+value
+        PyDictKeyEntry *dk_indices;      // Только индексы
+    } dk;
+    uint64_t dk_version_tag;
+};
+```
+
+**Объяснение для людей:** Ключи компактно хранятся в `PyDictKeysObject`, который может быть **shared** между словарями (
+экономия памяти).
+
+## 7. GC-интеграция для контейнеров
+
+```c
+// list_traverse - обход ссылок для GC
+static int list_traverse(PyListObject *o, visitproc visit, void *arg) {
+    Py_ssize_t i = 0;
+    Py_ssize_t len = Py_SIZE(o);
+    for (; i < len; i++) {
+        Py_VISIT(o->ob_item[i]);  // Отмечаем каждый элемент как живой
+    }
+    return 0;
+}
+
+// list_clear - разрыв циклических ссылок
+static int list_clear(PyListObject *o) {
+    Py_ssize_t i = 0;
+    Py_ssize_t len = Py_SIZE(o);
+    for (; i < len; i++) {
+        Py_XDECREF(o->ob_item[i]);  // Уменьшаем refcnt элементов
+        o->ob_item[i] = NULL;       // NULL'им ссылки
+    }
+    return 0;
+}
+```
+
+**Объяснение для людей:** GC вызывает `tp_traverse` для обхода ссылок внутри объекта (чтобы найти живые объекты).
+`tp_clear` обнуляет ссылки перед удалением, разрывая циклы.
+
+## 8. Байткод-интеграция: LIST_APPEND
+
+```c
+case LIST_APPEND: {
+    PyObject *v = TOP();              // Берём значение с вершины стека
+    PyObject *list = PEEK(oparg + 1); // Берём список из фиксированной позиции
+    Py_ssize_t index = oparg;         // Индекс списка в localsplus
+    
+    // Вызываем list.append(v)
+    int err = PyList_Append(list, v);
+    Py_DECREF(v);                     // Освобождаем значение
+    
+    if (err == 0) {
+        STACKADJ(-1);                 // Убираем значение со стека
+    } else {
+        // Ошибка - прерываем выполнение
+        break;
+    }
+    DISPATCH_SAME_OPARG(1);           // Следующая инструкция
+}
+```
+
+**Объяснение для людей:** В listcomp `[x for x in lst]` список берётся не с вершины стека (чтобы не мешать вычислениям),
+а из фиксированного слота localsplus. Это экономит push/pop операции.
+
+## 9. Инициализация типов: PyType_Ready
+
+```c
+int PyType_Ready(PyTypeObject *type) {
+    if (type->tp_flags & Py_TPFLAGS_READY)  // Уже инициализирован
+        return 0;
+    
+    // Наследуем слоты от базовых классов
+    if (type->tp_bases) {
+        Py_ssize_t i, nbase = PyTuple_GET_SIZE(type->tp_bases);
+        for (i = 0; i < nbase; i++) {
+            PyTypeObject *base = (PyTypeObject *)PyTuple_GET_ITEM(type->tp_bases, i);
+            if (PyType_Ready(base) < 0)
+                return -1;
+            
+            // Наследуем слоты (tp_as_number, tp_as_sequence...)
+            inherit_special(base, type);
+        }
+    }
+    
+    // Вычисляем MRO
+    if (mro_internal(type) < 0)
+        return -1;
+        
+    // Инициализируем tp_dict
+    if (type->tp_dict == NULL) {
+        if (PyType_AllocDict(type) < 0)
+            return -1;
+    }
+    
+    type->tp_flags |= Py_TPFLAGS_READY;  // Отмечаем готовым
+    return 0;
+}
+```
+
+**Объяснение для людей:** Перед первым использованием типа вызывается PyType_Ready. Оно наследует слоты от родителей,
+вычисляет MRO, создаёт `__dict__` класса. Без этого тип не готов к работе.
+
+Типы данных в CPython — это **PyTypeObject** с 100+ слотами протоколов, живущие в памяти как обычные объекты, с
+refcount'ами, GC-интеграцией и наследованием слотов через MRO.
 
 - [Содержание](#содержание)
 
 ---
 
 # **Срезы**
-
-# **Срезы (slicing)**
 
 ## **Junior Level**
 
@@ -336,258 +569,315 @@ numbers[1:3] = []  # Удаляем элементы 1 и 2
 
 ## **Senior Level**
 
-В CPython срезы реализуются через объект `PySliceObject`, специальные байткоды `BINARY_SLICE`/`STORE_SLICE` и C-функции
-`PySlice_GetIndicesEx`/`PySlice_AdjustIndices` для нормализации индексов.
+В CPython **срезы** реализуются через компактный объект `PySliceObject`, байткоды `BUILD_SLICE`/`BINARY_SUBSCR`/
+`STORE_SUBSCR` и унифицированный C-API `PySlice_GetIndicesEx` для нормализации индеков во всех
+типах. `Objects/sliceobject.c`, `Include/sliceobject.h`
 
-## Объект среза: PySliceObject
+## 1. Структура PySliceObject
 
 ```c
 typedef struct {
-    PyObject_VAR_HEAD  // PyObject_HEAD + ob_size (всегда 3)
-    PyObject *start;   // Начальный индекс (или None)
-    PyObject *stop;    // Конечный индекс (или None)
-    PyObject *step;    // Шаг (или None)
+    PyObject_VAR_HEAD     // PyObject + ob_size=3 (всегда 3 элемента)
+    PyObject *start;      // Начальный индекс (или Py_None)
+    PyObject *stop;       // Конечный индекс (или Py_None)
+    PyObject *step;       // Шаг (или Py_None)
 } PySliceObject;
 ```
 
-Создание через `slice(start, stop, step)`:
+**Объяснение для людей:** Срез `lst[1:3:2]` в памяти — это структура из 4 полей: 24-байт заголовок PyObject + 3
+указателя (start=1, stop=3, step=2). `Py_None` означает "используй значение по умолчанию".
 
-```c
-PyObject *PySlice_New(PyObject *start, PyObject *stop, PyObject *step) {
-    // Нормализуем None значения
-    if (step == NULL) step = Py_None;
-    if (start == NULL) start = Py_None;
-    if (stop == NULL) stop = Py_None;
-    
-    return (PyObject *)_PyBuildSlice_Consume2(Py_NewRef(start),
-                                              Py_NewRef(stop), step);
-}
-```
+## 2. Создание среза: BUILD_SLICE байткод
 
-## Байткод для срезов
+**Python код:** `lst[1:3]`
 
 ```python
-lst = [1, 2, 3, 4, 5]
-result = lst[1:3]  # result = [2, 3]
+# Байткод:
+  0 LOAD_FAST    0 (lst)        # lst на стек
+  2 LOAD_CONST   0 (1)          # 1 на стек
+  4 LOAD_CONST   1 (3)          # 3 на стек
+  6 BUILD_SLICE  2              # slice(1, 3, None) на стек
+  8 BINARY_SUBSCR               # lst[slice] -> результат
 ```
 
-**Байткод:**
-
-```
-  1           0 LOAD_FAST                0 (lst)      # Загружаем список на стек
-              2 LOAD_CONST               0 (1)       # Загружаем start=1
-              4 LOAD_CONST               1 (3)       # Загружаем stop=3
-              6 BUILD_SLICE              2           # Создаём PySliceObject(1, 3, None)
-              8 BINARY_SUBSCR            # Вызываем lst.__getitem__(slice)
-             10 STORE_FAST               1 (result)  # Сохраняем результат
-```
-
-**BUILD_SLICE n** (n=число аргументов):
+**Реализация BUILD_SLICE в ceval.c:**
 
 ```c
 case BUILD_SLICE: {
-    // Снимает n объектов со стека (start, stop, step)
-    PyObject *slice = PySlice_New(args[0], args[1], args[2]);
-    // args[2] может быть None -> Py_None
-    Py_DECREF(args[0]); Py_DECREF(args[1]); Py_DECREF(args[2]);
-    PUSH(slice);
-    break;
+    PyObject *slice;           // Будущий PySliceObject
+    PyObject *stop, *start;    // Аргументы со стека
+    
+    // Снимаем аргументы (step, stop, start)
+    if (oparg == 3) {
+        PyObject *step = POP();    // step (может быть None)
+        stop = POP();              // stop
+        start = POP();             // start
+        slice = PySlice_New(start, stop, step);
+        Py_DECREF(step);
+    } else {
+        // 2 аргумента: slice(start, stop, None)
+        stop = POP();
+        start = POP();
+        slice = PySlice_New(start, stop, NULL);
+    }
+    
+    Py_DECREF(start);              // Освобождаем временные объекты
+    Py_DECREF(stop);
+    
+    if (slice == NULL) {           // Ошибка создания
+        return NULL;
+    }
+    
+    PUSH(slice);                   // PySliceObject на вершину стека
+    DISPATCH();                    // Следующая инструкция
 }
 ```
 
-**BINARY_SUBSCR** (sq_item/mp_subscript):
+**Объяснение для людей:** Интерпретатор снимает 2/3 значения со стека, вызывает PySlice_New (создаёт PySliceObject),
+кладёт результат обратно на стек. Всё за 1 инструкцию.
+
+## 3. PySlice_New - фабрика срезов
 
 ```c
-case BINARY_SUBSCR: {
-    PyObject *sub;  // Срез или индекс
-    PyObject *container;
-    POP2(container, sub);
+PyObject *PySlice_New(PyObject *start, PyObject *stop, PyObject *step) {
+    PySliceObject *self;
     
-    // Вызываем tp_as_sequence->sq_item или tp_as_mapping->mp_subscript
-    result = PyObject_GetItem(container, sub);
-    Py_DECREF(container);
-    Py_DECREF(sub);
-    break;
+    // Проверяем аргументы
+    if (step == NULL) {
+        step = Py_None;            // По умолчанию step=None
+    }
+    if (start == NULL) {
+        start = Py_None;
+    }
+    if (stop == NULL) {
+        stop = Py_None;
+    }
+    
+    // Выделяем память под PySliceObject (PyObject + 3 PyObject*)
+    self = PyObject_GC_New(PySliceObject, &PySlice_Type);
+    if (self == NULL) {
+        return NULL;
+    }
+    
+    // Заполняем поля (увеличиваем refcnt)
+    self->start = Py_NewRef(start);
+    self->stop = Py_NewRef(stop);
+    self->step = Py_NewRef(step);
+    
+    _PyObject_GC_TRACK(self);      // Добавляем в GC
+    return (PyObject *)self;
 }
 ```
 
-## Нормализация индексов: PySlice_GetIndicesEx
+**Объяснение для людей:** PySlice_New создаёт объект из 24 байт заголовка + 3 указателя. Каждый аргумент получает +1 к
+refcnt. Объект регистрируется в GC для поиска циклов.
 
-При `container[slice]` тип контейнера вызывает `PySlice_GetIndicesEx`:
+## 4. Нормализация индексов: PySlice_GetIndicesEx
+
+**Ключевой API для всех типов (list/dict/numpy/...):**
 
 ```c
-int PySlice_GetIndicesEx(PySliceObject* s, Py_ssize_t length,
-                         Py_ssize_t *start, Py_ssize_t *stop, Py_ssize_t *step,
-                         Py_ssize_t *slicelength) {
-    
-    // Разбираем start, stop, step
+int PySlice_GetIndicesEx(
+    PySliceObject* s,           // Входной срез
+    Py_ssize_t length,          // Длина контейнера
+    Py_ssize_t *start,          // [out] нормализованный start
+    Py_ssize_t *stop,           // [out] нормализованный stop  
+    Py_ssize_t *step,           // [out] нормализованный step
+    Py_ssize_t *slicelength     // [out] длина результата среза
+) {
     PyObject *start_o = s->start;
     PyObject *stop_o = s->stop;
     PyObject *step_o = s->step;
     
-    // Конвертируем в Py_ssize_t
+    Py_ssize_t istart = 0, iend = 0, istep = 1;
+    
+    // Конвертируем start
     if (start_o == Py_None) {
-        *start = 0;
-    } else if (!PySlice_Unpack(start_o, &istart, &iend, &istep)) {
+        istart = 0;
+    } else if (PySlice_Unpack(start_o, &istart, &iend, &istep) < 0) {
+        return -1;                 // Ошибка конвертации
+    }
+    
+    // Аналогично для stop_o
+    if (stop_o == Py_None) {
+        iend = length;
+    } else if (PySlice_Unpack(stop_o, &istart, &iend, &istep) < 0) {
         return -1;
     }
     
-    // Аналогично для stop и step
-    // ...
+    // Аналогично для step_o
+    if (step_o == Py_None) {
+        istep = 1;
+    } else if (PySlice_Unpack(step_o, &istart, &iend, &istep) < 0) {
+        return -1;
+    }
     
     // Нормализуем отрицательные индексы
-    PySlice_AdjustIndices(length, istart, iend, step, start, stop);
+    PySlice_AdjustIndices(length, istart, iend, istep, start, stop);
     
-    // Вычисляем длину среза
+    // Вычисляем длину результата
     *slicelength = PySlice_ComputeLength(*start, *stop, *step, length);
+    
+    *step = istep;
+    return 0;
+}
+```
+
+**Объяснение для людей:** Эта функция превращает `slice(-2:, None, 2)` в конкретные числа: для списка длины 10 даёт
+start=8, stop=10, step=2. Вычисляет, сколько элементов будет в результате (2 элемента).
+
+## 5. PySlice_AdjustIndices - обработка отрицательных индексов
+
+```c
+void PySlice_AdjustIndices(
+    Py_ssize_t length,         // Длина контейнера
+    Py_ssize_t istart,         // Сырой start
+    Py_ssize_t iend,           // Сырой stop
+    Py_ssize_t istep,          // Шаг
+    Py_ssize_t *start,         // [out] нормализованный start
+    Py_ssize_t *end            // [out] нормализованный stop
+) {
+    Py_ssize_t i;
+    
+    if (istep > 0) {               // Положительный шаг
+        if (istart < 0) {
+            i = length + istart;   // -2 -> len-2
+            *start = i < 0 ? 0 : i;
+        } else {
+            *start = istart;
+        }
+        
+        if (iend < 0) {
+            i = length + iend;     // -1 -> len-1
+            *end = i < 0 ? 0 : i;
+        } else {
+            *end = iend;
+        }
+    } else {                       // Отрицательный шаг
+        // Симметричная логика для обратного прохода
+        if (istart < 0) {
+            i = length + istart;
+            *start = i < -1 ? length-1 : i;
+        } else {
+            *start = istart;
+        }
+        // Аналогично для end...
+    }
+}
+```
+
+**Объяснение для людей:** `-1` всегда означает "последний элемент", `-2` — предпоследний. Функция переводит
+отрицательные индексы в абсолютные, обрезая по границам массива.
+
+## 6. List срез: list_slice()
+
+```c
+static PyObject *list_slice(PyListObject *self, Py_ssize_t ilow, Py_ssize_t ihigh) {
+    register Py_ssize_t i;
+    Py_ssize_t len = ihigh - ilow;     // Длина среза
+    
+    if (len <= 0) {
+        return Py_NewRef(&PyEmptyList);  // Пустой срез -> singleton []
+    }
+    
+    if (len == 1) {
+        // Быстрый путь для одного элемента
+        Py_INCREF(self->ob_item[ilow]);
+        return self->ob_item[ilow];
+    }
+    
+    // Создаём новый список
+    PyObject *np = PyList_New(len);
+    if (np == NULL)
+        return NULL;
+    
+    // Копируем элементы
+    for (i = 0; i < len; i++) {
+        PyObject *v = Py_NewRef(self->ob_item[ilow + i]);
+        PyList_SET_ITEM(np, i, v);
+    }
+    
+    return np;
+}
+```
+
+**Объяснение для людей:** Создаём новый список нужной длины, увеличиваем refcnt каждого элемента оригинала (+1), кладём
+указатели в новый список. Эффективно благодаря PyList_New (over-allocation).
+
+## 7. Срезовое присваивание: list_ass_slice()
+
+```c
+static int list_ass_slice(PyListObject *self, Py_ssize_t low, Py_ssize_t high, PyObject *v) {
+    Py_ssize_t n;              // Длина заменяемого среза
+    PyObject **src, **dest;
+    Py_ssize_t i;
+    
+    n = high - low;            // Длина удаляемого среза
+    
+    if (v == NULL) {
+        // Удаление: lst[1:3] = []
+        return list_ass_slice_delete(self, low, high);
+    }
+    
+    if (!PyList_Check(v)) {
+        // Сжатие: lst[1:3] = 42
+        return list_ass_item(self, low, v);
+    }
+    
+    Py_ssize_t n_added = Py_SIZE(v);  // Длина нового списка
+    
+    // Перераспределяем память
+    if (_PyList_Resize_Shrink(self, low + n_added) < 0) {
+        return -1;
+    }
+    
+    // Копируем элементы
+    dest = self->ob_item + low;
+    src = ((PyListObject *)v)->ob_item;
+    for (i = 0; i < n_added; i++) {
+        PyObject *w = Py_NewRef(src[i]);
+        PyList_SET_ITEM(self, low + i, w);
+    }
     
     return 0;
 }
 ```
 
-**PySlice_AdjustIndices** (нормализация):
+**Объяснение для людей:** `lst[1:3] = [10,20]` удаляет 2 элемента, добавляет 2 новых, сдвигает хвост.
+`PyList_Resize_Shrink` оптимизирует память (over-allocation).
+
+## 8. Слоты PyList_Type для поддержки срезов
 
 ```c
-void PySlice_AdjustIndices(Py_ssize_t length, Py_ssize_t istart,
-                           Py_ssize_t iend, Py_ssize_t istep,
-                           Py_ssize_t *start, Py_ssize_t *end) {
+static PySequenceMethods list_as_sequence = {
+    // sq_length: len(lst)
+    (lenfunc)list_length,
     
-    if (istep > 0) {
-        // Положительный шаг
-        if (istart < 0)
-            *start = Py_SAFE_DOWNCAST(MAX(0, length + istart), Py_ssize_t, 0);
-        else
-            *start = Py_SAFE_DOWNCAST(MIN(length, istart), Py_ssize_t, 0);
-            
-        if (iend < 0)
-            *end = Py_SAFE_DOWNCAST(MAX(0, length + iend), Py_ssize_t, 0);
-        else
-            *end = Py_SAFE_DOWNCAST(MIN(length, iend), Py_ssize_t, 0);
-    } else {
-        // Отрицательный шаг
-        if (istart < 0)
-            *start = Py_SAFE_DOWNCAST(MAX(-1, length + istart), Py_ssize_t, -1);
-        else
-            *start = Py_SAFE_DOWNCAST(MIN(length - 1, istart), Py_ssize_t, length - 1);
-        // Аналогично для end
-    }
-}
-```
-
-## Реализация для list: list_slice
-
-```c
-static PyObject *
-list_slice(PyListObject *self, Py_ssize_t ilow, Py_ssize_t ihigh) {
-    // Вычисляем длину результирующего списка
-    Py_ssize_t i, n; /* indices into source and result */
-    n = ihigh - ilow > 0 ? ihigh - ilow : 0;
+    // sq_concat: lst + lst2
+    (binaryfunc)list_concat,
     
-    // Создаём новый список
-    PyObject *np = _PyList_Extend((PyListObject *)self, ilow, ihigh);
-    if (np == NULL)
-        return NULL;
+    // sq_repeat: lst * 3
+    (ssizeargfunc)list_repeat,
     
-    // Возвращаем ссылку с увеличенным refcount
-    return Py_NewRef(np);
-}
-```
-
-[Objects/listobject.c]
-
-## Срезовое присваивание: STORE_SLICE
-
-```python
-lst[1:3] = [10, 20]  # Заменяем lst[1:2] на [10, 20]
-```
-
-**Байткод:**
-
-```
-LOAD_FAST    lst
-LOAD_CONST   (1, 3)    # Кортеж индексов
-BUILD_SLICE  2         # Создаём slice(1, 3, None)
-LOAD_CONST   [10, 20]  # Значение для присваивания
-STORE_SUBSCR            # Вызываем lst.__setitem__(slice, value)
-```
-
-**STORE_SUBSCR** вызывает `mp_ass_subscript`/`sq_ass_slice`:
-
-```c
-case STORE_SUBSCR: {
-    PyObject *sub, *container, *value;
-    POP3(value, sub, container);  // value, slice, container
+    // sq_item: lst[i]
+    (ssizeargfunc)list_item,
     
-    // Вызываем tp_as_mapping->mp_ass_subscript
-    // или tp_as_sequence->sq_ass_slice
-    result = PyObject_SetItem(container, sub, value);
-    Py_DECREF(container);
-    Py_DECREF(sub);
-    Py_DECREF(value);
-    break;
-}
+    // sq_slice: lst[1:3] <- ВАЖНО!
+    (ssizessizeargfunc)list_slice,
+    
+    // sq_ass_item: lst[i] = x
+    (ssizeobjargproc)list_ass_item,
+    
+    // sq_ass_slice: lst[1:3] = ... <- ВАЖНО!
+    (ssizeobjargproc)list_ass_slice,
+};
 ```
 
-## Расширенные срезы с Ellipsis и множественными индексами
+**Объяснение для людей:** Все типы регистрируют таблицу `PySequenceMethods` со слотами. BINARY_SUBSCR выбирает
+`sq_slice`/`mp_subscript` в зависимости от типа.
 
-```python
-arr[1:3, ...]  # NumPy-style
-```
-
-**Байткод использует EXTENDED_ARG:**
-
-```
-LOAD_FAST    arr
-LOAD_CONST   (slice(1,3), Ellipsis)
-BUILD_TUPLE  2
-BINARY_SUBSCR
-```
-
-**Py_Ellipsis** — singleton:
-
-```c
-PyObject _Py_EllipsisObject = PY_TRUFFLE_TYPE_HEAD_INIT(NULL, &PyEllipsis_Type);
-PyObject *Py_Ellipsis = (PyObject *)&_Py_EllipsisObject;
-```
-
-[Include/object.h]
-
-NumPy и расширения интерпретируют `Ellipsis` в `PySlice_GetIndicesEx` как "все оставшиеся размерности".
-
-## Поддержка в типах
-
-Типы реализуют слоты:
-
-```c
-typedef struct {
-    // ...
-    binaryfunc sq_slice;     // __getitem__(slice)
-    objobjargproc sq_ass_slice;  // __setitem__(slice, value)
-    // ...
-} PySequenceMethods;
-```
-
-**List slice:**
-
-```c
-static PyObject *list_slice(PyListObject *self, Py_ssize_t ilow, Py_ssize_t ihigh)
-```
-
-**Dict slice (keys/values):**
-
-```c
-static PyObject *dict_slice_keys(PyDictObject *self, Py_ssize_t ilow, Py_ssize_t ihigh)
-```
-
-## Кеширование и оптимизации
-
-- `PySlice_GetIndicesEx` использует freelisting для `PySliceObject` через `_PyBuildSlice_Consume2`.
-- `PySlice_AdjustIndices` использует битовые операции и макросы `Py_SAFE_DOWNCAST` для безопасности.
-- Байткод `BUILD_SLICE` оптимизирован для частого случая (2 аргумента).
-
-Срезы в CPython — это компактный объект `PySliceObject` + унифицированный механизм нормализации индексов через
-`PySlice_GetIndicesEx`, поддерживаемый слотами типов и байткодами `BUILD_SLICE`/`BINARY_SUBSCR`.
-
+Срезы в CPython — это **PySliceObject** (3 указателя) + **PySlice_GetIndicesEx** (нормализация) + **тип-специфичные**
+`sq_slice`/`sq_ass_slice`, вызываемые через байткоды BUILD_SLICE/BINARY_SUBSCR/STORE_SUBSCR.
 
 ---
 
