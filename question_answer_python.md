@@ -178,6 +178,422 @@
 
 ---
 
+# **Срезы**
+
+# **Срезы (slicing)**
+
+## **Junior Level**
+
+Срезы в Python — это удобный способ получить часть последовательности (например, списка, строки или кортежа), не
+перебирая элементы вручную. Представьте, что у вас есть книга, и вам нужно вырвать из неё несколько страниц — срез
+делает примерно то же самое с данными.
+
+**Базовый синтаксис:** `последовательность[начало:конец:шаг]`
+
+- **Начало (start)** — индекс, с которого начинается срез (включается в результат). Если не указан — считается 0.
+- **Конец (stop)** — индекс, на котором срез заканчивается (НЕ включается в результат). Если не указан — считается до
+  конца последовательности.
+- **Шаг (step)** — через сколько элементов брать следующий. Если не указан — считается 1 (брать все подряд).
+
+**Простые примеры:**
+
+```python
+text = "Привет, мир!"
+print(text[0:6])  # "Привет" (символы с 0 по 5)
+print(text[8:])  # "мир!"   (с 8 до конца)
+print(text[:6])  # "Привет" (с начала до 5)
+print(text[::2])  # "Пие,мр" (каждый второй символ)
+```
+
+**Отрицательные индексы** — отсчитываются с конца:
+
+- `-1` — последний элемент
+- `-2` — предпоследний элемент
+
+```python
+numbers = [10, 20, 30, 40, 50]
+print(numbers[-3:-1])  # [30, 40] (с третьего с конца до предпоследнего)
+```
+
+**Отрицательный шаг** позволяет идти в обратном порядке:
+
+```python
+word = "питон"
+print(word[::-1])  # "нотип" (разворот строки)
+print(numbers[3:0:-1])  # [40, 30, 20] (от индекса 3 до 1 в обратном порядке)
+```
+
+**Важно:** срезы всегда создают **новый объект**. Если вы сделаете срез списка, получится новый список, а не ссылка на
+старый. Это защищает от случайного изменения исходных данных.
+
+## **Middle Level**
+
+### 1. **Как Python интерпретирует срезы "под капотом"**
+
+Когда вы пишете `seq[start:stop:step]`, Python фактически создаёт объект `slice(start, stop, step)` и передаёт его в
+метод `__getitem__` вашей последовательности. Этот объект можно сохранить и использовать повторно:
+
+```python
+data = list(range(100))
+my_slice = slice(10, 50, 3)  # создаём объект-срез
+print(data[my_slice])  # равносильно data[10:50:3]
+```
+
+Это особенно полезно при работе с многомерными массивами в библиотеках типа NumPy, где срезы могут быть сложными.
+
+### 2. **Особенности работы с разными типами последовательностей**
+
+- **Списки (list)** — срезы создают новые списки (shallow copy). Элементы копируются по ссылкам, а не дублируются:
+  ```python
+  matrix = [[1, 2], [3, 4]]
+  part = matrix[:1]     # part = [[1, 2]]
+  part[0][0] = 99       # изменится и matrix[0][0] тоже!
+  ```
+  Для полного копирования вложенных структур используйте `copy.deepcopy()`.
+
+- **Строки (str) и байты (bytes)** — срезы всегда возвращают новые объекты, поскольку эти типы неизменяемы.
+
+- **Пользовательские классы** — вы можете реализовать поддержку срезов, определив методы `__getitem__`, `__setitem__` и
+  `__delitem__`, которые будут обрабатывать объекты `slice`.
+
+### 3. **Расширенное использование с шагом (step)**
+
+Шаг может быть любым целым числом, кроме 0. Особый случай — **отрицательный шаг**:
+
+- При отрицательном шаге индексы `start` и `stop` меняются ролями по умолчанию: если не указать `start`, он становится
+  последним элементом; если не указать `stop` — первым.
+- Последовательность перебирается в обратном порядке.
+
+```python
+seq = [0, 1, 2, 3, 4, 5]
+
+# Что происходит при seq[5:1:-1]?
+# 1. Начинаем с индекса 5 (элемент 5)
+# 2. Идём в обратном порядке с шагом 1
+# 3. Останавливаемся ДО индекса 1 (т.е. на индексе 2)
+print(seq[5:1:-1])  # [5, 4, 3, 2]
+```
+
+### 4. **Идиомы и продвинутые паттерны**
+
+- **Копирование последовательности:** `seq[:]` или `seq.copy()` для списков
+- **Разворот:** `seq[::-1]` — создаёт развёрнутую копию
+- **Получение каждого N-го элемента:**
+  ```python
+  # Каждый третий элемент, начиная со второго
+  seq = list(range(20))
+  print(seq[1::3])  # [1, 4, 7, 10, 13, 16, 19]
+  ```
+- **Удаление части последовательности (для изменяемых типов):**
+  ```python
+  numbers = [0, 1, 2, 3, 4, 5]
+  numbers[2:4] = []           # удаляет элементы 2 и 3
+  # или del numbers[2:4]
+  ```
+
+### 5. **Срезы и производительность**
+
+Срезы работают за O(k), где k — размер среза, а не исходной последовательности. Однако есть нюансы:
+
+- Для списков срез создаёт новую структуру, копируя ссылки на элементы
+- При больших срезах это может быть накладно по памяти
+- Для строк срезы более эффективны благодаря оптимизациям интерпретатора
+
+### 6. **Где срезы не работают как ожидается**
+
+- **Словари и множества** не поддерживают срезы, поскольку не являются последовательностями (у них нет порядка элементов
+  до Python 3.7+ для dict, и даже тогда срезы не определены)
+- **Итераторы и генераторы** — тоже не поддерживают срезы напрямую. Вместо этого используйте `itertools.islice()`:
+  ```python
+  from itertools import islice
+  
+  def count():
+      i = 0
+      while True:
+          yield i
+          i += 1
+          
+  # Получить элементы с 10 по 20 (не включая 20)
+  sliced = islice(count(), 10, 20)
+  ```
+
+### 7. **Срезы в присваивании (для изменяемых последовательностей)**
+
+Это мощная особенность Python, позволяющая заменять часть последовательности другой последовательностью произвольной
+длины:
+
+```python
+numbers = [0, 1, 2, 3, 4, 5]
+numbers[2:4] = [20, 30, 40]  # Заменяем 2 элемента на 3
+print(numbers)  # [0, 1, 20, 30, 40, 4, 5]
+
+# Можно даже удалять элементы, вставляя пустую последовательность
+numbers[1:3] = []  # Удаляем элементы 1 и 2
+```
+
+Это работает потому, что для изменяемых последовательностей срезы в левой части присваивания реализуются через метод
+`__setitem__`, который может принимать объект slice и произвольную последовательность для вставки.
+
+**Итог:** Срезы — это не просто синтаксический сахар, а полноценный механизм доступа к данным, который при грамотном
+использовании делает код чище, выразительнее и иногда даже эффективнее.
+
+## **Senior Level**
+
+В CPython срезы реализуются через объект `PySliceObject`, специальные байткоды `BINARY_SLICE`/`STORE_SLICE` и C-функции
+`PySlice_GetIndicesEx`/`PySlice_AdjustIndices` для нормализации индексов.
+
+## Объект среза: PySliceObject
+
+```c
+typedef struct {
+    PyObject_VAR_HEAD  // PyObject_HEAD + ob_size (всегда 3)
+    PyObject *start;   // Начальный индекс (или None)
+    PyObject *stop;    // Конечный индекс (или None)
+    PyObject *step;    // Шаг (или None)
+} PySliceObject;
+```
+
+Создание через `slice(start, stop, step)`:
+
+```c
+PyObject *PySlice_New(PyObject *start, PyObject *stop, PyObject *step) {
+    // Нормализуем None значения
+    if (step == NULL) step = Py_None;
+    if (start == NULL) start = Py_None;
+    if (stop == NULL) stop = Py_None;
+    
+    return (PyObject *)_PyBuildSlice_Consume2(Py_NewRef(start),
+                                              Py_NewRef(stop), step);
+}
+```
+
+## Байткод для срезов
+
+```python
+lst = [1, 2, 3, 4, 5]
+result = lst[1:3]  # result = [2, 3]
+```
+
+**Байткод:**
+
+```
+  1           0 LOAD_FAST                0 (lst)      # Загружаем список на стек
+              2 LOAD_CONST               0 (1)       # Загружаем start=1
+              4 LOAD_CONST               1 (3)       # Загружаем stop=3
+              6 BUILD_SLICE              2           # Создаём PySliceObject(1, 3, None)
+              8 BINARY_SUBSCR            # Вызываем lst.__getitem__(slice)
+             10 STORE_FAST               1 (result)  # Сохраняем результат
+```
+
+**BUILD_SLICE n** (n=число аргументов):
+
+```c
+case BUILD_SLICE: {
+    // Снимает n объектов со стека (start, stop, step)
+    PyObject *slice = PySlice_New(args[0], args[1], args[2]);
+    // args[2] может быть None -> Py_None
+    Py_DECREF(args[0]); Py_DECREF(args[1]); Py_DECREF(args[2]);
+    PUSH(slice);
+    break;
+}
+```
+
+**BINARY_SUBSCR** (sq_item/mp_subscript):
+
+```c
+case BINARY_SUBSCR: {
+    PyObject *sub;  // Срез или индекс
+    PyObject *container;
+    POP2(container, sub);
+    
+    // Вызываем tp_as_sequence->sq_item или tp_as_mapping->mp_subscript
+    result = PyObject_GetItem(container, sub);
+    Py_DECREF(container);
+    Py_DECREF(sub);
+    break;
+}
+```
+
+## Нормализация индексов: PySlice_GetIndicesEx
+
+При `container[slice]` тип контейнера вызывает `PySlice_GetIndicesEx`:
+
+```c
+int PySlice_GetIndicesEx(PySliceObject* s, Py_ssize_t length,
+                         Py_ssize_t *start, Py_ssize_t *stop, Py_ssize_t *step,
+                         Py_ssize_t *slicelength) {
+    
+    // Разбираем start, stop, step
+    PyObject *start_o = s->start;
+    PyObject *stop_o = s->stop;
+    PyObject *step_o = s->step;
+    
+    // Конвертируем в Py_ssize_t
+    if (start_o == Py_None) {
+        *start = 0;
+    } else if (!PySlice_Unpack(start_o, &istart, &iend, &istep)) {
+        return -1;
+    }
+    
+    // Аналогично для stop и step
+    // ...
+    
+    // Нормализуем отрицательные индексы
+    PySlice_AdjustIndices(length, istart, iend, step, start, stop);
+    
+    // Вычисляем длину среза
+    *slicelength = PySlice_ComputeLength(*start, *stop, *step, length);
+    
+    return 0;
+}
+```
+
+**PySlice_AdjustIndices** (нормализация):
+
+```c
+void PySlice_AdjustIndices(Py_ssize_t length, Py_ssize_t istart,
+                           Py_ssize_t iend, Py_ssize_t istep,
+                           Py_ssize_t *start, Py_ssize_t *end) {
+    
+    if (istep > 0) {
+        // Положительный шаг
+        if (istart < 0)
+            *start = Py_SAFE_DOWNCAST(MAX(0, length + istart), Py_ssize_t, 0);
+        else
+            *start = Py_SAFE_DOWNCAST(MIN(length, istart), Py_ssize_t, 0);
+            
+        if (iend < 0)
+            *end = Py_SAFE_DOWNCAST(MAX(0, length + iend), Py_ssize_t, 0);
+        else
+            *end = Py_SAFE_DOWNCAST(MIN(length, iend), Py_ssize_t, 0);
+    } else {
+        // Отрицательный шаг
+        if (istart < 0)
+            *start = Py_SAFE_DOWNCAST(MAX(-1, length + istart), Py_ssize_t, -1);
+        else
+            *start = Py_SAFE_DOWNCAST(MIN(length - 1, istart), Py_ssize_t, length - 1);
+        // Аналогично для end
+    }
+}
+```
+
+## Реализация для list: list_slice
+
+```c
+static PyObject *
+list_slice(PyListObject *self, Py_ssize_t ilow, Py_ssize_t ihigh) {
+    // Вычисляем длину результирующего списка
+    Py_ssize_t i, n; /* indices into source and result */
+    n = ihigh - ilow > 0 ? ihigh - ilow : 0;
+    
+    // Создаём новый список
+    PyObject *np = _PyList_Extend((PyListObject *)self, ilow, ihigh);
+    if (np == NULL)
+        return NULL;
+    
+    // Возвращаем ссылку с увеличенным refcount
+    return Py_NewRef(np);
+}
+```
+
+[Objects/listobject.c]
+
+## Срезовое присваивание: STORE_SLICE
+
+```python
+lst[1:3] = [10, 20]  # Заменяем lst[1:2] на [10, 20]
+```
+
+**Байткод:**
+
+```
+LOAD_FAST    lst
+LOAD_CONST   (1, 3)    # Кортеж индексов
+BUILD_SLICE  2         # Создаём slice(1, 3, None)
+LOAD_CONST   [10, 20]  # Значение для присваивания
+STORE_SUBSCR            # Вызываем lst.__setitem__(slice, value)
+```
+
+**STORE_SUBSCR** вызывает `mp_ass_subscript`/`sq_ass_slice`:
+
+```c
+case STORE_SUBSCR: {
+    PyObject *sub, *container, *value;
+    POP3(value, sub, container);  // value, slice, container
+    
+    // Вызываем tp_as_mapping->mp_ass_subscript
+    // или tp_as_sequence->sq_ass_slice
+    result = PyObject_SetItem(container, sub, value);
+    Py_DECREF(container);
+    Py_DECREF(sub);
+    Py_DECREF(value);
+    break;
+}
+```
+
+## Расширенные срезы с Ellipsis и множественными индексами
+
+```python
+arr[1:3, ...]  # NumPy-style
+```
+
+**Байткод использует EXTENDED_ARG:**
+
+```
+LOAD_FAST    arr
+LOAD_CONST   (slice(1,3), Ellipsis)
+BUILD_TUPLE  2
+BINARY_SUBSCR
+```
+
+**Py_Ellipsis** — singleton:
+
+```c
+PyObject _Py_EllipsisObject = PY_TRUFFLE_TYPE_HEAD_INIT(NULL, &PyEllipsis_Type);
+PyObject *Py_Ellipsis = (PyObject *)&_Py_EllipsisObject;
+```
+
+[Include/object.h]
+
+NumPy и расширения интерпретируют `Ellipsis` в `PySlice_GetIndicesEx` как "все оставшиеся размерности".
+
+## Поддержка в типах
+
+Типы реализуют слоты:
+
+```c
+typedef struct {
+    // ...
+    binaryfunc sq_slice;     // __getitem__(slice)
+    objobjargproc sq_ass_slice;  // __setitem__(slice, value)
+    // ...
+} PySequenceMethods;
+```
+
+**List slice:**
+
+```c
+static PyObject *list_slice(PyListObject *self, Py_ssize_t ilow, Py_ssize_t ihigh)
+```
+
+**Dict slice (keys/values):**
+
+```c
+static PyObject *dict_slice_keys(PyDictObject *self, Py_ssize_t ilow, Py_ssize_t ihigh)
+```
+
+## Кеширование и оптимизации
+
+- `PySlice_GetIndicesEx` использует freelisting для `PySliceObject` через `_PyBuildSlice_Consume2`.
+- `PySlice_AdjustIndices` использует битовые операции и макросы `Py_SAFE_DOWNCAST` для безопасности.
+- Байткод `BUILD_SLICE` оптимизирован для частого случая (2 аргумента).
+
+Срезы в CPython — это компактный объект `PySliceObject` + унифицированный механизм нормализации индексов через
+`PySlice_GetIndicesEx`, поддерживаемый слотами типов и байткодами `BUILD_SLICE`/`BINARY_SUBSCR`.
+
+
+---
+
 # **args и kwargs**
 
 ## **Junior Level**
