@@ -2819,119 +2819,276 @@ PyObject *PyObject_GetIter(PyObject *obj) {
 
 ## **Senior Level**
 
-## Реализация декораторов и замыканий в CPython
+В CPython 3.9+ **декораторы** — это **PyFunctionObject** с `func_closure` (tuple of PyCellObject), **замыкания** —
+`co_cellvars`/`co_freevars` в PyCodeObject + байткоды `LOAD_CLOSURE`/`LOAD_DEREF`/
+`STORE_DEREF`. `Objects/funcobject.c`,`Python/compile.c`,`Python/ceval.c`
 
-Декораторы и замыкания в CPython построены на фундаментальной особенности Python: функции — это объекты первого класса,
-которые можно передавать, возвращать и модифицировать. На уровне интерпретатора это реализуется через специальные
-структуры для хранения свободных переменных и механизм создания closure-объектов.
+## 1. PyFunctionObject с замыканием (3.9+)
 
-### Замыкания: механизм и структуры данных
-
-Замыкание (closure) возникает, когда внутренняя функция захватывает переменные из внешней области видимости, которая уже
-завершила своё выполнение. В CPython это реализовано через:
-
-- **Ячейки (cell objects)**: специальные объекты типа `PyCellObject`, которые хранят ссылки на переменные из внешней
-  области видимости.
-- **Атрибут `__closure__`**: кортеж ячеек, который хранится в объекте функции и содержит захваченные переменные.
-- **Код-объект (`PyCodeObject`)**: содержит атрибуты `co_freevars` (имена свободных переменных для внутренней функции) и
-  `co_cellvars` (имена переменных, которые используются вложенными функциями).
-
-Когда внутренняя функция обращается к переменной из внешней области, байт-код использует специальные инструкции
-`LOAD_DEREF` и `STORE_DEREF` для работы с ячейками, а не обычные `LOAD_FAST`/`STORE_FAST`. Это позволяет нескольким
-функциям разделять доступ к одной переменной даже после завершения внешней функции.
-
-### Декораторы: синтаксический сахар и протокол
-
-Декоратор — это функция, которая принимает другую функцию и возвращает модифицированную версию (обычно обёртку).
-Синтаксис `@decorator` перед определением функции — это синтаксический сахар, который компилятор разворачивает в вызов
-декоратора:
-
-```python
-@decorator
-def func():
-    pass
-# Эквивалентно: func = decorator(func)
+```c
+typedef struct {
+    PyObject_HEAD                  // Стандартный заголовок
+    PyObject *func_globals;        // globals() при создании
+    PyObject *func_builtins;       // builtins при создании  
+    PyObject *func_code;           // PyCodeObject с co_freevars
+    PyObject **func_closure;       // NULL или tuple PyCellObject*
+    Py_ssize_t func_nfreevars;     // Длина closure (co_freevars)
+    PyObject *func_defaults;       // (a=1, b=2)
+    PyObject *func_kwdefaults;     // {c: 3}
+    PyObject *func_doc;            // __doc__
+    PyObject *func_name;           // __name__
+    PyObject *func_qualname;       // __qualname__
+    PyObject *func_dict;           // __dict__
+    PyObject *func_weakreflist;    // Слабые ссылки
+    vectorcallfunc vectorcall;     // Быстрый вызов
+} PyFunctionObject;
 ```
 
-На уровне байт-кода компилятор CPython:
+**Объяснение для людей:** Функция с замыканием содержит `func_closure` — массив **ячеек** (PyCellObject), ссылающихся на
+переменные внешней функции. `func_nfreevars` говорит, сколько их.
 
-1. Создаёт функцию `func` как обычный объект.
-2. Загружает декоратор на стек (`LOAD_NAME` или `LOAD_GLOBAL`).
-3. Вызывает декоратор с функцией как аргументом (`CALL_FUNCTION`).
-4. Связывает результат с именем `func` (`STORE_NAME` или `STORE_GLOBAL`).
+## 2. PyCellObject - "ячейка" замыкания
 
-Декораторы могут быть вложенными: `@dec1 @dec2 def func()` применяются справа налево, то есть
-`func = dec1(dec2(func))`.
+```c
+typedef struct {
+    PyObject_HEAD                 // refcnt + type=&PyCell_Type
+    PyObject *ob_ref;             // Указатель на значение переменной
+} PyCellObject;
+```
 
-### Декораторы-классы и магический метод `__call__`
+**Объяснение для людей:** **Ячейка** — это обёртка над PyObject*. Внешняя функция пишет `x=42` →
+`PyCell_SET(cell, PyLong(42))`. Внутренняя читает `PyCell_GET(cell)`.
 
-Помимо функций-декораторов, CPython поддерживает классы-декораторы через магический метод `__call__`. Класс становится
-вызываемым (callable), если определён метод `__call__(self, *args, **kwargs)`:
+## 3. PyCodeObject: cellvars/freevars (компиляция)
 
-- В `__init__` сохраняется ссылка на декорируемую функцию.
-- При вызове декорированной функции срабатывает `__call__`, который может добавить логику до/после вызова оригинальной
-  функции.
+```c
+typedef struct _PyCodeObject {
+    // ...
+    PyObject *co_cellvars;         // ('x',) - локальные внешней функции
+    PyObject *co_freevars;         // ('x',) - свободные внутренней
+    // ...
+} PyCodeObject;
+```
 
-Пример структуры:
+**Объяснение для людей:** Компилятор помечает переменные: `co_cellvars` — в **внешней** функции (нужны для вложенных),
+`co_freevars` — в **внутренней** (ссылается на внешние).
+
+**Пример компиляции:**
 
 ```python
-class Decorator:
-    def __init__(self, func):
-        self.__func = func
+def outer():
+    x = 1
 
-    def __call__(self, *args, **kwargs):
-        # Логика до вызова
-        result = self.__func(*args, **kwargs)
-        # Логика после вызова
+    def inner():  # co_cellvars=['x']
+        return x  # co_freevars=['x']
+
+    return inner
+```
+
+```
+outer.__code__.co_cellvars     # ('x',)
+inner.__code__.co_freevars     # ('x',)
+inner.__closure__              # (<cell at 0x...: int object at 0x...>,)
+```
+
+## 4. Байткод: LOAD_CLOSURE/STORE_DEREF (ceval.c)
+
+**Внешняя функция (outer):**
+
+```
+# Байткод outer():
+  0 LOAD_CONST           0 (1)         # x = 1
+  2 STORE_DEREF          0 (x)         # Сохраняем в ячейку #0
+  4 LOAD_CLOSURE         0 (x)         # Берём ячейку #0
+  6 BUILD_TUPLE          1             # (cell,)
+  8 LOAD_CONST           1 (<code>)    # PyCodeObject inner
+ 10 MAKE_CLOSURE         1             # PyFunctionObject(closure=(cell,))
+ 12 RETURN_VALUE                    # return inner
+```
+
+**Внутренняя функция (inner):**
+
+```
+# Байткод inner():
+  0 LOAD_DEREF           0 (x)         # Читаем из ячейки #0
+  2 RETURN_VALUE                    # return x
+```
+
+**Объяснение для людей:** `STORE_DEREF 0` пишет в ячейку #0. `LOAD_CLOSURE 0` берёт **саму ячейку**,
+`BUILD_TUPLE/MAKE_CLOSURE` создаёт функцию с `func_closure=(cell0,)`. `LOAD_DEREF 0` внутри читает из той же ячейки.
+
+## 5. LOAD_CLOSURE байткод (ceval.c)
+
+```c
+case LOAD_CLOSURE: {
+    PyObject *cell = PyGenObject_GET_CLOSURE(frame, oparg);  // Ячейка из co_freevars[oparg]
+    if (cell == NULL) {
+        goto unbound_error;            // Unbound closure variable
+    }
+    
+    Py_INCREF(cell);                   // +refcnt на PyCellObject
+    STACK_GROW(1);
+    PEEK(0) = cell;                    // Ячейка на стек
+    DISPATCH();
+}
+```
+
+**Объяснение для людей:** `LOAD_CLOSURE 0` берёт ячейку из массива замыкания функции (`func_closure[0]`), кладёт *
+*ячейку** на стек (не значение!).
+
+## 6. STORE_DEREF / LOAD_DEREF (ceval.c)
+
+```c
+case STORE_DEREF: {
+    PyObject *v = POP();               // Значение со стека
+    PyObject *cell = PyGenObject_GET_CLOSURE(frame, oparg);  // Ячейка
+    if (cell == NULL) {
+        goto unbound_error;
+    }
+    
+    PyCell_SET(cell, v);               // Записываем в ob_ref ячейки
+    Py_DECREF(v);                      // Освобождаем значение
+    DISPATCH();
+}
+
+case LOAD_DEREF: {
+    PyObject *cell = PyGenObject_GET_CLOSURE(frame, oparg);
+    if (cell == NULL) {
+        goto unbound_error;
+    }
+    
+    PyObject *value = PyCell_GET(cell);  // Читаем ob_ref из ячейки
+    if (value == NULL) {
+        goto unbound_error;
+    }
+    
+    Py_INCREF(value);                  // +refcnt значения
+    PUSH(value);                       // Значение на стек
+    DISPATCH();
+}
+```
+
+**Объяснение для людей:** `STORE_DEREF` берёт значение со стека → `PyCell_SET(cell, value)` (меняет `cell->ob_ref`).
+`LOAD_DEREF` берёт `PyCell_GET(cell)` → значение на стек.
+
+## 7. MAKE_CLOSURE байткод (ceval.c)
+
+```c
+case MAKE_CLOSURE: {
+    Py_ssize_t free_n = POP();         // Количество свободных переменных
+    PyCodeObject *code = POP();        // PyCodeObject
+    PyObject *closure_tuple = POP();   // (cell1, cell2, ...)
+    
+    assert(PyTuple_Check(closure_tuple));
+    assert(PyTuple_GET_SIZE(closure_tuple) == free_n);
+    
+    // Создаём PyFunctionObject
+    PyFunctionObject *func = PyFunction_New(code, frame->f_globals);
+    if (func == NULL) {
+        goto error;
+    }
+    
+    // Прикрепляем замыкание
+    func->func_closure = closure_tuple;  // Сохраняем tuple ячеек
+    Py_INCREF(closure_tuple);            // +refcnt
+    func->func_nfreevars = free_n;
+    
+    PUSH((PyObject *)func);            // Функция на стек
+    DISPATCH();
+}
+```
+
+**Объяснение для людей:** `MAKE_CLOSURE 1` берёт `(cell0,)`, PyCodeObject → создаёт PyFunctionObject →
+`func_closure=(cell0,)`, `func_nfreevars=1`.
+
+## 8. PyCellObject операции
+
+```c
+void PyCell_Set(PyObject *cell, PyObject *value) {
+    if (!PyCell_Check(cell)) {
+        PyErr_BadInternalCall();
+        return;
+    }
+    
+    Py_XSETREF(((PyCellObject *)cell)->ob_ref, Py_NewRef(value));
+}
+
+PyObject *PyCell_Get(PyObject *cell) {
+    if (!PyCell_Check(cell)) {
+        PyErr_BadInternalCall();
+        return NULL;
+    }
+    
+    PyObject *value = ((PyCellObject *)cell)->ob_ref;
+    if (value == NULL) {
+        PyErr_SetString(PyExc_UnboundLocalError, "unbound variable");
+        return NULL;
+    }
+    
+    return Py_NewRef(value);
+}
+```
+
+**Объяснение для людей:** `PyCell_Set(cell, 42)` → `cell->ob_ref = PyLong(42)`. `PyCell_Get(cell)` → возвращает
+`cell->ob_ref` или UnboundLocalError.
+
+## 9. Компиляция декоратора (compile.c)
+
+```c
+// В Python/compile.c при парсинге def inner():
+if (symtable_lookup(st, name) >= 0 && 
+    symtable_lookup(st, name) != LOCAL) {
+    // Переменная из внешней области -> cellvar
+    symtable->st_cellvars[num_cellvars++] = name;
+    code->co_cellvars = PyTuple_New(num_cellvars);
+}
+
+// Для внутренней функции:
+if (name in enclosing_cellvars) {
+    // Свободная переменная
+    code->co_freevars[num_freevars++] = name;
+}
+```
+
+**Объяснение для людей:** Компилятор сканирует AST: если `inner()` читает `x` из `outer()` → `x` становится **cellvar**
+во внешней, **freevar** во внутренней.
+
+## 10. Декоратор: @decorator(f)
+
+```python
+def decorator(func):
+    def wrapper(*args, **kwargs):
+        print("before")
+        result = func(*args, **kwargs)
+        print("after")
         return result
+
+    return wrapper
+
+
+@decorator
+def f(): pass
 ```
 
-Такой подход удобен, когда декоратор должен сохранять состояние между вызовами, избегая вложенных функций.[3][2]
-
-### Параметризованные декораторы
-
-Декоратор может сам принимать параметры, становясь фабрикой декораторов — функцией, которая возвращает декоратор. Схема
-работы:
+**Байткод компилируется как:**
 
 ```python
-@decorator_factory(arg1, arg2)
-def func():
-    pass
-# Эквивалентно: func = decorator_factory(arg1, arg2)(func)
+# Эквивалентно:
+f = decorator(f)
 ```
 
-Компилятор CPython обрабатывает это так:
+```
+LOAD_GLOBAL       decorator
+LOAD_NAME         f
+CALL_FUNCTION     1
+STORE_NAME        f
+```
 
-1. Вызывает `decorator_factory(arg1, arg2)` — получает декоратор.
-2. Вызывает полученный декоратор с `func` — получает обёрнутую функцию.
-3. Связывает результат с именем `func`.
+**Объяснение для людей:** Декоратор — это **функция**, возвращающая **другую функцию** с замыканием на оригинальную
+`func`. `@decorator` → `decorator(f)` во время выполнения модуля.
 
-Такой трёхуровневый механизм (фабрика → декоратор → обёртка) часто реализуется через вложенные замыкания, где каждая
-функция захватывает параметры из внешней области.
-
-### Встроенные декораторы и дескрипторы
-
-CPython предоставляет встроенные декораторы для методов классов:
-
-- **`@staticmethod`**: метод не получает неявный первый аргумент (`self` или `cls`), реализован через дескриптор
-  `PyStaticMethod_Type`.
-- **`@classmethod`**: метод получает класс как первый аргумент (`cls`), реализован через дескриптор
-  `PyClassMethod_Type`.
-- **`@property`**: превращает метод в управляемый атрибут через дескрипторный протокол (`__get__`, `__set__`,
-  `__delete__`).
-
-Дескрипторы — это классы, определяющие один или более методов `__get__`, `__set__`, `__delete__`, которые перехватывают
-доступ к атрибутам. Декораторы типа `@property` создают объекты-дескрипторы, что позволяет контролировать чтение/запись
-атрибутов на уровне интерпретатора.
-
-### Практические аспекты
-
-Важно понимать, что декораторы применяются **один раз** в момент определения функции, а не при каждом вызове. Функция
-`functools.wraps` используется для копирования метаданных (`__name__`, `__doc__`, `__module__`) из оригинальной функции
-в обёртку, что важно для отладки и интроспекции. Замыкания создают дополнительный overhead: каждая ячейка — это
-отдельный `PyObject` с подсчётом ссылок, но это позволяет корректно работать с областями видимости и сборкой мусора.
-Декораторы-классы удобнее функций, когда нужно хранить состояние или использовать наследование для создания семейств
-декораторов.
+**Декораторы/замыкания** в CPython 3.9+ — **PyCellObject** (`ob_ref`), `co_cellvars`/`co_freevars`, байткоды
+`LOAD_CLOSURE`/`STORE_DEREF`/`MAKE_CLOSURE`, `func_closure` tuple в PyFunctionObject.
 
 - [Содержание](#содержание)
 
