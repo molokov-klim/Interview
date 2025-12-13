@@ -3795,151 +3795,324 @@ PyListObject/PyDictObject + проверкой в `tp_iternext()` итерато
 
 ## **Senior Level**
 
-В CPython области видимости реализуются через работу компилятора (symbol table → code object) и интерпретатора (фреймы,
-массив localsplus, инструкции `LOAD_*` / `STORE_*`). Ниже — только «подкапотные» детали, без общеобразовательной
-воды.
+В CPython 3.9+ **области видимости** определяются **symtable** (Python/symtable.c) во время компиляции → флаги
+`DEF_LOCAL`/`DEF_GLOBAL_IMPLICIT`/`DEF_FREE` → выбор байткода `LOAD_FAST`/`LOAD_NAME`/`LOAD_GLOBAL`/`LOAD_DEREF`. Поиск
+в `f_localsplus`/`f_globals`/`f_builtins`. `Python/symtable.c`,`Python/compile.c`,`Python/ceval.c`
 
-## Анализ областей видимости на этапе компиляции
+## 1. symtable_lookup() - анализ области видимости (symtable.c)
 
-На этапе компиляции исходник проходит через построение таблиц символов (`symtable`), где каждому идентификатору
-назначается тип и область видимости. Для этого компилятор анализирует, где имя читается, где в него пишут, есть ли
-`global`/`nonlocal`, используется ли имя во вложенных функциях и т.д.
+```c
+long symtable_lookup(struct symtable *st, PyObject *name) {
+    PyObject *o = PyDict_GetItem(st->st_symbols, name);  // Ищем имя в таблице символов
+    if (!o) {
+        return -1;                         // Символа нет
+    }
+    
+    long flags = PyLong_AsLong(o);         // Получаем флаги символа
+    
+    if (flags & DEF_LOCAL) {
+        return LOCAL;                      // Локальная переменная (LOAD_FAST)
+    }
+    if (flags & DEF_GLOBAL) {
+        return GLOBAL_EXPLICIT;            // global x (LOAD_GLOBAL)
+    }
+    if (flags & DEF_NONLOCAL) {
+        return CELL;                       // nonlocal x (LOAD_DEREF)
+    }
+    if (flags & DEF_FREE) {
+        return FREE;                       // Замыкание (LOAD_DEREF)
+    }
+    if (flags & DEF_GLOBAL_IMPLICIT) {
+        return GLOBAL_IMPLICIT;            // Не присвоена в функции (LOAD_NAME/LOAD_GLOBAL)
+    }
+    
+    return -1;                             // Неизвестно
+}
+```
 
-Результат — для каждого блока (module / function / class / comprehension) строится объект symbol table, где имена
-помечаются флагами: local, global, free, cell и т.п. Эти данные мигрируют в `PyCodeObject`:
+**Объяснение для людей:** Компилятор создаёт таблицу символов для каждой функции/класса/модуля. Для каждого имени `x`
+вычисляет флаги: LOCAL (в `f_localsplus`), GLOBAL, FREE (замыкание), GLOBAL_IMPLICIT (глобал по умолчанию).
 
-- `co_varnames` — локальные переменные «быстрого доступа» (fast locals).
-- `co_freevars` — имена, захваченные из внешних областей (free vars).
-- `co_cellvars` — локальные переменные, которые становятся частью замыкания (cell vars).
-- `co_names` — остальные имена (глобалы, атрибуты и пр.).
+## 2. compiler_symbol_table() - генерация флагов (compile.c)
 
-По этим маркерам компилятор выбирает конкретные опкоды: `LOAD_FAST`, `LOAD_GLOBAL`, `LOAD_DEREF`, `LOAD_NAME`,
-`STORE_FAST`, `STORE_GLOBAL`, `STORE_DEREF` и т.д.
+```c
+static void
+compiler_symbol_table(struct compiler *c, stmt_ty s) {
+    struct symtable *st = c->u->u_ste;
+    
+    // Для каждой инструкции AST
+    VISIT(c, symtable, s);             // Рекурсивно анализируем тело
+    
+    // После полного анализа
+    symtable_analyze(st);              // Финальный анализ областей
+    
+    // Для каждой переменной
+    PyObject *name;
+    Py_ssize_t pos = 0;
+    while (PyDict_Next(st->st_symbols, &pos, &name, NULL)) {
+        long flags = symtable_lookup(st, name);
+        
+        if (flags == LOCAL && !st->st_varargs && !st->st_varkw) {
+            // Локальная -> добавляем в co_varnames
+            PyList_Append(c->u->u_varnames, name);
+        }
+        
+        if (flags == FREE || flags == CELL) {
+            // Замыкание -> co_cellvars/co_freevars
+            PyList_Append(c->u->u_cellvars, name);
+        }
+    }
+}
+```
 
-## Фрейм и физическое хранение локалов
+**Объяснение для людей:** Компилятор проходит по AST, собирает все `x=1`, `for x in y`, `def f(x):`. Затем
+`symtable_analyze()` решает: LOCAL (в locals), FREE (замыкание), GLOBAL.
 
-При вызове функции на уровне C создаётся `PyFrameObject`, который содержит: код-объект, указатель на предыдущий фрейм,
-стэк значений и структуру `localsplus`.
+## 3. LOAD_FAST - самый быстрый (ceval.c)
 
-В `localsplus` в современных версиях CPython хранятся:
+```c
+case LOAD_FAST: {
+    PyObject *value = GETLOCAL(oparg);     // f_localsplus[oparg] (прямой доступ!)
+    
+    if (value == NULL) {
+        format_exc_unbound(tstate, PyExc_UnboundLocalError,
+            UNBOUNDLOCAL_ERROR_MSG,
+            PyTuple_GET_ITEM(co->co_varnames, oparg));
+        goto error;                        // UnboundLocalError
+    }
+    
+    Py_INCREF(value);                      // +refcnt
+    PUSH(value);                           // На стек
+    FAST_DISPATCH();                       // Быстрый переход (без switch)
+}
+```
 
-- «Быстрые» локальные переменные (`co_varnames`) в фиксированном диапазоне слотов.
-- Ячейки для `cellvars`/`freevars` (closure) в отдельной части массива.
+**Объяснение для людей:** `LOAD_FAST 3` = `f_localsplus[3]` (массив указателей в фрейме). **Мгновенно** — без
+хеш-таблиц/поиска/MRO. Только проверка NULL.
 
-`f_locals` во фрейме — это *не* основной storage локалов, а «ленивый» словарь, синхронизируемый с `localsplus` через
-функции вроде `_PyFrame_FastToLocalsWithError()`. В обычном исполнении доступ к локалам идёт по индексам массива, а не
-через `dict`; словарь создаётся только по запросу (например, при обращении к `frame.f_locals` или вызове `locals()`),
-что важно для производительности.
+## 4. LOAD_NAME - локал/глобал/встроенный (ceval.c)
 
-Глобалы и builtins в фрейме представлены отдельными словарями:
+```c
+case LOAD_NAME: {
+    PyObject *name = GETITEM(names, oparg);     // co_names[oparg] = "x"
+    PyObject *localsplus = frame->f_localsplus;
+    Py_ssize_t i = name_hint;                   // Кеш из co_namei
+    
+    // Кеш работает?
+    if (i != INDEX_NONE && 
+        PyTuple_GET_ITEM(co->co_varnames, i) == name) {
+        PyObject *value = localsplus[i];
+        if (value != NULL) {
+            Py_INCREF(value);
+            PUSH(value);
+            DISPATCH();
+        }
+        i = INDEX_NONE;                        // Кеш промах
+    }
+    
+    // 1. Локальные (f_locals)
+    if (PyDict_CheckExact(f_locals)) {
+        value = PyDict_GetItemWithCache(f_locals, name, hash);
+        if (value != NULL) {
+            Py_INCREF(value);
+            PUSH(value);
+            DISPATCH();
+        }
+    }
+    
+    // 2. Глобальные (f_globals)
+    value = PyDict_GetItemWithCache(f_globals, name, hash);
+    if (value != NULL) {
+        Py_INCREF(value);
+        PUSH(value);
+        DISPATCH();
+    }
+    
+    // 3. Встроенные (f_builtins)
+    value = PyDict_GetItemWithCache(f_builtins, name, hash);
+    if (value != NULL) {
+        Py_INCREF(value);
+        PUSH(value);
+        DISPATCH();
+    }
+    
+    // NameError
+    format_exc_check_arg(tstate, PyExc_NameError, NAME_ERROR_MSG, name);
+    goto error;
+}
+```
 
-- `f_globals` — `dict` модуля (его `__dict__`).
-- `f_builtins` — `builtins.__dict__`.
+**Объяснение для людей:** `LOAD_NAME "x"` → **3 поиска**: locals dict → globals dict → builtins dict. **Кеш** `co_namei`
+ускоряет (опарг → индекс в `co_varnames`).
 
-## Разрешение имён: байткод и алгоритм
+## 5. LOAD_GLOBAL - только глобал/встроенный (ceval.c)
 
-Тип опкода для чтения/записи имени зависит от классификации символа компилятором:
+```c
+case LOAD_GLOBAL: {
+    PyObject *name = GETITEM(names, oparg>>1);      // co_names[oparg>>1]
+    PyObject *res = NULL;
+    uint32_t hints = oparg & 0xFFFF;               // Кеш: global_index + builtin_index
+    
+    // Кеш глобальной переменной
+    Py_ssize_t global_index = hints >> 8;
+    if (global_index != INDEX_NONE && 
+        PyTuple_GET_ITEM(co->co_names, global_index) == name) {
+        res = _PyDict_LookupWithCache(frame->f_globals, name, hints>>8);
+    }
+    
+    if (res == NULL) {
+        // Кеш встроенной
+        Py_ssize_t builtin_index = hints & 0xFF;
+        if (builtin_index != INDEX_NONE && 
+            PyTuple_GET_ITEM(co->co_names, builtin_index) == name) {
+            res = _PyDict_LookupWithCache(frame->f_builtins, name, hints&0xFF);
+        }
+    }
+    
+    if (res != NULL) {
+        Py_INCREF(res);
+        PUSH(res);
+        DISPATCH();
+    }
+    
+    // Полный поиск globals -> builtins
+    res = PyDict_GetItemWithCache(frame->f_globals, name, hash);
+    if (res == NULL) {
+        res = PyDict_GetItemWithCache(frame->f_builtins, name, hash);
+    }
+    
+    if (res == NULL) {
+        format_exc_check_arg(PyExc_NameError, NAME_ERROR_MSG, name);
+        goto error;
+    }
+    
+    Py_INCREF(res);
+    PUSH(res);
+    DISPATCH();
+}
+```
 
-- Локальные fast‑vars → `LOAD_FAST` / `STORE_FAST` с индексом в `co_varnames`.
-- Имя, точно не локальное (не помечено как local/cell/free) → `LOAD_GLOBAL` / `STORE_GLOBAL` с индексом в
-  `co_names`.
-- Переменные из замыканий → `LOAD_DEREF` / `STORE_DEREF` с индексом в массиве cell/free.
-- В некоторых контекстах (класс, `exec`, модуль) используется `LOAD_NAME`, который реализует общий поиск по
-  locals/globals/builtins.
+**Объяснение для людей:** `LOAD_GLOBAL "print"` → **только** globals + builtins (НЕ locals). **Двойной кеш** (16 бит): 8
+бит глобал + 8 бит builtin индекс.
 
-Под капотом опкоды делают следующее:
+## 6. LOAD_DEREF - замыкание/ nonlocal (ceval.c)
 
-### `LOAD_FAST i`
+```c
+case LOAD_DEREF: {
+    PyObject *cell = GETCLOSURE(oparg);     // func_closure[oparg]
+    
+    if (cell == NULL) {
+        goto unbound_error;                // Unbound closure variable
+    }
+    
+    PyObject *value = PyCell_Get(cell);    // cell->ob_ref
+    if (value == NULL) {
+        goto unbound_error;
+    }
+    
+    Py_INCREF(value);
+    PUSH(value);
+    DISPATCH();
+}
 
-- Берёт значение из `localsplus[i]` без словарей и дополнительных проверок, кроме проверки на `NULL` (в случае
-  неинициализированной переменной).
-- Это самый дешёвый вид доступа к имени (один массивный индекс + push на value stack).
+case STORE_DEREF: {
+    PyObject *v = POP();                   // Значение со стека
+    PyObject *cell = GETCLOSURE(oparg);    // func_closure[oparg]
+    
+    if (cell == NULL) {
+        goto unbound_error;
+    }
+    
+    PyCell_Set(cell, v);                   // cell->ob_ref = v
+    Py_DECREF(v);
+    DISPATCH();
+}
+```
 
-### `LOAD_GLOBAL i`
+**Объяснение для людей:** `LOAD_DEREF 0` → `func_closure[0]->ob_ref` (значение ячейки). `STORE_DEREF 0` →
+`func_closure[0]->ob_ref = value`.
 
-- Получает `PyObject *name = GETITEM(co_names, i)`.
-- Делает lookup в `f_globals` (словарь модуля); если не нашли, делает lookup в `f_builtins`.
-- Если нигде не найдено — выбрасывает `NameError`.
+## 7. compiler_lookup_name() - выбор опкода (compile.c)
 
-Ключевой момент: `LOAD_GLOBAL` *вообще не смотрит* в локальные fast‑vars, потому что компилятор заранее решил, что имя
-не может быть локальным.
+```c
+static int
+compiler_lookup_name(struct compiler *c, location loc, identifier name,
+                     expr_context_ty ctx, int error_ok) {
+    struct symtable *st = c->u->u_ste;
+    long flags = symtable_lookup(st, name);     // Получаем флаги
+    
+    switch (flags) {
+    case LOCAL:
+        if (ctx == Load) {
+            ADDINSTR(c, loc, LOAD_FAST, i);    // x -> LOAD_FAST i
+        } else {
+            ADDINSTR(c, loc, STORE_FAST, i);   // x = 1 -> STORE_FAST i
+        }
+        break;
+        
+    case FREE:
+    case CELL:
+        if (ctx == Load) {
+            ADDINSTR(c, loc, LOAD_DEREF, i);   // nonlocal x -> LOAD_DEREF
+        } else {
+            ADDINSTR(c, loc, STORE_DEREF, i);
+        }
+        break;
+        
+    case GLOBAL_EXPLICIT:
+    case GLOBAL_IMPLICIT:
+        if (ctx == Load) {
+            ADDINSTR(c, loc, LOAD_GLOBAL, i);  // global x -> LOAD_GLOBAL
+        } else {
+            ADDINSTR(c, loc, STORE_GLOBAL, i);
+        }
+        break;
+        
+    default:
+        if (ctx == Load) {
+            ADDINSTR(c, loc, LOAD_NAME, i);    // Неопределённая -> LOAD_NAME
+        } else {
+            ADDINSTR(c, loc, STORE_NAME, i);
+        }
+    }
+}
+```
 
-### `LOAD_NAME i`
+**Объяснение для людей:** Компилятор по флагам символа генерирует **правильный** опкод: LOCAL→FAST, FREE→DEREF,
+GLOBAL→GLOBAL, остальное→NAME.
 
-- Используется в ситуациях, где локалы не являются обычными fast‑vars (например, тело модуля, класс, `exec`).
-- Реализует «полное» LEGB-подобное поведение: сначала ищет в локальном словаре (`f_locals`), затем в `f_globals`, затем
-  в `f_builtins`.
-- В отличие от `LOAD_GLOBAL`, действительно заглядывает в локальные маппинги.
+## 8. f_localsplus - универсальный массив (3.11+)
 
-### `LOAD_DEREF i`
+```c
+struct _PyInterpreterFrame {
+    // ...
+    PyObject **localsplus;             // Массив: varnames + cellvars + freevars
+    Py_ssize_t nlocalsplus;            // Размер массива
+    // ...
+};
 
-- Используется для свободных/ячеечных переменных (enclosing scopes).
-- Получает `PyCellObject *cell` из секции cell/free в `localsplus` и читает `cell->ob_ref`.
-- Вложенная функция получает указатель на ту же ячейку, так что изменения через `STORE_DEREF` отражаются во внешнем
-  замыкании.
+#define GETLOCAL(i) (frame->localsplus[i])
+#define GETCLOSURE(i) (frame->localsplus[frame->f_lasti + (i)])
+```
 
-### Запись: `STORE_FAST`, `STORE_GLOBAL`, `STORE_DEREF`
+**Объяснение для людей:** **Единый массив** `localsplus[]`: сначала параметры/локальные (`co_varnames`), потом ячейки (
+`co_cellvars`), потом свободные (`co_freevars`). `LOAD_FAST 0` = `localsplus[0]`.
 
-- `STORE_FAST i` просто кладёт объект в слот `localsplus[i]` (инкрементируя refcount), при этом область видимости — уже
-  решённый факт (локальная).
-- `STORE_GLOBAL i` делает запись в `f_globals` по ключу `co_names[i]`.
-- `STORE_DEREF i` обновляет `cell->ob_ref` в массиве closure.
+## 9. Кеш LOAD_NAME/LOAD_GLOBAL (co_opcache)
 
-Поскольку область видимости (local/global/nonlocal) зашита в выбор опкода и индекс, на этапе выполнения *нет* логики
-анализа `global` или `nonlocal` — это всё уже отработало на уровне компилятора.
+```c
+typedef struct _PyCodeObject {
+    // ...
+    uint16_t *co_opcache;              // Кеш для LOAD_NAME/LOAD_GLOBAL
+    // ...
+} PyCodeObject;
+```
 
-## Влияние `global` и `nonlocal` на байткод
+**Объяснение для людей:** `co_opcache[oparg]` хранит **индекс** в `co_varnames` или хеш для globals/builtins. Промах →
+полный поиск.
 
-При разборе функции компилятор строит таблицу символов и отмечает имена из директив `global` как принадлежащие
-глобальному namespace модуля.
-
-- Для таких имён в теле функции не создаются fast‑slots (`co_varnames`), и для чтения/записи генерируются
-  `LOAD_GLOBAL` / `STORE_GLOBAL`.
-- Для имён из `nonlocal` компилятор ищет их в внешних блоках; найденные помечаются как `free` в текущем блоке и как
-  `cell` в enclosing блоке.
-- В результате внутренний код использует `LOAD_DEREF` / `STORE_DEREF`, а во внешней функции переменная перемещается из
-  `co_varnames` в `co_cellvars` и хранится в `PyCellObject`.
-
-Если имя используется и для чтения, и для записи без директив, оно помечается как локальное и компилятор генерирует
-`LOAD_FAST` / `STORE_FAST`; попытка чтения до присваивания на рантайме приводит к `UnboundLocalError`, потому что слот
-есть, но там `NULL`.
-
-## Отдельные области видимости: модуль, класс, exec
-
-### Модульный уровень
-
-- Тело модуля исполняется как код-объект, у которого `f_locals` и `f_globals` указывают на один и тот же dict (namespace
-  модуля).
-- Доступ к именам чаще всего идёт через `LOAD_NAME` / `STORE_NAME`, которые работают поверх `dict`, а не
-  fast‑locals.
-
-### Тело класса
-
-- Тело `class` исполняется с отдельным локальным mapping (не список fast‑vars), обычно обычный `dict` или объект,
-  переданный через `__prepare__`.
-- Имена в теле класса читаются/пишутся через `LOAD_NAME` / `STORE_NAME` и живут в `locals` этого блока, а после
-  завершения создаётся объект класса на основе полученного mapping.
-
-### `exec` / `eval`
-
-- Для `exec(source, globals, locals)` интерпретатор подготавливает фрейм, где `f_globals` и `f_locals` указывают на
-  заданные mapping‑объекты, и опкоды `LOAD_NAME` / `STORE_NAME` работают через протокол Mapping API.
-- Это даёт возможность иметь «нестандартные» области видимости, реализованные не через dict, но интерпретатор всё равно
-  опирается на общую машинерию опкодов `*_NAME`.
-
-## Интерактивный и отладочный доступ к scope
-
-- `frame.f_locals` в Python‑коде формируется вызовом `_PyFrame_FastToLocalsWithError()`, который копирует содержимое
-  `localsplus` в словарь и кеширует его внутри `frame`.
-- Обратная синхронизация (из dict обратно в fast‑locals) — через `_PyFrame_LocalsToFast()`; этим пользуются `exec`,
-  дебаггеры, `locals()` в некоторых режимах.
-- Обсуждения в PEP‑558 / PEP‑667 и issue `PyFrame_GetVar` как раз касаются того, как безопасно и консистентно
-  публиковать view на fast‑locals, не ломая производительность.
-
-Таким образом, «области видимости» в CPython — это результат статического анализа symbol table (решение, в какой
-таблице/ячейке живёт имя и какой опкод его обслуживает) плюс конкретная структура памяти (`localsplus` +
-`cell/free vars` + `f_globals`/`f_builtins`) и реализация опкодов, выполняющих lookup/запись по уже выбранному уровню
-scope.
+**Области видимости** в CPython 3.9+ — **symtable** (флаги DEF_*), компилятор → `LOAD_FAST`/`LOAD_NAME`/`LOAD_GLOBAL`/
+`LOAD_DEREF`, поиск localsplus→locals→globals→builtins, кеш `co_opcache`.
 
 - [Содержание](#содержание)
 
