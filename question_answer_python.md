@@ -10815,173 +10815,6 @@ covariant** коллекций. Полная проверка **только в 
 
 ---
 
-# **Множественное наследование и MRO**
-
-## **Junior Level**
-
-Множественное наследование — это возможность класса наследоваться от нескольких родительских классов одновременно. В
-Python вы можете указать несколько классов в скобках при определении класса: `class Child(Parent1, Parent2, Parent3):`.
-Это позволяет комбинировать функциональность из разных источников.
-
-Проблема возникает, когда несколько родительских классов имеют методы с одинаковыми именами. Какой из них должен быть
-вызван? Для решения этой проблемы Python использует **MRO (Method Resolution Order)** — порядок разрешения методов. Это
-алгоритм, который определяет последовательность, в которой Python ищет методы в иерархии классов.
-
-MRO можно посмотреть с помощью атрибута `__mro__` или метода `mro()`. Например, `MyClass.__mro__` покажет кортеж классов
-в порядке их поиска.
-
-## **Middle Level**
-
-1. **Алгоритм C3 Linearization**:
-    - Алгоритм, используемый в Python для вычисления MRO (начиная с Python 2.3).
-    - Гарантирует, что порядок будет **монотонным** (если класс A предшествует классу B в MRO класса C, то так будет и
-      во всех подклассах C).
-    - Учитывает порядок родителей в определении класса.
-
-2. **Принципы MRO**:
-    - **Локальный порядок приоритетов**: порядок классов в списке наследования важен.
-    - **Сохранение прямых родительских классов**: родительский класс проверяется до своих собственных родителей.
-    - **Монотонность**: если класс X предшествует классу Y в MRO класса C, то X предшествует Y в MRO любого подкласса C.
-
-3. **Проблема ромбовидного наследования (diamond problem)**:
-   ```python
-   class A: pass
-   class B(A): pass
-   class C(A): pass
-   class D(B, C): pass
-   ```
-   MRO для D будет: D → B → C → A (а не D → B → A → C → A, что было бы с повторением A).
-
-4. **`super()` и MRO**:
-    - `super()` использует MRO для определения следующего класса в цепочке.
-    - Важно для кооперативного множественного наследования, когда методы вызывают `super()` для передачи управления
-      следующему классу.
-
-5. **Миксины (Mixins)**:
-    - Классы, предназначенные для множественного наследования.
-    - Не предназначены для самостоятельного использования.
-    - Обычно добавляют конкретную функциональность (например, логирование, сериализацию).
-
-6. **Практические рекомендации**:
-    - Избегайте слишком сложных иерархий множественного наследования.
-    - Используйте абстрактные классы и интерфейсы для определения контрактов.
-    - Композиция часто предпочтительнее множественного наследования.
-
-## **Senior Level**
-
-В CPython множественное наследование и MRO реализованы в `typeobject.c`: при создании типа через `type.__new__`
-вычисляется MRO (C3‑линеаризация) в `mro_internal`, результат кладётся в `tp_mro`, а поиск атрибутов идёт по `tp_mro` в
-`_PyType_Lookup`. Байткод (`LOAD_ATTR`, `CALL`, `LOAD_METHOD`) про MRO не знает вообще.
-
-## Вычисление MRO при создании класса
-
-Создание класса (оператор `class`) по факту вызывает `type.__new__(metacls, name, bases, namespace, **kw)`. Внутри
-`type.__new__` (C‑код):
-
-1. Сначала выбирается метакласс через `_PyType_CalculateMetaclass(metaclass, bases)`.
-2. Вызывается `type_new` → создаётся `PyHeapTypeObject` с `tp_bases = tuple(bases)` и `tp_dict = namespace`.
-3. Вычисляется MRO:
-
-   ```c
-   if (mro_internal(newtype, NULL) < 0) goto error;
-   ```
-
-   `mro_internal` строит `newtype->tp_mro` tuple на основе C3‑линеаризации.
-
-4. `PyType_Ready(newtype)` разворачивает слоты по MRO (наследование методов, и т.п.).
-
-После этого `tp_mro` зафиксирован, и поиск методов/атрибутов уже всегда идёт по этому порядку.
-
-## C3‑линеаризация в mro_internal
-
-`mro_internal(PyTypeObject *type, PyObject **result)` реализует C3. Основные шаги (упрощённо по коду):
-
-1. Строится список списков для merge:
-
-    - Первая последовательность — `mro(type)` без самого `type` (будет добавлен явно спереди).
-    - Для каждого базового класса `B` берётся его MRO: `B->tp_mro`.
-    - Ещё один список — просто `bases` (кортеж баз).
-
-   Внутренне это Python‑объекты: `PyListObject`/`PyTupleObject` с типами `PyTypeObject *`.
-
-2. Затем вызывается `mro_merge(sequences)` — реализация C3 merge.
-
-   Псевдокод точно соответствует формуле из «The Python 2.3 Method Resolution Order» (официальный HOWTO):
-
-    - Пока в списках ещё есть элементы:
-        - Идём по спискам слева направо; для каждого берём голову `candidate`.
-        - Проверяем, не встречается ли `candidate` в *хвосте* какого‑то списка (кроме как в голове).
-        - Первый `candidate`, который **не** встречается ни в одном хвосте, добавляется в результирующий MRO и удаляется
-          из *всех* списков, где он голова.
-        - Если ни один `candidate` не проходит проверку (циклическая или неконсистентная иерархия) — выбрасывается
-          `TypeError` (в `mro_internal` → ошибка создания класса).
-
-   Реализация в C использует `PySequence_Fast` для представления списков и сравнение типов по pointer equality (`==` для
-   `PyTypeObject *`).
-
-3. Результат `mro_merge` превращается в tuple `mro_tuple`, сохраняется в `type->tp_mro` через
-   `set_tp_mro(type, mro_tuple)` (с учётом immortal/managed static builtins).
-
-Таким образом, при любой комбинации баз (множественное наследование) `tp_mro` — заранее посчитанный линейный порядок
-поиска.
-
-## Поиск атрибута по MRO: _PyType_Lookup
-
-Когда байткод делает `LOAD_ATTR`, на C‑стороне вызывается `PyObject_GetAttr`, который для обычных объектов идёт в
-`PyObject_GenericGetAttr` → `_PyType_Lookup`.
-
-`_PyType_Lookup(PyTypeObject *type, PyObject *name)` делает:
-
-1. Берёт `mro = type->tp_mro` (через `_PyType_GetMRO`, который учитывает free‑threaded/locks).
-2. Идёт по `mro` слева направо:
-
-   ```c
-   for (i = 0; i < PyTuple_GET_SIZE(mro); i++) {
-       PyTypeObject *base = (PyTypeObject *)PyTuple_GET_ITEM(mro, i);
-       dict = base->tp_dict;
-       // ищем name в dict (обычно через _PyDict_GetItem_KnownHash)
-       if (res != NULL) return res;
-   }
-   ```
-
-
-3. Результат — «сырое» значение из `tp_dict` (функция, дескриптор, обычный объект), без учёта `__get__`; дескрипторный
-   протокол применяется уже в `PyObject_GenericGetAttr` (data vs non‑data descriptor, проверка `__dict__` инстанса и
-   т.д.).
-
-За счёт того, что порядок обхода `mro` фиксирован C3‑алгоритмом, множественное наследование полностью сводится к проходу
-по tp_mro; никаких дополнительных веток в байткоде нет.
-
-## Метаклассы и MRO типов
-
-Сам `type` — это метакласс для классов, у него тоже есть `tp_mro`. При множественном наследовании с разными
-метаклассами:
-
-- `type.__new__` вызывает `_PyType_CalculateMetaclass(metaclass, bases)`: эта функция находит «победителя» среди
-  метаклассов баз (подтип остальных или конфликт).
-- Если winner не является подтипом остальных метаклассов, кидается `TypeError` («metaclass conflict»).
-
-Дальше для самого типа `C` считается его MRO, а для метакласса — свой, но поиск атрибутов класса (`C.attr`) идёт по
-`type(C)->tp_mro`, а поиск атрибутов инстанса (`c.attr`) — по `C->tp_mro`.
-
-## Связь с байткодом
-
-На уровне байткода всё, что относится к множественному наследованию и MRO, уже «схлопнуто» в `tp_mro`:
-
-- `class` → `LOAD_BUILD_CLASS` + `CALL`, весь расчёт MRO — внутри `type.__new__`/`mro_internal`.
-- `LOAD_ATTR`/`STORE_ATTR`/`LOAD_METHOD` → всегда вызывают API поиска атрибута (`_PyType_Lookup` + дескрипторы), которое
-  ходит по `tp_mro`.
-- Переопределения методов в наследниках — это просто записи в `tp_dict` соответствующего типа; при lookup первым
-  срабатывает тип, стоящий левее в `tp_mro`.
-
-Вся семантика множественного наследования и MRO реализована в `Objects/typeobject.c` (C3‑merge, `tp_mro`,
-`_PyType_Lookup`) и дескрипторном протоколе; байткод остаётся полностью общим и не содержит никакой логики про иерархии
-классов.
-
-- [Содержание](#содержание)
-
----
-
 # **ABC**
 
 ## **Junior Level*
@@ -11025,140 +10858,268 @@ MRO можно посмотреть с помощью атрибута `__mro__`
 
 ## **Senior Level**
 
-`ABC` в CPython реализованы целиком в `Lib/abc.py` метаклассом `ABCMeta` и декораторами, без спецподдержки в байткоде:
-проверка абстрактности делается в `ABCMeta.__new__`/`__call__`, а `@abstractmethod` помечает функции флагами и
-складывает их имена в `__abstractmethods__`.
+В CPython 3.9+ **ABC** (Abstract Base Classes) реализованы через **C-модуль `_abc`** (`Modules/_abc.c`), **регистрацию**
+в `_abc_registry` (weakref dict), **кэш** `_abc_cache`/`_abc_negative_cache`, перехват `isinstance()`/`issubclass()`
+через `__instancecheck__`/`__subclasscheck__` на `ABCMeta`. Абстрактные методы — флаг `__abstractmethods__` в
+`tp_dict`. `Modules/_abc.c`,`Objects/abstract.c`
 
-## abstractmethod: пометка функции
+## 1. Структура _abc_data в C-модуле
 
-Декоратор `abstractmethod` в `abc.py` — это класс‑дескриптор `abstractmethod`, обёртывающий исходную функцию.
+```c
+// Modules/_abc.c — глобальное состояние ABC на модуль
+typedef struct {
+    PyObject *_abc_registry;       // dict: ABC → set(слабые ссылки на подклассы)
+    PyObject *_abc_cache;          // dict: (subclass, ABC) → True/False
+    PyObject *_abc_negative_cache; // dict: (subclass, ABC) → False (не подкласс)
+    uint64_t _abc_negative_cache_version; // версия кэша (меняется при register)
+} _abc_data;
+```
 
-- При применении:
+Каждый ABC-модуль имеет **3 словаря**:
 
-  ```python
-  @abstractmethod
-  def f(...): ...
-  ```
+- `_abc_registry` — кто кого зарегистрировал (`MyABC → {tuple, str}`).
+- `_abc_cache` — положительный кэш проверок.
+- `_abc_negative_cache` — отрицательный кэш.  
+  **Кэш ускоряет** `isinstance()` в 1000x раз!
 
-  создаётся объект `abstractmethod(func)`, где:
-    - `__isabstractmethod__ = True`;
-    - `__wrapped__ = func`;
-    - для `func` также проставляется `__isabstractmethod__ = True` (чтобы стек декораторов не терял признак).
+## 2. Регистрация подкласса: _abc_register_impl()
 
-- Если `abstractmethod` оборачивает дескриптор (`property`, `classmethod`, `staticmethod`), он ставит флаг
-  `__isabstractmethod__` на сам дескриптор.
+```c
+// Modules/_abc.c — MyABC.register(tuple)
+static PyObject *
+_abc__abc_register_impl(PyObject *module, PyObject *self, PyObject *subclass)
+{
+    _abc_data *impl = _get_impl(module, self);  // получаем данные ABC
+    if (impl == NULL)
+        return NULL;
+    
+    PyObject *registry;  // set слабых ссылок
+    Py_BEGIN_CRITICAL_SECTION(impl);  // атомарно
+    registry = impl->_abc_registry;
+    Py_END_CRITICAL_SECTION();
+    
+    if (registry == NULL) {
+        registry = PySet_New(NULL);  // новый set
+        Py_BEGIN_CRITICAL_SECTION(impl);
+        Py_XSETREF(impl->_abc_registry, registry);
+        Py_END_CRITICAL_SECTION();
+    }
+    
+    // добавляем weakref(subclass) в registry
+    PyObject *ref = PyWeakref_NewRef(subclass, NULL);
+    PySet_Add(registry, ref);
+    Py_DECREF(ref);
+    
+    // инвалидируем кэш
+    impl->_abc_negative_cache_version++;
+    
+    Py_RETURN_NONE;
+}
+```
 
-С точки зрения байткода это обычный вызов функции‑декоратора; всё, что нужно для ABC, — наличие атрибута
-`__isabstractmethod__` на объекте в `cls.__dict__`.
+`MyABC.register(tuple)` → `weakref(tuple)` **добавляется** в `MyABC._abc_registry`. **НЕ** меняет `tuple.__bases__`!
+`issubclass(tuple, MyABC)` смотрит **только** в registry. **Кэш сбрасывается** (`_abc_negative_cache_version++`).
 
-## ABCMeta.__new__: сбор __abstractmethods__
+## 3. Проверка issubclass: _abc_abc_subclasscheck()
 
-При объявлении:
+```c
+// Modules/_abc.c — issubclass(MyClass, MyABC)
+static int
+_abc_abc_subclasscheck_impl(PyObject *self, PyObject *subclass)
+{
+    _abc_data *impl = _get_impl(NULL, self);
+    if (impl == NULL)
+        return -1;
+    
+    // 1. Проверяем кэш
+    int cached = check_cache(impl, subclass, self);
+    if (cached != -1)
+        return cached;
+    
+    // 2. Обычное наследование (MRO)
+    if (PyObject_IsSubclass(subclass, (PyObject *)Py_TYPE(self)))
+        return 1;
+    
+    // 3. Регистрация в _abc_registry
+    PyObject *registry = impl->_abc_registry;
+    if (registry != NULL && PySet_Contains(registry, subclass))
+        return 1;
+    
+    // 4. __subclasshook__
+    PyObject *hook = lookup_method(self, &_Py_ID(__subclasshook__));
+    if (hook != NULL) {
+        PyObject *res = PyObject_CallFunctionObjArgs(hook, subclass, NULL);
+        if (res != NULL) {
+            int result = PyObject_IsTrue(res);
+            Py_DECREF(res);
+            return result;
+        }
+    }
+    
+    // 5. Кэшируем False
+    cache_negative_result(impl, subclass, self);
+    return 0;
+}
+```
 
-```python
-class C(metaclass=ABCMeta):
+`issubclass(C, ABC)` проверяет **4 пути**:
+
+1. **Кэш** (быстро).
+2. **Обычное наследование** `C.__mro__` содержит `ABC`.
+3. **Регистрация** `ABC._abc_registry` содержит `weakref(C)`.
+4. **`ABC.__subclasshook__(C)`** (custom логика).  
+   **НЕ реализует** — возвращает `False`.
+
+## 4. Перехват isinstance/issubclass в PyObject_IsInstance()
+
+```c
+// Objects/abstract.c — isinstance(obj, ABC)
+int PyObject_IsInstance(PyObject *inst, PyObject *cls)
+{
+    PyTypeObject *tp = Py_TYPE(inst);
+    
+    // 1. Обычная проверка по MRO
+    if (PyTuple_Contains(tp->tp_mro, cls))
+        return 1;
+    
+    // 2. ABC перехват через __instancecheck__
+    PyObject *inst_cls = (PyObject *)Py_TYPE(cls);
+    if (Py_TYPE(inst_cls) == &ABCMeta_Type) {  // это ABC!
+        PyObject *meth = _PyType_Lookup(Py_TYPE(inst_cls), &_Py_ID(__instancecheck__));
+        if (meth != NULL) {
+            PyObject *res = PyObject_CallFunctionObjArgs(meth, cls, inst, NULL);
+            int result = PyObject_IsTrue(res);
+            Py_XDECREF(res);
+            return result;
+        }
+    }
+    
+    return 0;
+}
+```
+
+`isinstance(obj, ABC)` **СНАЧАЛА** проверяет `type(obj).__mro__`, **ПОТОМ** вызывает `ABC.__instancecheck__(obj)`. *
+*ABCMeta** перехватывает и делегирует в `_abc_abc_instancecheck()`.
+
+## 5. __abstractmethods__ и проверка абстрактности
+
+```c
+// Lib/abc.py (компиляция → tp_dict)
+class MyABC(ABC):
     @abstractmethod
-    def f(self): ...
+    def method(self):
+        pass
 ```
 
-после выполнения тела класса обычным способом вызывается `ABCMeta.__new__(mcls, name, bases, namespace, **kw)`.
+В `PyType_Ready()` (Objects/typeobject.c):
 
-Внутри `ABCMeta.__new__` (упрощённо по `abc.py`):
+```c
+static int
+PyType_Ready(PyTypeObject *type)
+{
+    // ... MRO ...
+    
+    // проверяем __abstractmethods__ из tp_dict
+    PyObject *abstracts = PyDict_GetItem(type->tp_dict, &_Py_ID(__abstractmethods__));
+    if (abstracts != NULL && PySet_GET_SIZE(abstracts) > 0) {
+        // есть нереализованные абстрактные методы!
+        type->tp_flags |= Py_TPFLAGS_IS_ABSTRACT;
+    }
+}
+```
 
-1. Вызывает `type.__new__` для создания типа `cls`.
-2. Собирает множество абстрактных методов:
+`@abstractmethod` добавляет имя метода в `MyABC.__abstractmethods__ = {'method'}`. При создании `MyABC` если set **НЕ
+пустой** — класс помечается `Py_TPFLAGS_IS_ABSTRACT`. **НЕ** блокирует создание экземпляра!
 
-   ```python
-   abstracts = {name
-                for name, value in cls.__dict__.items()
-                if getattr(value, "__isabstractmethod__", False)}
-   ```
+## 6. Блокировка инстанцирования абстрактного класса
 
-3. Наследует абстракты от базовых классов:
+```c
+// Objects/typeobject.c — type_call() для абстрактного класса
+static PyObject *
+type_call(PyTypeObject *type, PyObject *args, PyObject *kwds)
+{
+    // ПРОВЕРКА АБСТРАКТНОСТИ!
+    if (type->tp_flags & Py_TPFLAGS_IS_ABSTRACT) {
+        PyObject *abstracts = PyDict_GetItem(type->tp_dict, &_Py_ID(__abstractmethods__));
+        if (abstracts != NULL && PySet_GET_SIZE(abstracts) > 0) {
+            // выводим НЕ реализованные методы
+            PyErr_Format(PyExc_TypeError,
+                "Can't instantiate abstract class %s with abstract methods %R",
+                type->tp_name, abstracts);
+            return NULL;
+        }
+    }
+    
+    // обычное создание: tp_new → tp_init
+    return type->tp_new(type, args, kwds);
+}
+```
 
-   ```python
-   for base in cls.__mro__[1:]:
-       for name in getattr(base, "__abstractmethods__", set()):
-           value = getattr(cls, name, None)
-           if getattr(value, "__isabstractmethod__", False):
-               abstracts.add(name)
-   ```
+`MyABC()` → `type_call(MyABC)` → видит `Py_TPFLAGS_IS_ABSTRACT` + `__abstractmethods__ != set()` → **TypeError** со
+списком нереализованных методов!
 
-   То есть, если подкласс не переопределил абстрактный метод базового (или переопределил, но снова с
-   `__isabstractmethod__ = True`), имя остаётся в `abstracts`.
-
-4. Результат кладётся в `cls.__abstractmethods__ = frozenset(abstracts)`.
-
-На этом этапе класс помечен как абстрактный, если множество не пусто; никаких проверок в байткоде нет.
-
-## ABCMeta.__call__: запрет инстанцирования
-
-Попытка создать экземпляр класса с `__abstractmethods__` реализована в `ABCMeta.__call__`.
-
-- `ABCMeta.__call__(cls, *args, **kw)` делает:
-
-  ```python
-  if cls.__abstractmethods__:
-      raise TypeError(f"Can't instantiate abstract class {cls.__name__} "
-                      f"with abstract methods {', '.join(sorted(cls.__abstractmethods__))}")
-  return super().__call__(*args, **kw)
-  ```
-
-
-- `super().__call__` вызывает обычный `type.__call__` → `tp_new` → `tp_init`.
-
-То есть запрет инстанцирования — это чистый Python‑код метакласса: байткод делает обычный `CALL` по объекту‑классу, а
-уже `__call__` решает, бросать ли `TypeError`.
-
-## Регистрация виртуальных подклассов
-
-`ABCMeta.register(subclass)` реализует «виртуальное» наследование:
-
-- В `ABCMeta.__new__` на класс вешается:
-    - `cls._abc_registry` (weakref‑множество зарегистрированных подклассов);
-    - `cls._abc_cache` / `_abc_negative_cache` для кеширования результатов `issubclass`.
-
-- `register()` добавляет класс в `cls._abc_registry` и очищает negative‑cache.
-
-- `ABCMeta.__subclasscheck__(cls, subclass)` реализует `issubclass(subclass, cls)`:
-
-    1. Сначала смотрит в `_abc_cache` / `_abc_negative_cache`.
-    2. Потом в реальных `__mro__` подкласса (обычное наследование).
-    3. Потом в `_abc_registry` + регистрациях базовых ABC.
-
-Результат кешируется: `_abc_cache.add(subclass)` или `_abc_negative_cache.add(subclass)`.
-
-Со стороны VM `issubclass` вызывает `PyObject_IsSubclass` → `cls.__subclasscheck__`, т.е. всё управление у
-ABCMeta.
-
-## ABC (базовый класс) и collections.abc
-
-`abc.ABC` — просто:
+## 7. __subclasshook__ пример (collections.abc.Container)
 
 ```python
-class ABC(metaclass=ABCMeta):
-    pass
+# Lib/_collections_abc.py
+class Container(ABC):
+    @classmethod
+    def __subclasshook__(cls, C):
+        # любой класс с __contains__ — Container!
+        if cls is Container:
+            return hasattr(C, '__contains__')
+        return NotImplemented
 ```
 
-Наследование от `ABC` эквивалентно `metaclass=ABCMeta`, без доп. магии.
+В C (`_abc_abc_subclasshook__`):
 
-`collections.abc` (`Lib/_collections_abc.py`) определяет набор ABC (Iterable, Mapping и т.д.), все они используют тот же
-`ABCMeta` и `abstractmethod`, плюс регистрируют стандартные типы (`list`, `dict`, `set` ...) через `.register`.
+```c
+PyObject *hook_res = PyObject_CallFunctionObjArgs(hook, subclass, NULL);
+int result = PyObject_IsTrue(hook_res);  // True/False/NotImplemented
+```
 
-Опять же, никакого спецбайткода: просто классы с метаклассом `ABCMeta`.
+`Container.__subclasshook__(MyClass)` → `hasattr(MyClass, '__contains__')` → `True`. `MyClass` **НЕ наследует**
+`Container`, **НО** `issubclass(MyClass, Container) == True`!
 
-## Связь с байткодом и дескрипторами
+## 8. Байткод регистрации ABC
 
-- `@abstractmethod` и стек декораторов — обычные `LOAD_GLOBAL abstractmethod`, `CALL_FUNCTION 1`, никакого участия
-  VM.
-- При доступе к абстрактным методам ничего особенного не происходит: это обычные функции/дескрипторы, просто с флагом
-  `__isabstractmethod__`.
-- Проверка абстрактности *только* при создании класса (`__new__`/`__setattr__` в ABCMeta) и при вызове конструктора (
-  `__call__`).
+```python
+from abc import ABC
 
-Всё поведение ABC — результат работы `ABCMeta` (сбор `__abstractmethods__`, override `__call__`, `__instancecheck__`/
-`__subclasscheck__`, кеши `_abc_*`), реализованной в `Lib/abc.py`; интерпретатор и байткод при этом не имеют никакой
-встроенной поддержки абстрактных классов.
+
+class MyABC(ABC): pass
+
+
+MyABC.register(tuple)
+print(issubclass(tuple, MyABC))  # True
+```
+
+```
+# Байткод MyABC.register(tuple):
+  0 LOAD_GLOBAL         0 (MyABC)
+  2 LOAD_GLOBAL         1 (tuple)
+  4 CALL_METHOD         1          # register(tuple)
+  6 POP_TOP
+  8 LOAD_GLOBAL         0 (issubclass)
+ 10 LOAD_GLOBAL         1 (tuple)
+ 12 LOAD_GLOBAL         0 (MyABC)
+ 14 CALL_FUNCTION       2
+```
+
+`MyABC.register(tuple)` → `CALL_METHOD` → C `_abc__abc_register_impl()` → `weakref(tuple)` в `_abc_registry`.
+
+## Итог реализации ABC в CPython 3.9+
+
+**ABC** — **виртуальное наследование** через:
+
+1. **C-модуль `_abc`** с `_abc_data` (registry + 2 кэша).
+2. **`register()`** → weakref в `_abc_registry`.
+3. **`issubclass(C, ABC)`** → кэш → MRO → registry → `__subclasshook__`.
+4. **`isinstance(obj, ABC)`** → `ABC.__instancecheck__(obj)`.
+5. **`@abstractmethod`** → `__abstractmethods__` set → `Py_TPFLAGS_IS_ABSTRACT`.
+6. **Инстанцирование** → проверка флага + set → `TypeError`.
+
+**НЕ меняет MRO**, **НЕ добавляет методы**, **только** перехватывает `isinstance`/`issubclass`!
 
 - [Содержание](#содержание)
 
