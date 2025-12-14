@@ -8589,6 +8589,275 @@ private) атрибуты и методы. Это помогает защити�
     - Абстрактные классы (`abc.ABC`) определяют контракты без раскрытия реализации.
     - Протоколы (`typing.Protocol`) для структурной типизации.
 
+## **Senior Level**
+
+В CPython 3.9+ **инкапсуляция** — **name mangling** (`_Class__private` в compile.c), **`__slots__`** (
+`tp_dictoffset=0`), **descriptor протокол** (`property`/`@property`), **`__getattribute__`** защита, **`__dict__`** по
+`tp_dictoffset`. **НЕ** есть `private/protected`. `Python/compile.c`,`Objects/object.c`,`Objects/descrobject.c`
+
+## 1. Name mangling в компиляторе (Python/compile.c)
+
+```c
+static const char * _Py_Mangle(const char *privateobj, const char *privatename) {
+    /* Name mangling: __private -> _Class__private */
+    const char *p;
+    size_t len_privateobj = strlen(privateobj);
+    size_t len_privatename = strlen(privatename);
+    size_t len = len_privateobj + len_privatename + 1;
+    char *mangled = PyMem_Malloc(len + 1);
+    
+    if (mangled == NULL)
+        return NULL;
+    
+    /* Skip leading underscores (_Class -> Class) */
+    p = privateobj;
+    while (*p == '_')
+        p++;
+    
+    /* privateobj + privatename */
+    strcpy(mangled, "_");
+    strcat(mangled, p);           // _Class
+    strcat(mangled, privatename); // _Class__private
+    
+    return mangled;
+}
+
+static identifier compiler_nameop(struct compiler *c, location loc, identifier name, expr_context_ty ctx) {
+    if (ctx == Load && c->u->u_scope_type == COMPILER_SCOPE_CLASS &&
+        PyUnicode_GET_LENGTH(name) >= 2 &&
+        PyUnicode_READ_CHAR(name, 0) == '_' &&
+        PyUnicode_READ_CHAR(name, 1) == '_') {
+        
+        /* __private -> _Class__private */
+        identifier class_name = c->u->u_private;  // 'MyClass'
+        mangled = _Py_Mangle(PyUnicode_AsUTF8(class_name), PyUnicode_AsUTF8(name));
+        if (mangled == NULL)
+            return NULL;
+        
+        name = PyUnicode_FromString(mangled);
+        PyMem_Free(mangled);
+    }
+    return name;
+}
+```
+
+`class MyClass: def __private(self): pass` → компилятор **заменяет** `__private` на `_MyClass__private` **в байткоде**.
+`LOAD_NAME '__private'` → `LOAD_NAME '_MyClass__private'`. **Подкласс** `class Sub(MyClass):` ищет `__private` →
+`_Sub__private` (НЕ находит родительский). **Не private** — просто **избегает конфликтов** имён!
+
+## 2. Байткод с mangling
+
+```python
+class MyClass:
+    def __private(self):
+        pass
+
+
+class Sub(MyClass):
+    def f(self):
+        self.__private()  # _Sub__private()
+```
+
+```
+# Байткод Sub.f():
+  0 LOAD_FAST           0 (self)
+  2 LOAD_ATTR           0 (_Sub__private)  # <- mangled!
+  4 CALL_FUNCTION       1
+  6 POP_TOP
+  8 LOAD_CONST          0 (None)
+ 10 RETURN_VALUE
+```
+
+В байткоде **НЕ** `self.__private()`, а `self._Sub__private()`. Компилятор **заменил** имя **статически**.
+`MyClass().__private()` → **AttributeError** (ищет `_MyClass__private`).
+
+## 3. __slots__ - без __dict__ (Objects/typeobject.c)
+
+```c
+int PyType_Ready(PyTypeObject *type) {
+    // ...
+    
+    /* __slots__ = () -> tp_dictoffset=0 */
+    if (type->tp_dictoffset == 0) {
+        /* Нет __dict__ - экономим память */
+        type->tp_flags |= Py_TPFLAGS_HAVE_SLOTS;
+    }
+    
+    /* Вычисляем реальный размер экземпляра */
+    if (type->tp_itemsize != 0) {
+        /* Переменная длина (str, tuple) */
+        type->tp_basicsize = -type->tp_basicsize;
+    }
+    
+    type->tp_flags |= Py_TPFLAGS_READY;
+    return 0;
+}
+
+PyObject *type_new(PyTypeObject *type, PyObject *args, PyObject *kwargs) {
+    Py_ssize_t nslots = type->tp_dictoffset / sizeof(PyObject *);
+    
+    /* Выделяем память */
+    PyObject *inst = PyObject_MALLOC(type->tp_basicsize + 
+                                   nslots * sizeof(PyObject *));
+    
+    if (inst == NULL)
+        return PyErr_NoMemory();
+    
+    /* НЕТ __dict__ если slots */
+    if (type->tp_dictoffset == 0) {
+        /* slots = ['name', 'age'] -> фиксированные поля */
+        memset(inst + type->tp_basicsize, 0, nslots * sizeof(PyObject *));
+    }
+    
+    return inst;
+}
+```
+
+`class Point: __slots__ = ['x', 'y']` → `Point.tp_dictoffset = 0` → **НЕТ** `PyDictObject __dict__` (экономия ~64
+байт!). `p.x` → **фиксированное поле** по offset (не поиск в хеш-таблице). `p.z = 1` → **AttributeError**!
+
+## 4. __getattribute__ защита (Objects/object.c)
+
+```c
+static PyObject *instance_getattro(PyObject *self, PyObject *name) {
+    PyInstanceObject *inst = (PyInstanceObject*)self;
+    PyTypeObject *type = Py_TYPE(self);
+    
+    /* 1. __getattribute__ перехватывает */
+    if (type->tp_getattro != PyObject_GenericGetAttr) {
+        return type->tp_getattro(self, name);
+    }
+    
+    /* 2. Дескрипторы класса */
+    PyObject *descr = _PyType_Lookup(type, name);
+    if (descr != NULL) {
+        descrgetfunc f = Py_TYPE(descr)->tp_descr_get;
+        if (f != NULL) {
+            PyObject *res = f(descr, self, (PyObject *)type);
+            return res;
+        }
+    }
+    
+    /* 3. __dict__[name] */
+    PyObject **dictptr = _PyObject_GetDictPtr(self);
+    if (dictptr != NULL && *dictptr != NULL) {
+        PyObject *res = PyDict_GetItem(*dictptr, name);
+        if (res != NULL) {
+            Py_INCREF(res);
+            return res;
+        }
+    }
+    
+    /* 4. __getattr__ */
+    if (type->tp_getattro == PyObject_GenericGetAttr) {
+        PyObject *res = PyObject_GenericGetAttr(self, name);
+        if (res != NULL)
+            return res;
+    }
+    
+    PyErr_Format(PyExc_AttributeError,
+        "'%.50s' object has no attribute '%.400s'",
+        type->tp_name, PyUnicode_AsUTF8(name));
+    return NULL;
+}
+```
+
+`class C: def __getattribute__(self, name): if name=='_private': raise AttributeError` → **все** `c._private` →
+`__getattribute__` → **блок**. **НЕ** доходит до `__dict__`!
+
+## 5. Property дескриптор (Objects/descrobject.c)
+
+```c
+typedef struct {
+    PyObject_HEAD
+    PyGetterDescrObject *prop_get;     // fget функция
+    PySetterDescrObject *prop_set;     // fset функция
+    PyDeleterDescrObject *prop_del;    // fdel функция
+    PyObject *prop_doc;                // __doc__
+} PyPropertyObject;
+
+static PyObject *property_get(PyPropertyObject *self, PyObject *obj, PyObject *type) {
+    PyObject *func = (PyObject*)self->prop_get;
+    
+    if (func == NULL) {
+        PyErr_SetString(PyExc_AttributeError,
+            "can't get attribute");
+        return NULL;
+    }
+    
+    /* Вызываем getter(self) */
+    PyObject *args = PyTuple_New(1);
+    PyTuple_SET_ITEM(args, 0, Py_NewRef(obj));
+    PyObject *result = PyObject_Call(func, args, NULL);
+    Py_DECREF(args);
+    return result;
+}
+```
+
+`@property def x(self): return self._x` → **PyPropertyObject** с `prop_get=fget`. `c.x` →
+`property_get(property, c, C)` → `fget(c)` → `_x`. **НЕ** хранит значение — **вычисляет**!
+
+## 6. __slots__ layout в памяти
+
+```c
+class Point:
+    __slots__ = ['x', 'y']  # 2 * PyObject* = 16 байт
+
+# Point в памяти:
+PyObject_HEAD (16 байт) + x (8 байт) + y (8 байт) = 32 байт
+# Без slots: PyObject_HEAD + __dict__ (64+ байт) = 80+ байт!
+```
+
+**Обычный класс**: `[refcnt][type][__dict__ ptr][данные]`. **`__slots__`**: `[refcnt][type][x ptr][y ptr]`. **НЕТ**
+хеш-таблицы `__dict__` — **фиксированные поля** по offset. **10x быстрее** доступ + **экономия памяти**.
+
+## 7. Байткод доступа к атрибуту
+
+```python
+class C:
+    def __init__(self):
+        self.x = 42
+
+
+c = C()
+print(c.x)
+```
+
+```
+# Байткод:
+  0 LOAD_GLOBAL         0 (C)
+  2 CALL                0
+  4 STORE_FAST          0 (c)
+  6 LOAD_FAST           0 (c)
+  8 LOAD_ATTR           0 (x)        # c.x -> PyObject_GetAttr
+ 10 CALL                1 (print)
+```
+
+`LOAD_ATTR 0 (x)` → `PyObject_GetAttr(c, 'x')` → `instance_getattro(c, 'x')` → **поиск**: класс → `__dict__` →
+`__getattr__`.
+
+## 8. Защита через __setattr__ (user-level)
+
+```python
+class SafeDict(dict):
+    def __setattr__(self, name, value):
+        if name.startswith('_'):
+            raise AttributeError(f"cannot set {name}")
+        object.__setattr__(self, name, value)
+
+    def __setitem__(self, key, value):
+        if key.startswith('_'):
+            raise KeyError(f"cannot set {key}")
+        super().__setitem__(key, value)
+```
+
+`sd = SafeDict(); sd._secret = 1` → `__setattr__` → **блок**. `sd['_secret'] = 1` → `__setitem__` → **блок**. **Двойная
+защита**!
+
+**Инкапсуляция** в CPython 3.9+ — **name mangling** (`_Class__private` compile-time), **`__slots__`** (
+`tp_dictoffset=0`), **`__getattribute__`/`__setattr__`** перехват, **property дескрипторы** (`prop_get`), *
+*`PyObject_GenericGetAttr()`** порядок поиска.
+
 - [Содержание](#содержание)
 
 ---
@@ -8658,6 +8927,407 @@ private) атрибуты и методы. Это помогает защити�
 
 10. **Композиция vs наследование**:
     Наследование создаёт жёсткую связь "является", композиция — гибкую связь "имеет". Композиция часто предпочтительнее.
+
+## **Senior Level**
+
+В CPython 3.9+ **наследование** реализовано через **PyTypeObject.tp_bases** (кортеж баз), **tp_base** (один общий
+базовый), **tp_mro** (готовый MRO C3), и работу `PyType_Ready()` + `type.__call__` + `LOAD_SUPER_ATTR` для
+`super()`.[1][2]
+
+***
+
+## PyTypeObject и хранение баз
+
+```c
+// Упрощённая часть PyTypeObject (Objects/typeobject.c)
+typedef struct _typeobject {
+    PyObject_VAR_HEAD              // refcnt, type="type", имя класса
+    const char *tp_name;           // "MyClass"
+    Py_ssize_t tp_basicsize;       // размер экземпляра
+    Py_ssize_t tp_itemsize;        // для переменной длины
+
+    // ... много слотов опущено ...
+
+    PyObject *tp_bases;            // tuple базовых классов (B, C)
+    PyTypeObject *tp_base;         // один "основной" базовый тип
+    PyObject *tp_mro;              // tuple MRO: (D, B, C, object)
+    PyObject *tp_dict;             // __dict__ самого класса
+    PyObject *tp_subclasses;       // список слабых ссылок на подклассы
+
+    unsigned long tp_flags;        // флаги (Py_TPFLAGS_HAVE_GC, BASETYPE и т.п.)
+} PyTypeObject;
+```
+
+Комментарии:
+
+- `tp_bases` — кортеж всех указанных баз (`(B, C)` у `class D(B, C): ...`).
+- `tp_base` — “основный” один базовый тип (обычно первый в `tp_bases`, либо `object`).
+- `tp_mro` — кортеж **линейного порядка разрешения методов** (`(D, B, C, object)` для ромбовидного наследования).
+- `tp_subclasses` — связка “родитель знает, какие у него дети” (для `__subclasses__()`).
+
+каждый класс в CPython — это **C-структура** `PyTypeObject`, где есть: имя класса, размеры объектов, список родителей,
+MRO, словарь методов, список детей. Наследование пишется в питоне, но *хранится* как поля `tp_bases/tp_mro` в этой
+структуре.
+
+***
+
+## Создание класса и заполнение tp_bases (compiler_class)
+
+```c
+// Python/compile.c — генерация кода для class
+static int
+compiler_class(struct compiler *c, location loc, stmt_ty s) {
+    // s->v.ClassDef.name = имя класса (identifier)
+    // s->v.ClassDef.bases = список выражений базовых классов
+
+    // 1) скомпилировать выражения баз, они окажутся на стеке
+    VISIT_SEQ(c, expr, s->v.ClassDef.bases);  // LOAD_NAME B, LOAD_NAME C, ...
+
+    // 2) собрать их в tuple
+    ADDOP_I(c, loc, BUILD_TUPLE, PySequence_SIZE(s->v.ClassDef.bases));
+    // теперь на стеке tuple(bases)
+
+    // 3) создать namespace (обычно dict)
+    ADDOP(c, loc, LOAD_BUILD_CLASS);       // функция builtins.__build_class__
+    // ... компиляция тела класса в отдельную функцию-прослойку ...
+
+    // 4) вызвать __build_class__(body_func, name, bases_tuple, **kw)
+    // возвращённый объект – готовый класс (= PyTypeObject на C стороне)
+    ADDOP(c, loc, CALL_FUNCTION_EX, 1);    // CALL_FUNCTION_EX оparg=1: есть *args
+
+    // 5) сохранить класс в locals
+    ADDOP_NAME(c, loc, STORE_NAME, s->v.ClassDef.name, names);
+
+    return 1;
+}
+```
+
+`class D(B, C): ...` компилируется в вызов `__build_class__`, которому передаётся: функция-тело класса, строка `"D"`,
+кортеж `(B, C)` и kwargs (метакласс, если был). Дальше всё делает C-реализация `type`/метакласса.
+
+***
+
+## type.__new__ и PyType_Ready: инициализация наследования
+
+```c
+// Objects/typeobject.c — создание нового типа (класса)
+static PyObject *
+type_new(PyTypeObject *metatype, PyObject *args, PyObject *kwds)
+{
+    // args: (name, bases, dict)
+    PyObject *name, *bases, *dict;
+    // ... разбор args ...
+    // создаём "сырую" структуру PyHeapTypeObject
+    PyHeapTypeObject *et = (PyHeapTypeObject *)PyType_GenericAlloc(metatype, 0);
+    PyTypeObject *type = &et->ht_type;
+
+    // заполняем tp_name, tp_bases, tp_dict
+    type->tp_name = /* C-строка имени */;
+    Py_INCREF(bases);
+    type->tp_bases = bases;
+    Py_INCREF(dict);
+    type->tp_dict = dict;
+
+    // вычисляем tp_base = подходящий один базовый
+    type->tp_base = best_base(bases);    // обычно первый в bases
+
+    // готовим тип (mro, слоты, flags и т.п.)
+    if (PyType_Ready(type) < 0) {
+        Py_DECREF(et);
+        return NULL;
+    }
+    return (PyObject *)type;
+}
+```
+
+`type.__new__` выделяет память под новый класс, кладёт туда имя, кортеж баз, словарь методов, выбирает один “главный”
+базовый (`best_base`) и потом зовёт `PyType_Ready`, чтобы посчитать MRO и прочее. До `PyType_Ready` класс “сырой”,
+после — “готовый”.
+
+***
+
+## MRO: mro_internal и C3-алгоритм
+
+```c
+// Objects/typeobject.c
+static int
+mro_internal(PyTypeObject *type)
+{
+    PyObject *mro;
+
+    // Если метакласс переопределил mro() — вызвать его
+    PyObject *meth = lookup_mro(type, &_Py_ID(mro)); // type.mro?
+    if (meth != NULL) {
+        mro = PyObject_CallNoArgs(meth);  // собственный mro()
+        // проверка что это tuple типов...
+    }
+    else {
+        // стандартный C3 linearization
+        mro = mro_implementation(type);   // см ниже
+    }
+
+    if (mro == NULL)
+        return -1;
+
+    Py_XSETREF(type->tp_mro, mro);  // tp_mro = кортеж типов
+    return 0;
+}
+
+// C3 linearization: D(B,C), B(A), C(A), A(object)
+static PyObject *
+mro_implementation(PyTypeObject *type)
+{
+    // строит списки: [bases], [mro(base1)], [mro(base2)], ...
+    // и затем делает C3 merge, выбирая головные элементы,
+    // которые не встречаются в хвостах других списков.
+}
+```
+
+когда класс создаётся, нужно решить **в каком порядке** искать методы при множественном наследовании. MRO C3
+гарантирует:
+
+- дочерний класс **всегда** раньше родителей,
+- порядок родителей **сохраняется**,
+- каждый класс встречается **один раз**.
+
+Это всё заранее кладётся в `tp_mro = (D, B, C, A, object)`.
+
+***
+
+## Поиск атрибутов по MRO: _PyType_Lookup
+
+```c
+// Objects/typeobject.c
+PyObject *
+_PyType_Lookup(PyTypeObject *type, PyObject *name)
+{
+    PyObject *mro = type->tp_mro;      // кортеж типов
+    Py_ssize_t i, n = PyTuple_GET_SIZE(mro);
+
+    for (i = 0; i < n; i++) {
+        PyTypeObject *base = (PyTypeObject *)PyTuple_GET_ITEM(mro, i);
+        PyObject *dict = base->tp_dict;            // __dict__ класса
+        PyObject *res;
+
+        // обычный поиск в dict
+        res = PyDict_GetItemWithError(dict, name);
+        if (res != NULL) {
+            return res;  // нашли атрибут на этом уровне MRO
+        }
+        if (PyErr_Occurred()) {
+            return NULL;
+        }
+    }
+    return NULL;  // атрибут не найден
+}
+```
+
+`obj.method` → `PyObject_GetAttr` → `_PyType_Lookup(type(obj), 'method')` → идём по `tp_mro`: сначала класс самого
+объекта, потом его родителя, и т.д., пока не `object`. **Первое совпадение** выигрывает.
+
+***
+
+## Наследование реализаций слотов (tp_* из базового типа)
+
+```c
+// Objects/typeobject.c — после вычисления MRO
+static int
+type_ready_set_bases_and_slots(PyTypeObject *type)
+{
+    // берём "base" как tp_base (один главный базовый)
+    PyTypeObject *base = type->tp_base;
+
+    // наследуем слоты, если они не определены в потомке
+    if (type->tp_as_number == NULL)
+        type->tp_as_number = base->tp_as_number;
+    if (type->tp_as_sequence == NULL)
+        type->tp_as_sequence = base->tp_as_sequence;
+    if (type->tp_as_mapping == NULL)
+        type->tp_as_mapping = base->tp_as_mapping;
+    // и т.д. для tp_iter, tp_call, tp_hash, tp_str, ...
+}
+```
+
+если ты не переопределил, например, `__len__` в своём классе, а родитель — `list`, то у твоего класса `tp_as_sequence`
+будет указывать на **те же** C-функции, что и у `PyList_Type`. То есть потомок **по-настоящему наследует** реализацию
+методов на C-уровне, а не только имена.
+
+***
+
+## type.__call__ и вызов конструктора с наследованием
+
+```c
+// Objects/typeobject.c
+static PyObject *
+type_call(PyTypeObject *type, PyObject *args, PyObject *kwds)
+{
+    // 1) вызываем tp_new (может быть у потомка или у базового)
+    PyObject *obj = type->tp_new(type, args, kwds);
+    if (obj == NULL)
+        return NULL;
+
+    // 2) вызываем tp_init (конструктор), если есть
+    if (type->tp_init != NULL) {
+        int res = type->tp_init(obj, args, kwds);
+        if (res < 0) {
+            Py_DECREF(obj);
+            return NULL;
+        }
+    }
+    return obj;
+}
+```
+
+`D()` при наследовании ведёт себя так:
+
+- сначала вызывается `D.__new__` (если его нет — унаследованный от родителя),
+- затем `D.__init__` (если не переопределён — срабатывает родительский).  
+  С точки зрения C — это два указателя `tp_new` и `tp_init`, которые либо свои, либо скопированы из базового класса.
+
+***
+
+## super() и наследование: LOAD_SUPER_ATTR
+
+```python
+class B:
+    def f(self): ...
+
+
+class C(B):
+    def f(self):
+        super().f()
+```
+
+```
+# Байткод C.f (3.11+ условно):
+  0 LOAD_FAST           0 (self)
+  2 LOAD_GLOBAL         0 (super)
+  4 LOAD_FAST           0 (self)
+  6 LOAD_CONST          1 (C)
+  8 CALL                2        # super(C, self)
+ 10 LOAD_ATTR           1 (f)    # ищем f начиная после C в MRO
+ 12 CALL                0
+ 14 RETURN_VALUE
+```
+
+Центр механизма — суперкласс `_PySuper_Type`:
+
+```c
+// Objects/typeobject.c/Objects/classobject.c
+typedef struct {
+    PyObject_HEAD
+    PyTypeObject *type;   // текущий класс (C)
+    PyObject *obj;        // экземпляр (self)
+    PyTypeObject *obj_type; // type(self)
+} superobject;
+
+// В __getattribute__ super'а:
+static PyObject *
+super_getattro(superobject *su, PyObject *name)
+{
+    // MRO объекта
+    PyObject *mro = su->obj_type->tp_mro;
+
+    // находим индекс su->type (C) в mro и начинаем поиск с i+1
+    Py_ssize_t i = index_of(mro, (PyObject *)su->type);
+    for (i = i+1; i < PyTuple_GET_SIZE(mro); i++) {
+        PyTypeObject *base = (PyTypeObject *)PyTuple_GET_ITEM(mro, i);
+        PyObject *descr = _PyType_Lookup(base, name);
+        if (descr != NULL) {
+            // возвращаем bound method/descriptor
+            return PyObject_Get(descr, su->obj, (PyObject *)su->obj_type);
+        }
+    }
+    // AttributeError, если не нашли
+}
+```
+
+`super(C, self).f()` ищет `f` **не в C**, а в **следующих** по MRO классах (`B`, `object`, ...). Это делается, чтобы при
+множественном наследовании все родительские реализации вызывались **один раз** и в **правильном порядке**.
+
+***
+
+## __bases__, __mro__ и __subclasses__ на C-уровне
+
+```c
+// Возврат __bases__ (type.__getattribute__)
+static PyObject *
+type_get_bases(PyTypeObject *type, void *context)
+{
+    if (type->tp_bases == NULL)
+        Py_RETURN_NONE;
+    Py_INCREF(type->tp_bases);
+    return type->tp_bases;
+}
+
+static PyObject *
+type_get_mro(PyTypeObject *type, void *context)
+{
+    if (type->tp_mro == NULL)
+        Py_RETURN_NONE;
+    Py_INCREF(type->tp_mro);
+    return type->tp_mro;
+}
+
+static PyObject *
+type_get_subclasses(PyTypeObject *type, PyObject *args)
+{
+    // tp_subclasses — список (list) weakref'ов на дочерние классы
+    return _PyWeakref_GetRefList(type->tp_subclasses);
+}
+```
+
+`D.__bases__` — это просто `tp_bases` (кортеж из `PyTypeObject*`), `D.__mro__` — `tp_mro`, `D.__subclasses__()` →
+развёрнутый список weakref’ов из `tp_subclasses`. Все эти связи поддерживаются автоматически при создании/удалении
+типов.
+
+***
+
+## Наследование встроенных типов (пример list)
+
+```c
+// Include/cpython/listobject.h
+PyTypeObject PyList_Type = {
+    PyVarObject_HEAD_INIT(&PyType_Type, 0)
+    "list",                         // tp_name
+    sizeof(PyListObject),           // tp_basicsize
+    0,                              // tp_itemsize
+    (destructor)list_dealloc,       // tp_dealloc
+    // ...
+    &list_as_sequence,              // tp_as_sequence
+    &list_as_mapping,               // tp_as_mapping
+    // ...
+    &PyBaseObject_Type,             // tp_base = object
+    // ...
+};
+```
+
+Если написать:
+
+```python
+class MyList(list):
+    pass
+```
+
+то создаётся `PyHeapTypeObject`, у которого:
+
+- `tp_base` = `&PyList_Type`,
+- слоты `tp_as_sequence`/`tp_as_mapping` по умолчанию **унаследованы** от листа,
+- у тебя дополнительно будет свой `tp_dict` с методами класса Python’а.
+
+экземпляр `MyList` в памяти — точно такой же массив элементов, как и `list`, плюс всё, что ты добавишь. Вся арифметика,
+конкатенация, индексирование работают через `list_*` функции, потому что твой класс **наследует** их слоты.
+
+***
+
+Итого: наследование в CPython “под капотом” — это:
+
+- создание нового `PyTypeObject` на базе `tp_bases`,
+- вычисление `tp_mro` по C3,
+- наследование функциональных слотов от `tp_base`,
+- поиск атрибутов по `_PyType_Lookup` с проходом по `tp_mro`,
+- `super()` реализован как объект, который стартует поиск не с текущего класса, а далее по MRO.
+
 
 - [Содержание](#содержание)
 
