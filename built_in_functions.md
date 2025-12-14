@@ -1,3 +1,4 @@
+# Built in functions how to use
 
 📊 1. Числовые функции
 

@@ -1453,6 +1453,8 @@ case DICT_MERGE: {
 Важно понимать, что это не просто функции, а часть ядра языка. Они реализованы максимально эффективно и их поведение
 стандартизировано.
 
+[Built in functions how to use](built_in_functions.md#built-in-functions-how-to-use)
+
 ## **Middle Level**
 
 1. **Пространство имен `builtins`**: Все встроенные функции находятся в модуле `builtins`, который автоматически
