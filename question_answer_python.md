@@ -13329,315 +13329,197 @@ static void type_modified_unlocked(PyTypeObject *type) {
 
 ## **Senior Level**
 
-### **Пример 1: Композиция (Сильная связь)**
+## Базовые структуры композиции в CPython
 
-```python
-class DatabaseConnection:
-    def __init__(self, connection_string: str):
-        self.connection_string = connection_string
-        self._connect()
+Композиция в CPython реализуется через **встраивание структур** (embedding) — `PyObject_HEAD` + поля + другие
+`PyObject`. Агрегация — через **указатели** на объекты. Разница в управлении памятью и временем жизни.
 
-    def _connect(self):
-        print(f"Соединение с БД: {self.connection_string}")
+```c
+// Include/object.h: базовые макросы для композиции
+#define PyObject_HEAD                   PyObject ob_base;  // Шапка: refcnt + type
+#define PyObject_VAR_HEAD               PyVarObject ob_base; // Шапка + размер
 
-    def close(self):
-        print("Закрытие соединения с БД")
-
-
-class UserRepository:
-    """UserRepository СОЗДАЕТ и УПРАВЛЯЕТ жизненным циклом DatabaseConnection"""
-
-    def __init__(self, connection_string: str):
-        # Композиция: создание объекта внутри конструктора
-        self._db = DatabaseConnection(connection_string)  # Часть не существует без целого
-
-    def get_user(self, user_id: int):
-        return f"User {user_id} from {self._db.connection_string}"
-
-    def __del__(self):
-        self._db.close()  # При удалении репозитория закрывается соединение
-
-
-# Использование
-repo = UserRepository("postgresql://localhost:5432/mydb")
-print(repo.get_user(1))
-# При удалении repo автоматически закроется соединение с БД
+struct _object {                       // PyObject — минимальный объект
+    union {                            // Счетчик ссылок (refcnt)
+#if SIZEOF_VOID_P > 4
+        PY_INT64_T ob_refcnt_full;     // 64-битный refcnt
+        struct {
+# if PY_BIG_ENDIAN
+            uint16_t ob_flags;         // Флаги объекта
+            uint16_t ob_overflow;      // Переполнение refcnt
+            uint32_t ob_refcnt;        // Основной refcnt
+# else
+            uint32_t ob_refcnt;        // Основной refcnt
+            uint16_t ob_overflow;      // Переполнение refcnt
+            uint16_t ob_flags;         // Флаги объекта
+# endif
+        };
+#else
+        Py_ssize_t ob_refcnt;          // 32-битный refcnt
+#endif
+    };
+    PyTypeObject *ob_type;             // Указатель на тип (vtable)
+};
 ```
 
-### **Пример 2: Агрегация (Слабая связь)**
+`PyObject_HEAD` — это **обязательная "шапка"** в начале **каждого** Python-объекта (8-16 байт). Она содержит: 1) *
+*refcnt** (сколько ссылок держит объект живым), 2) **ob_type** (указатель на таблицу методов типа). Любая структура типа
+начинается с этой шапки. Композиция = шапка + свои поля + другие шапки.
 
-```python
-class Logger:
-    """Независимый компонент, может использоваться в разных контекстах"""
+## Пример композиции: PyTupleObject (строгая композиция)
 
-    def __init__(self, name: str):
-        self.name = name
+Кортеж содержит **встроенный массив PyObject*** — классическая композиция "имеет-A".
 
-    def log(self, message: str):
-        print(f"[{self.name}] {message}")
+```c
+// Include/tupleobject.h + Objects/tupleobject.c
+typedef struct {
+    PyObject_VAR_HEAD                // Шапка PyObject + ob_size (кол-во элементов)
+    PyObject *ob_item[1];            // Массив объектов (гибкий размер!)
+} PyTupleObject;
 
-
-class PaymentService:
-    """PaymentService ИСПОЛЬЗУЕТ Logger, но не управляет его жизненным циклом"""
-
-    def __init__(self, logger: Logger):  # Агрегация: передача извне
-        self._logger = logger  # Часть существует независимо от целого
-
-    def process_payment(self, amount: float):
-        self._logger.log(f"Processing payment: ${amount}")
-        return True
-
-
-class NotificationService:
-    """Тот же логгер может использоваться в разных сервисах"""
-
-    def __init__(self, logger: Logger):
-        self._logger = logger
-
-    def send_notification(self, message: str):
-        self._logger.log(f"Sending: {message}")
-
-
-# Использование
-shared_logger = Logger("AppLogger")  # Общий ресурс
-
-payment_service = PaymentService(shared_logger)
-notification_service = NotificationService(shared_logger)  # Один логгер в двух сервисах
-
-payment_service.process_payment(100.0)
-notification_service.send_notification("Payment successful")
+// Реальная структура в памяти: PyObject_HEAD + Py_ssize_t ob_size + PyObject** об_item
+// Размер выделяется: sizeof(PyTupleObject) + (size-1)*sizeof(PyObject*)
 ```
 
-### **Пример 3: Практический пример для AQA (Page Object с композицией и агрегацией)**
+Кортеж `(1, "a", [])` в памяти — **один большой блок**: шапка кортежа + число элементов (3) + **3 указателя** на объекты
+1, "a", []. Это **композиция**: кортеж **владеет** массивом указателей. Когда refcnt кортежа → 0, **все указатели
+остаются жить** (их refcnt не трогаем).
 
-```python
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+## Пример агрегации: PyDictObject (слабая композиция)
 
+Словарь содержит **указатели** на хэш-таблицу PyDictKeysObject — агрегация.
 
-class BaseElement:
-    """Базовый элемент - может существовать самостоятельно"""
+```c
+// Objects/dictobject.c: PyDictObject (Python 3.9+)
+typedef struct {
+    PyObject_HEAD                    // Шапка словаря
+    Py_ssize_t ma_used;              // Кол-во используемых слотов
+    PyDictKeysObject *ma_keys;       // УКАЗАТЕЛЬ на отдельный объект ключей!!!
+    PyObject **ma_values;            // Указатель на массив значений (опционально)
+} PyDictObject;
 
-    def __init__(self, driver, locator):
-        self.driver = driver
-        self.locator = locator
-        self.element = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located(locator)
-        )
-
-    def click(self):
-        self.element.click()
-
-    def get_text(self):
-        return self.element.text
-
-
-class Button(BaseElement):
-    """Специализированный элемент"""
-
-    def is_enabled(self):
-        return self.element.is_enabled()
-
-
-class LoginForm:
-    """Композиция: форма создает свои элементы внутри"""
-
-    def __init__(self, driver):
-        self.driver = driver
-        # Композиция: элементы создаются внутри формы
-        self.username_input = BaseElement(
-            driver, (By.ID, "username")
-        )  # Не существует без формы
-        self.password_input = BaseElement(
-            driver, (By.ID, "password")
-        )  # Не существует без формы
-        self.submit_button = Button(
-            driver, (By.CSS_SELECTOR, "button[type='submit']")
-        )  # Не существует без формы
-
-    def login(self, username: str, password: str):
-        self.username_input.element.send_keys(username)
-        self.password_input.element.send_keys(password)
-        self.submit_button.click()
-
-
-class Header:
-    """Агрегация: хедер может быть переиспользован на разных страницах"""
-
-    def __init__(self, driver):
-        self.driver = driver
-        self.logo = BaseElement(driver, (By.CLASS_NAME, "logo"))
-        self.cart_button = Button(driver, (By.ID, "cart"))
-
-
-class HomePage:
-    """Агрегация: страница использует готовый хедер"""
-
-    def __init__(self, driver, header: Header = None):  # Агрегация через DI
-        self.driver = driver
-        # Агрегация: хедер может быть передан извне
-        self.header = header if header else Header(driver)
-        # Композиция: форма логина создается внутри страницы
-        self.login_form = LoginForm(driver)
-
-    def go_to_cart(self):
-        self.header.cart_button.click()
-
-
-# Тестовый пример
-def test_login_with_shared_header():
-    driver = webdriver.Chrome()
-
-    # Создаем хедер один раз (агрегация)
-    shared_header = Header(driver)
-
-    # Переиспользуем хедер на разных страницах
-    home_page = HomePage(driver, shared_header)
-    product_page = ProductPage(driver, shared_header)  # Предположим, такой класс существует
-
-    # Тестируем
-    home_page.login_form.login("user", "pass")
-    assert home_page.header.logo.get_text() == "MyStore"
-
-    # Хедер продолжает существовать при переходе между страницами
-    product_page.header.cart_button.click()
+typedef struct {
+    Py_ssize_t dk_size;              // Размер хэш-таблицы
+    PyDictUnicodeEntry *dk_entries;  // Массив записей (ключ+хэш)
+    vectorcallfunc vectorcall;       // Методы для vectorcall
+} PyDictKeysObject;
 ```
 
-### **Пример 4: Фикстуры Pytest с учетом композиции/агрегации**
+Словарь `{"a": 1}` — **два объекта**: 1) PyDictObject (шапка + указатель на ключи), 2) PyDictKeysObject (отдельная
+хэш-таблица). Это **агрегация**: словарь **ссылается** на таблицу ключей, но **не владеет** ею. Таблица ключей может
+использоваться **несколькими** словарями (shared keys optimization).
 
-```python
-import pytest
+## Создание составных объектов: PyTuple_New()
 
+Композиция создается **атомарно** — выделяется память под всю структуру сразу.
 
-class Database:
-    """Дорогой в создании ресурс"""
-
-    def __init__(self):
-        print("Creating expensive database connection...")
-
-    def query(self, sql):
-        return f"Result of {sql}"
-
-    def close(self):
-        print("Closing database connection...")
-
-
-class UserService:
-    """Сервис агрегирует базу данных"""
-
-    def __init__(self, db: Database):
-        self.db = db  # Агрегация
-
-    def get_user(self, user_id):
-        return self.db.query(f"SELECT * FROM users WHERE id = {user_id}")
-
-
-# Фикстура с композицией (создает новый экземпляр для каждого теста)
-@pytest.fixture
-def user_service_with_composition():
-    """Каждый тест получает свой изолированный сервис с собственной БД"""
-    db = Database()  # Композиция внутри фикстуры
-    service = UserService(db)
-    yield service
-    db.close()
-
-
-# Фикстура с агрегацией (разделяемый ресурс)
-@pytest.fixture(scope="session")
-def shared_database():
-    """Одно соединение на всю сессию тестов"""
-    db = Database()
-    yield db
-    db.close()
-
-
-@pytest.fixture
-def user_service_with_aggregation(shared_database):
-    """Каждый тест получает сервис, но все используют одну БД"""
-    return UserService(shared_database)  # Агрегация
-
-
-# Тесты
-def test_user_1(user_service_with_composition):
-    result = user_service_with_composition.get_user(1)
-    assert "SELECT" in result
-    # После теста БД будет закрыта
-
-
-def test_user_2(user_service_with_aggregation):
-    result = user_service_with_aggregation.get_user(2)
-    assert "SELECT" in result
-    # БД остается открытой для других тестов
+```c
+// Objects/tupleobject.c: PyTuple_New()
+PyObject *
+PyTuple_New(Py_ssize_t size) {
+    PyTupleObject *op;                 // Указатель на новый кортеж
+    Py_ssize_t nbytes;                 // Общий размер в байтах
+    
+    if (size < 0) {                    // Проверка отрицательного размера
+        PyErr_BadInternalCall();
+        return NULL;
+    }
+    
+    // Вычисляем размер: шапка + (size-1)*sizeof(PyObject*)
+    nbytes = size * sizeof(PyObject *) + sizeof(PyTupleObject) - sizeof(PyObject *);
+    
+    // Выделяем память атомарно
+    op = PyObject_GC_NewVar(PyTupleObject, &PyTuple_Type, size);
+    if (op == NULL)                    // Ошибка выделения
+        return NULL;
+        
+    // Инициализируем все указатели NULL (zero-filling)
+    for (Py_ssize_t i = 0; i < size; i++)
+        op->ob_item[i] = NULL;         // Каждый слот = NULL
+    
+    PyObject_GC_Track(op);             // Регистрируем в GC
+    return (PyObject *) op;
+}
 ```
 
-### **Пример 5: Dependency Injection как реализация агрегации**
+`tuple(1,2,3)` → CPython **одним malloc()** выделяет **весь блок** (шапка + 3 указателя). Потом заполняет указатели
+PyLong(1), PyLong(2), PyLong(3). **Композиция = единый блок памяти**. Когда refcnt → 0, **один free()** освобождает
+всё.
 
-```python
-from abc import ABC, abstractmethod
-from typing import Protocol
+## Разница в деструкторах: tp_dealloc
 
+Композиция освобождает **свои** поля, агрегация — **НЕ трогает** подчиненные объекты.
 
-# Определяем протокол (интерфейс)
-class LoggerProtocol(Protocol):
-    def log(self, message: str) -> None: ...
-
-
-class ConsoleLogger:
-    def log(self, message: str) -> None:
-        print(f"LOG: {message}")
-
-
-class FileLogger:
-    def __init__(self, filename: str):
-        self.filename = filename
-
-    def log(self, message: str) -> None:
-        with open(self.filename, 'a') as f:
-            f.write(f"{message}\n")
-
-
-class OrderService:
-    """Сервис агрегирует логгер через внедрение зависимости"""
-
-    def __init__(self, logger: LoggerProtocol):  # Агрегация + Dependency Injection
-        self.logger = logger
-
-    def place_order(self, order_id: str):
-        self.logger.log(f"Placing order {order_id}")
-        # Логика заказа
-        return True
-
-
-# Конфигурация зависимостей (в продакшене может быть в DI-контейнере)
-def create_order_service(logger_type: str = "console") -> OrderService:
-    if logger_type == "console":
-        logger = ConsoleLogger()
-    else:
-        logger = FileLogger("app.log")
-
-    return OrderService(logger)  # Агрегация
-
-
-# Тестирование с моками
-from unittest.mock import Mock
-
-
-def test_order_service_with_mock():
-    # Создаем mock логгера
-    mock_logger = Mock(spec=LoggerProtocol)
-    mock_logger.log = Mock()
-
-    # Внедряем mock в сервис
-    service = OrderService(mock_logger)  # Агрегация для тестирования
-
-    # Выполняем тест
-    result = service.place_order("ORDER123")
-
-    # Проверяем взаимодействие
-    assert result is True
-    mock_logger.log.assert_called_once_with("Placing order ORDER123")
+```c
+// Objects/tupleobject.c: tp_dealloc для PyTuple_Type
+static void
+tuple_dealloc(PyTupleObject *op) {
+    Py_ssize_t len = Py_SIZE(op);      // Длина кортежа
+    PyObject **items = op->ob_item;    // Указатель на массив
+    
+    PyObject_GC_UnTrack(op);           // Убираем из GC
+    Py_TRASHCAN_SAFE_BEGIN(op)         // Защита от рекурсии
+    
+    // НЕ освобождаем ob_item[i]! Это агрегированные объекты
+    // Просто обнуляем указатели (для отладки)
+    while (--len >= 0) {
+        Py_CLEAR(items[len]);          // Снижаем refcnt элементов
+    }
+    
+    Py_TYPE(op)->tp_free((PyObject*)op); // free() всей структуры
+    Py_TRASHCAN_SAFE_END(op)
+}
 ```
+
+Кортеж умирает → **НЕ трогает** содержимое (1,2,3 живут дальше), только **снижает их refcnt** и **освобождает свой блок
+**. Словарь при смерти **НЕ трогает** ma_keys (агрегация). **Композиция** бы трогала встроенные объекты.
+
+## __slots__ как экстремальная композиция
+
+`__slots__` создает **фиксированную композицию** без `__dict__` — экономит память.
+
+```c
+// Objects/typeobject.c: обработка __slots__ в PyType_Ready()
+static int
+slotptr_cmp(PyObject *slot1, PyObject *slot2) {
+    // Сортируем слоты по алфавиту для детерминизма
+    return PyUnicode_Compare(slot1, slot2);
+}
+
+static PyObject *
+collect_slots(PyTypeObject *type) {
+    PyObject *slots = PyObject_GetAttrString((PyObject*)type, "__slots__");
+    if (!slots) return NULL;
+    
+    // Сортируем и вычисляем смещения атрибутов
+    Py_ssize_t nslots = PyList_GET_SIZE(slots);
+    for (Py_ssize_t i = 0; i < nslots; i++) {
+        PyObject *name = PyList_GET_ITEM(slots, i);
+        PyMemberDef *member = create_member(name);  // Создаем дескриптор
+        // member->offset = смещение в памяти экземпляра
+    }
+    
+    type->tp_basicsize += nslots * sizeof(PyObject*); // Фиксируем размер
+    return slots;
+}
+```
+
+`__slots__ = ['x', 'y']` → CPython создает **фиксированные поля** сразу после PyObject_HEAD:
+`[PyObject_HEAD | PyObject* x | PyObject* y]`. **Нет `__dict__`**, нет хэш-таблицы. **Чистая композиция** с известным
+layout'ом памяти.
+
+## Сравнение композиции и агрегации под капотом
+
+| Аспект          | Композиция (встраивание)   | Агрегация (указатели)            |
+|-----------------|----------------------------|----------------------------------|
+| **Память**      | Единый malloc/free         | Несколько malloc (dict + keys)   |
+| **Время жизни** | Владелец управляет всем    | Подчиненные живут независимо     |
+| **Размер**      | sizeof(HEAD) + поля + HEAD | sizeof(HEAD) + sizeof(PyObject*) |
+| **GC**          | Рекурсивно все поля        | Только указатели (не владеет)    |
+| **Shared**      | Невозможно                 | Возможно (dict keys)             |
+
+**Композиция** = "встроить структуру целиком", **агрегация** = "указатель на чужой объект". В CPython **tuple =
+композиция** (встроенный массив), **dict = агрегация** (отдельные keys/values).
 
 - [Содержание](#содержание)
 
