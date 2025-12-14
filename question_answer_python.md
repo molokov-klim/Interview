@@ -5523,126 +5523,283 @@ PyObject *PyCoro_Send(PyObject *coro, PyObject *arg) {
 
 ## **Senior Level**
 
-В CPython многопоточность — это связка: низкоуровневый модуль `_thread` на C (создание потоков ОС), структуры
-`PyThreadState`/`PyInterpreterState`, GIL и проверки `eval_breaker` в eval‑цикле; сам байткод ничего о потоках не знает.
-Ниже — только подкапотная механика.
+В CPython 3.9+ **многопоточность** — **PyThreadState** на поток (`tstate->thread_id`), **GIL** (`take_gil/drop_gil`), **
+PyThreadState_Swap()`, **PyThread_start_new_thread()` + **_PyRuntime.threads.list**. **PEP 684** (3.12) *
+*per-interpreter** потоки. `Python/pylifecycle.c`,`Python/ceval_gil.c`,`Include/pystate.h`
 
-## Низкий уровень: модуль `_thread` и запуск C‑потока
+## 1. PyThreadState структура (Include/pystate.h)
 
-`threading` — чистый Python поверх `_thread`; реальная работа делается в `Modules/_threadmodule.c`. Ключевые
-моменты:
+```c
+typedef struct _ts {
+    struct _ts *next;              // Список потоков интерпретатора
+    PyInterpreterState *interp;    // Принадлежит интерпретатору
+    PyThread_id thread_id;         // pthread_self() или GetCurrentThreadId()
+    int gilstate_counter;          // Счётчик PyGILState_Ensure()
+    int recursion_depth;           // Глубина рекурсии
+    int tracing;                   // sys.settrace()
+    int use_tracing;               // Активен ли tracing
+    PyObject *dict;                // thread-local storage
+    PyObject *async_exc;           // Текущее исключение
+    PyFrameObject *frame;          // Текущий фрейм (для inspect)
+    PyObject *frame_obj;           // PyFrameObject
+    uint64_t coroutines;           // Счётчик корутин
+    // GIL состояние
+    int holds_gil;                 // Держит ли GIL
+    PyObject *py_thread_state;     // Python threading._get_thread_ident()
+} PyThreadState;
+```
 
-- В `_threadmodule.c` описан тип `ThreadHandle`/`PyThreadHandleObject`, который инкапсулирует OS‑handle потока и
-  состояние (NOT_STARTED / STARTING / RUNNING / DONE) плюс мьютекс и событие `thread_is_exiting`.
-- Запуск потока — через `ThreadHandle_start(handle, func, args, kwargs)`:
-    - помечает `handle->state = THREAD_HANDLE_STARTING` под мьютексом;
-    - создаёт OS‑поток через абстракцию `PyThread_start_new_thread(thread_bootstrap, handle)` (реализация — в
-      `Python/thread_*.h` под конкретную платформу);
-    - `thread_bootstrap` в новом потоке разворачивает `func(*args, **kwargs)` в CPython‑окружении (см. ниже про
-      `PyGILState_Ensure`).
+**Объяснение для людей:** Каждый поток имеет **свой** PyThreadState с `thread_id`, `holds_gil`, `frame`. **GIL**
+принадлежит **только одному** tstate.
 
-`threading.Thread` дальше просто оборачивает этот `ThreadHandle` и управляет join/detach через вызовы в `_thread`.
+## 2. Py_NewInterpreter() / PyThreadState_New (pylifecycle.c)
 
-## PyThreadState и привязка Python‑состояния к ОС‑потоку
+```c
+PyThreadState *PyThreadState_New(PyInterpreterState *interp) {
+    PyThreadState *tstate;
+    
+    tstate = (PyThreadState*)PyObject_MALLOC(sizeof(PyThreadState));
+    if (tstate == NULL)
+        return NULL;
+    
+    tstate->interp = interp;           // Связываем с интерпретатором
+    tstate->thread_id = PyThread_get_thread_ident();  // pthread_self()
+    tstate->frame = NULL;
+    tstate->recursion_depth = 0;
+    tstate->tracing = 0;
+    tstate->use_tracing = 0;
+    tstate->holds_gil = 0;
+    tstate->gilstate_counter = 0;
+    tstate->dict = NULL;
+    
+    // Добавляем в список потоков интерпретатора
+    tstate->next = interp->tstate_head;
+    interp->tstate_head = tstate;
+    
+    _PyObject_INIT((PyObject*)tstate, &PyThreadState_Type);
+    return tstate;
+}
+```
 
-Каждый ОС‑поток, выполняющий Python‑код, должен иметь собственный `PyThreadState`.
+**Объяснение для людей:** Новый поток → `PyThreadState_New(main_interp)` → `tstate->thread_id=my_tid` → добавляем в
+`interp->tstate_head` список.
 
-- `PyThreadState` содержит:
-    - указатель на `PyInterpreterState *interp`;
-    - текущий frame (`_PyInterpreterFrame *cframe`/`frame`), exception state, стек блоков и т.д.;
-    - ссылку на C‑идентификатор потока (`thread_id`).
-- Новый поток создаёт свой `PyThreadState` через `PyThreadState_New(interp)` внутри bootstrap‑функции, после чего
-  регистрирует его в списке потоков интерпретатора (`interp->threads`).
-- Макрос `_PyThreadState_GET()` (или его новые вариации) возвращает `tstate` текущего потока, читая TLS
-  `gilstate.tstate_current` из `_PyRuntimeState`.
+## 3. PyThread_start_new_thread() - запуск потока
 
-Все операции с объектами CPython (refcount, список интерпретаторов, GC) предполагают наличие валидного `PyThreadState` и
-удержание GIL (кроме явно документированных исключений в C‑API).
+```c
+long PyThread_start_new_thread(PyThread_start_func_t func, void *arg) {
+    PyThreadState *tstate = PyThreadState_Get();  // Текущий поток
+    
+    // Создаём PyThreadState для нового потока
+    PyThreadState *new_tstate = PyThreadState_New(tstate->interp);
+    if (new_tstate == NULL) {
+        return -1;
+    }
+    
+    // C-thread функция
+    void *thread_arg = PyMem_Malloc(sizeof(struct thread_arg));
+    ((struct thread_arg*)thread_arg)->interp = tstate->interp;
+    ((struct thread_arg*)thread_arg)->tstate = new_tstate;
+    ((struct thread_arg*)thread_arg)->start_func = func;
+    ((struct thread_arg*)thread_arg)->start_arg = arg;
+    
+    // Запускаем pthread_create()
+    int err = pthread_create(&tid, NULL, pythread_run, thread_arg);
+    
+    if (err != 0) {
+        PyThreadState_Clear(new_tstate);
+        PyMem_Free(thread_arg);
+        PyThreadState_DeleteCurrent();
+        return -1;
+    }
+    
+    return 0;
+}
+```
 
-## GIL и переключение потоков
+**Объяснение для людей:** `threading.Thread().start()` → `PyThread_start_new_thread()` →
+`pthread_create(pythread_run, arg)` → **новый C-поток**.
 
-Реальное «распределение времени» между потоками строится только вокруг GIL: CPython сам по себе не делает диспатчинг
-потоков, он просто periodически отпускает GIL, а ОС уже решает, какой поток дальше будет выполняться.
+## 4. pythread_run() - входная точка потока
 
-- GIL реализован в `Python/ceval_gil.c` как структура `_gil_runtime_state` с полями `locked`, `last_holder`,
-  `switch_number`, `switch_cond`, `mutex`, `switch_mutex` и т.д.
-- Поток, желающий выполнять Python‑байткод, вызывает `take_gil(tstate)`; если `locked` уже занят, он ждет на
-  `gil->cond`/`switch_cond` до освобождения.
-- `drop_gil(interp, tstate, final)` освобождает `locked = -1`, выставляет `gil_drop_request`/`eval_breaker` при
-  необходимости и будит ожидающий поток через `pthread_cond_signal(&gil->switch_cond)` (или аналог на Windows).
-- Таймер переключения (`sys.getswitchinterval`) реализуется через счётчик/таймаут в логике `take_gil`: если поток
-  удерживает GIL слишком долго и есть ожидающие, ему ставится `gil_drop_request`, что заставляет его при ближайшей
-  проверке `eval_breaker` в eval‑цикле отдать GIL.
+```c
+static void *pythread_run(void *arg_) {
+    struct thread_arg *arg = (struct thread_arg*)arg_;
+    
+    PyThreadState_Swap(arg->tstate);   // Активируем PyThreadState
+    _PyRuntime.threads.list_append(arg->tstate);  // В глобальный список
+    
+    // Захватываем GIL
+    PyEval_AcquireLock(arg->tstate);
+    
+    // Вызываем Python функцию
+    PyObject *res = arg->start_func(arg->start_arg);
+    
+    // Освобождаем ресурсы
+    PyEval_ReleaseLock(arg->tstate);
+    _PyRuntime.threads.list_remove(arg->tstate);
+    
+    PyThreadState_Swap(NULL);          // Деактивируем tstate
+    PyThreadState_Clear(arg->tstate);
+    PyThreadState_DeleteCurrent();
+    
+    PyMem_Free(arg);
+    return (void*)res;
+}
+```
 
-Подробности GIL ты уже видел в предыдущем вопросе; здесь важно: многопоточность в CPython = несколько `PyThreadState` +
-общий GIL, который ограничивает параллельное выполнение байткода.
+**Объяснение для людей:** C-поток → `PyThreadState_Swap(tstate)` → **GIL захват** → `target_func()` → **GIL освобождение
+** → `PyThreadState_Clear()`.
 
-## Eval‑цикл и eval_breaker
+## 5. PyThreadState_Swap() - переключение контекста
 
-В `_PyEval_EvalFrameDefault` (или `_PyEval_EvalFrame` в старых версиях) каждую итерацию main‑loop’а или через
-определённый шаг проверяется флаг `eval_breaker` из `_ceval_runtime_state`.
+```c
+PyThreadState *PyThreadState_Swap(PyThreadState *new_tstate) {
+    PyThreadState *old_tstate = _PyThreadState_UncheckedGet();  // TLS
+    
+    if (old_tstate == new_tstate) {
+        return old_tstate;             // Уже активен
+    }
+    
+    // Сохраняем старый контекст
+    if (old_tstate != NULL) {
+        // Сохраняем фрейм, исключения, GIL
+        old_tstate->frame = _PyThreadState_GetFrame(old_tstate);
+        old_tstate->recursion_depth = PyThreadState_Get()->recursion_depth;
+    }
+    
+    // Активируем новый
+    _PyThreadState_Set(new_tstate);    // Thread Local Storage (TLS)
+    
+    if (new_tstate != NULL) {
+        // Восстанавливаем контекст
+        PyEval_RestoreThread(new_tstate);
+    }
+    
+    return old_tstate;
+}
+```
 
-- `eval_breaker` — OR разных подфлагов: `gil_drop_request`, `pending_signals`, `pending_async_exc` и т.п.
-- Если `eval_breaker != 0`, вызывается сервисная функция (типа `eval_frame_handle_pending`), которая:
-    - при `gil_drop_request` вызывает `drop_gil` и затем `take_gil`, давая шанс другим потокам;
-    - при `pending_signals` вызывает обработчики сигналов;
-    - при pending exceptions — поднимает исключение в текущем фрейме.
+**Объяснение для людей:** **TLS** (Thread Local Storage) хранит **активный** PyThreadState. `Swap(NULL)` → деактивируем
+Python. `Swap(tstate)` → активируем поток.
 
-С точки зрения байткода переключение потоков происходит «между» опкодами через этот механизм; сам набор инструкций (
-`LOAD_FAST`, `CALL`, `BINARY_ADD` и т.п.) ни разу не упоминает ни GIL, ни потоки.
+## 6. threading.Thread C API (Lib/threading.py → Modules/_threadmodule.c)
 
-## Высокоуровневый модуль threading: обёртка вокруг `_thread` и GIL‑API
+```c
+static PyObject *thread_PyThread_start_new_thread(PyObject *self, PyObject *args) {
+    PyObject *func, *arg;
+    
+    if (!PyArg_ParseTuple(args, "OO:start_new_thread", &func, &arg))
+        return NULL;
+    
+    // Вызываем PyThread_start_new_thread()
+    long retval = PyThread_start_new_thread(
+        (PyThread_start_func_t)pythread_wrapper, func);
+    
+    if (retval < 0) {
+        PyErr_SetFromErrno(PyExc_RuntimeError);
+        return NULL;
+    }
+    
+    Py_RETURN_NONE;
+}
+```
 
-`threading` реализован в `Lib/threading.py` и не добавляет новых C‑примитивов. Основные элементы:
+**Объяснение для людей:** `Thread(target=f).start()` → `_thread.start_new_thread(f, ())` →
+`PyThread_start_new_thread(pythread_wrapper, f)`.
 
-- Класс `Thread` хранит ссылку на target, args, kwargs и объект `_thread.PyThreadHandleObject` или raw thread id.
-- При `Thread.start()` вызывается функция в `_thread`, которая создаёт C‑поток (см. выше) и в его bootstrap‑функции
-  делает:
-    - `PyGILState_Ensure()` → внутри:
-        - `take_gil`;
-        - создаёт при необходимости `PyThreadState` и привязывает к текущему ОС‑потоку;
-    - выполняет Python‑функцию target через обычный eval‑цикл;
-    - по завершении `PyGILState_Release()` → `drop_gil`, очистка `PyThreadState`, сигнализация join’еру.
+## 7. Per-interpreter потоки (PEP 684, 3.12+)
 
-Таким образом, вся многопоточность уровня `threading` сводится к управлению жизненным циклом `PyThreadState` и владения
-GIL вокруг вызова user‑функции.
+```c
+PyStatus PyInterpreterState_New(PyThreadState *tstate) {
+    PyInterpreterState *interp = PyInterpreterState_New();
+    
+    // Каждый интерпретатор имеет свой список потоков
+    interp->tstate_head = NULL;
+    interp->threads = NULL;           // PyThreadState.list
+    interp->threads_lock = PyThread_create_lock();
+    
+    // Создаём главный поток для интерпретатора
+    PyThreadState *interp_tstate = PyThreadState_New(interp);
+    interp->tstate_head = interp_tstate;
+    
+    return PyStatus_OK();
+}
+```
 
-## Низкоуровневый C‑API для внешних потоков
+**Объяснение для людей:** **3.12+**: `subinterp = Py_NewInterpreter()` → **отдельный** список `tstate_head`. Потоки **не
+делят** tstate между интерпретаторами.
 
-Если внешний C‑код (например, библиотека) создаёт свои собственные потоки ОС и хочет вызывать Python‑код, он обязан
-пользоваться GIL‑API:
+## 8. _PyRuntime.threads - глобальный реестр (3.13+)
 
-- `PyEval_InitThreads()` (устарело, сейчас GIL инициализируется автоматически) — первоначальная инициализация
-  GIL/главного `PyThreadState`.
-- `PyGILState_Ensure()` / `PyGILState_Release(state)` — высокоуровневый API:
-    - `Ensure` сохраняет предыдущий GIL‑state, захватывает GIL, создаёт `PyThreadState` при необходимости;
-    - `Release` восстанавливает предыдущее состояние, снимает GIL, потенциально удаляет `PyThreadState`.
-- Низкоуровневый API:
-    - `PyEval_SaveThread()` → сохранить текущий `tstate`, `drop_gil`, вернуть `tstate`;
-    - `PyEval_RestoreThread(tstate)` → `take_gil` + восстановление `tstate` как текущего.
+```c
+struct _PyRuntimeState {
+    PyThreadStateList threads;     // Все активные потоки
+    PyThread_type_lock threads_lock;
+};
 
-Расширения на C обязаны вызывать `Py_BEGIN_ALLOW_THREADS` / `Py_END_ALLOW_THREADS` (макросы вокруг `PyEval_SaveThread`/
-`RestoreThread`) вокруг длительных блокирующих операций, чтобы освободить GIL и позволить другим потокам выполнять
-Python‑код.
+void _PyRuntime_ThreadsList_Init(struct _PyRuntimeState *runtime) {
+    runtime->threads_lock = PyThread_create_lock();
+    runtime->threads.head = NULL;
+}
 
-## Потоки, завершение интерпретатора и утечки
+void _PyRuntime_ThreadsList_Append(PyThreadState *tstate) {
+    PyThread_acquire_lock(_PyRuntime.threads_lock, 1);
+    tstate->threads_next = _PyRuntime.threads.head;
+    _PyRuntime.threads.head = tstate;
+    PyThread_release_lock(_PyRuntime.threads_lock);
+}
+```
 
-При завершении интерпретатора:
+**Объяснение для людей:** **Глобальный** список **всех** PyThreadState. `sys._current_frames()` перебирает
+`threads.head`.
 
-- Главный поток инициирует финализацию `Py_FinalizeEx`: ставит флаг `is_finalizing` в `PyInterpreterState`,
-  останавливает новые запуски потоков.
-- В процессе финализации перебираются `PyThreadState` в `interp->threads`; для не‑главных потоков может ожидаться
-  завершение или принудительное «дотягивание» до безопасной точки (issue‑ы вида «stuck during interpreter exit,
-  attempting to take the GIL» как раз об этих краях).
-- GIL в конце разрушается, и любые попытки `take_gil` из «забытых» потоков приводят к падениям/assert’ам.
+## 9. GIL + многопоточность взаимодействие
 
-Это важная подкапотная причина, почему `threading` хранит слабые ссылки на потоки и запрещает повторный запуск
-`Thread` — состояние `ThreadHandle` строго контролируется в `_threadmodule.c`.
+```c
+// Каждый байткод под GIL
+case LOAD_FAST: {
+    if (!tstate->holds_gil) {
+        Py_FatalError("bytecode without GIL");
+    }
+    // ...
+}
 
-Итого: на уровне VM многопоточность — это несколько `PyThreadState`, общий `_PyRuntimeState`, один GIL с
-condition‑variable’ами и eval‑цикл, который периодически проверяет `eval_breaker` и при необходимости отдаёт GIL, а все
-высокоуровневые `threading.Thread`/`_thread` — лишь обёртки вокруг создания ОС‑потоков и вызова Python‑функций внутри
-`PyGILState_Ensure`/`Release`.
+// Авто drop_gil каждые 1000 инструкций
+if (--tstate->gilstate_counter <= 0) {
+    _PyEval_ReleaseLock(tstate);
+    _PyEval_AcquireLock(tstate);   // Другой поток может захватить
+}
+```
+
+**Объяснение для людей:** **Все** байткоды требуют `tstate->holds_gil=1`. Каждые ~1000 инструкций — **шанс** другому
+потоку.
+
+## 10. Free-threaded (PEP 703, 3.13+ --disable-gil)
+
+```c
+#ifdef Py_GIL_DISABLED
+case LOAD_GLOBAL: {
+    PyObject *name = GETITEM(names, oparg>>1);
+    
+    // Атомарный поиск без GIL!
+    res = _PyDict_LookupWithCacheAtomic(
+        frame->f_globals, name, hints);
+        
+    if (res == NULL) {
+        res = _PyDict_LookupWithCacheAtomic(
+            frame->f_builtins, name, hints);
+    }
+}
+#endif
+```
+
+**Объяснение для людей:** **3.13 free-threaded**: **атомарные** операции словарей/списков. **Настоящий** параллелизм
+байткода.
+
+**Многопоточность** в CPython 3.9+ — **PyThreadState/thread_id**, `PyThreadState_Swap()` + **TLS**,
+`PyThread_start_new_thread()` → `pthread_create()`, **per-interpreter** списки (3.12), **GIL** (`holds_gil`), *
+*free-threaded** атомарные операции (3.13).
 
 - [Содержание](#содержание)
 
@@ -5712,123 +5869,231 @@ Semaphore, Event, Condition), но работающих через механи�
 
 ## **Senior Level**
 
-В CPython `multiprocessing` — это чистый Python‑пакет `Lib/multiprocessing`, который поверх ОС‑процессов реализует:
-разные старт‑методы (`fork`/`spawn`/`forkserver`), протокол pickling/unpickling для передачи кода и данных, плюс IPC
-через pipe/queue (основано на `multiprocessing.connection` и pipe из `_multiprocessing`). Байткод при этом обычный,
-никакой спец‑поддержки процессов в VM нет.
+В CPython 3.9+ **мультипроцессинг** — **отдельные процессы** через `fork()`/`spawn()`/`forkserver()` в
+`Lib/multiprocessing/spawn.py`, **IPC** через `Pipe`/`Queue` (`_multiprocessing.so`), **новый PyInterpreterState** в
+каждом процессе, **semaphore/shm** для синхронизации. `Lib/multiprocessing/`,`Modules/_multiprocessing.c`
 
-## Старт процессов: fork / spawn / forkserver
+## 1. multiprocessing.set_start_method() - выбор метода (Lib/multiprocessing/context.py)
 
-Внутренне всё крутится вокруг объекта `Context` (`Lib/multiprocessing/context.py`) и его реализации `_fork.py`,
-`_spawn.py`, `_forkserver.py`.
+```python
+def set_start_method(method, force=False):
+    if method == 'fork':
+        _fork_posix()
+    elif method == 'spawn':
+        _spawn_posix()
+    elif method == 'forkserver':
+        _forkserver_posix()
+    else:
+        raise ValueError(f"unknown start method {method}")
 
-- `get_context('fork')` → использует POSIX `fork()` (через `os.fork`) для запуска `Process._bootstrap()` в дочернем
-  процессе с уже загруженным интерпретатором и памятью родителя.
-    - В этом режиме адресное пространство (включая объекты CPython) копируется copy‑on‑write ядром ОС, GIL,
-      `PyInterpreterState` и `PyThreadState` наследуются.
-    - `multiprocessing` заменяет `sys.stdin/out/err` и т.п., но в целом дочерний процесс стартует прямо из текущего
-      состояния.
-- `get_context('spawn')` → создаёт новый процесс через `os.spawnv`/`CreateProcess` и запускает
-  `python -m multiprocessing.spawn ...`.
-    - В новом процессе интерпретатор стартует с нуля, импортирует модуль‑launcher (`multiprocessing.spawn`) и выполняет
-      `spawn_main`, который:
-        - по дескриптору/имени pipe соединяется с родителем, получает pickled данные (объект `PopenData`: целевой
-          `Process`, args, context и т.п.);
-        - распаковывает их, создаёт `Process` и вызывает его `_bootstrap()`.
-- `forkserver` — гибрид: запускается отдельный «серверный» процесс, который после этого форкает детей по запросу,
-  избегая «грязного» состояния main‑процесса с потоками.
+    _current_context._set_start_method(method, force)
+```
 
-То есть различие fork/spawn реализовано в чистом Python‑коде через разные реализации `Popen` в
-`multiprocessing/popen_fork.py`, `popen_spawn_posix.py`, `popen_spawn_win32.py`, и нет никакого специального
-байткода.
+**Объяснение для тупого человека:** Когда ты пишешь `mp.set_start_method('spawn')`, Python **выбирает способ** создания
+нового процесса. `'fork'` — **быстрое копирование** текущего процесса (только Linux), `'spawn'` — **с нуля** (
+Windows/macOS/Linux), `'forkserver'` — **сервер копий**. Это **критично** влияет на производительность и безопасность.
 
-## Process._bootstrap и передача целевой функции
+## 2. Process._bootstrap() - входная точка процесса (Lib/multiprocessing/process.py)
 
-Класс `multiprocessing.Process` (в `process.py`) при `start()` создаёт объект `Popen`, который в зависимости от
-контекста:
+```python
+def _bootstrap():
+    # 1. Восстанавливаем аргументы из командной строки
+    sys.argv = _args_from_interpreter_flags()
 
-- при `fork` — форкает, и в дочернем процессе сразу вызывает `self._bootstrap()` (уже имевшийся в памяти объект
-  `Process`);
-- при `spawn` — сериализует (pickle) объект `Process` (или отдельные его части) и отправляет дочернему интерпретатору
-  через pipe/commandline, новый процесс выполняет `_main`/`_bootstrap` на распакованной копии.
+    # 2. Импортируем main модуль заново
+    code, filename, main_path = _args_from_interpreter_flags()
+    assert main_path is not None
+    _run_module_as_main(main_path, code)
+```
 
-Под капотом `_bootstrap()` в дочернем процессе:
+**Объяснение для тупого человека:** Новый процесс запускается с **аргументами**
+`python -c "import main; main.worker()"`. **Главное** — `if __name__ == '__main__':` **обязательно**, иначе *
+*бесконечный импорт** main модуля в дочернем процессе.
 
-- Настраивает `sys.stdin/out/err`, сигнал‑handlers, имя процесса и т.п.
-- Вызывает пользовательский `run()` (по умолчанию `target(*args, **kwargs)`), что в итоге приводит к обычному
-  Python‑коду и eval‑циклу.
+## 3. spawn._main() - spawn метод (Lib/multiprocessing/spawn.py)
 
-Таким образом, передача функции и аргументов между процессами при `spawn` полностью базируется на `pickle` (стандартный
-протокол + `multiprocessing.reduction` для FD/locks/сокетов).
+```python
+def _main(fd):
+    # 1. Подключаемся к родительскому процессу через Unix pipe
+    parent_r, parent_w = os.pipe()
+    code, filename = _read_signed(fd)  # Читаем код main модуля
 
-## IPC: Pipe/Connection и Queue
+    # 2. Создаём новый Python интерпретатор
+    interp = PyInterpreterState_New()
+    tstate = PyThreadState_New(interp)
+    PyThreadState_Swap(tstate)
 
-Базовый слой — `multiprocessing.connection` и C‑расширение `_multiprocessing` (в частности `Pipe` и `SemLock`).
+    # 3. Выполняем код worker'а
+    exec(code, {'__file__': filename})
+```
 
-### Pipe / Connection
+**Объяснение для тупого человека:** **spawn** = **новый процесс** → **pipe** с родителем → **чтение** `main.py`
+байткода → **PyInterpreterState_New()** → **отдельный интерпретатор** → `exec(main.worker())`. **Ничего** от родителя не
+наследуется!
 
-`Pipe()` создаёт pair `Connection` объектов, каждый из которых держит файловый дескриптор/handle на одну сторону pipe (
-Unix pipe или TCP‑socket в зависимости от платформы).
+## 4. _multiprocessing.Connection - IPC Pipe (Lib/multiprocessing/connection.py)
 
-- Внутри `Connection.send(obj)` делает `pickle.dumps(obj, protocol)` и пишет длину сообщения (фиксированное
-  префикс‑поле) + сами байты в pipe.
-- `Connection.recv()` читает префикс (размер), затем указанное количество байтов, и делает `pickle.loads()`.
-- На POSIX pipe реализован через `os.read`/`os.write` на паре FD, на Windows — через `CreatePipe`/named
-  pipe/сокеты.
+```python
+class Connection:
+    def __init__(self, handle, readable=True):
+        self._handle = handle  # file descriptor (Unix pipe/socket)
+        self._readable = readable
 
-Тут главное: все объекты, проходящие через `Connection`, обязательно проходят через pickle/unpickle — это основной
-протокол обмена данными между процессами.
+    def send(self, obj):
+        # Сериализуем объект pickle → пишем в pipe
+        buf = pickle.dumps(obj)
+        self._send_bytes(_header(buf) + buf)
 
-### Queue
+    def recv(self):
+        # Читаем из pipe → десериализуем
+        buf = self._recv_bytes()
+        return pickle.loads(buf)
+```
 
-`multiprocessing.Queue` строится поверх `Pipe` и `threading` (внутри текущего процесса).
+**Объяснение для тупого человека:** `Queue.put(123)` → `pickle.dumps(123)` → **запись** в Unix pipe → другой процесс
+`pipe.read()` → `pickle.loads()`. **Единственный способ** передачи данных между процессами.
 
-- Внутри — один `Pipe` + поток‑writer, который забирает объекты из буфера (обычный `queue.Queue` в памяти процесса) и
-  отправляет их в pipe через `Connection.send()`.
-- `.put(obj)` → просто добавляет объект в буфер, не блокируя пользовательский поток на pipe; отдельный фоновой поток
-  занимается сериализацией и записью в pipe.
-- `.get()` читает из pipe (через `Connection.recv()`), десериализует и возвращает объект.
+## 5. _multiprocessing.SemLock - семафоры (Modules/_multiprocessing/semaphore.c)
 
-Таким образом достигается корректная, но не обязательно быстрая IPC: всё завязано на pickle и kernel‑pipe.
+```c
+typedef struct {
+    PyObject_HEAD
+    volatile int state;            // 0=locked, 1=unlocked
+    HANDLE sem;                    // Windows: HANDLE, Unix: sem_t*
+    int wait_flag;                 // Для acquire()
+    int release_flag;
+} SemLockObject;
 
-## Shared memory / Manager / семафоры
+static PyObject *semlock_acquire(SemLockObject *self) {
+    if (self->state == 1) {
+        self->state = 0;           // Быстрое захватывание
+        Py_RETURN_TRUE;
+    }
+    
+    // Блокируемся на семафоре
+    int success = WaitForSingleObject(self->sem, INFINITE);
+    if (success == WAIT_OBJECT_0) {
+        self->state = 0;
+        Py_RETURN_TRUE;
+    }
+    Py_RETURN_FALSE;
+}
+```
 
-Для разделяемой памяти и синхронизации используется `_multiprocessing.SemLock`, `sharedctypes`,
-`multiprocessing.shared_memory` и `SyncManager`.
+**Объяснение для тупого человека:** `Lock.acquire()` → **system semaphore** (Unix `sem_t`, Windows `HANDLE`). **Один**
+процесс захватывает, **другие ждут**. **Не Python lock** — **ОС-level** синхронизация.
 
-- `SemLock` в `_multiprocessing` оборачивает OS‑примитивы: POSIX семафоры (`sem_t`) или Win32 `CreateSemaphore`/
-  `CreateMutex`, экспортируя их как Python‑объекты (`BoundedSemaphore`, `Lock`, `RLock`, `Condition`).
-- `Value`/`Array` (`multiprocessing.sharedctypes`) создают объекты в общей памяти (через `ctypes` + `mmap`/`posix_shm`),
-  передавая дескрипторы (fd/имя) дочерним процессам; те мапят те же сегменты в своё адресное пространство.
-- `Manager` запускает отдельный серверный процесс, который хранит реальные объекты в своей памяти и обрабатывает
-  CRUD‑запросы по `Connection`/`Pipe`; клиентские объекты — это прокси, которые маршалят вызовы через pickle.
+## 6. multiprocessing.Pool - пул процессов (Lib/multiprocessing/pool.py)
 
-ВСЕ структуры высшего уровня в `multiprocessing` опираются либо на реальную shared memory kernel‑объектов, либо на RPC
-через pipes.
+```python
+class Pool:
+    def __init__(self, processes=None, initializer=None):
+        self._processes = processes
+        self._pool = []  # Список Process
 
-## GIL и независимость процессов
+        # Создаём worker процессы
+        for i in range(self._processes):
+            p = self.Process(target=worker)
+            p.start()
+            self._pool.append(p)
 
-Каждый процесс — свой интерпретатор CPython, со своим GIL, `PyInterpreterState`, аллокаторами и т.д.
+    def map(self, func, iterable):
+        # Разбиваем задачу → отправляем в Queue
+        # Ждём результаты из result_queue
+        pass
+```
 
-- При `fork` дочерний начинает с копией состояния, но после этого работает с собственным GIL и собственными
-  `PyThreadState`; нет разделения объектов между процессами, всё — через IPC или shared memory.
-- При `spawn`/`forkserver` новый процесс выполняет `Py_Initialize()` заново и живёт полностью независимой жизнью; связь
-  только через pipes/семафоры.
+**Объяснение для тупого человека:** `Pool(4)` → **4 постоянных** процесса-worker'ов → `map(f, lst)` → **разбивает**
+`lst` на куски → **отправляет** в Queue каждому worker'у → **собирает** результаты.
 
-На уровне байткода это никак не отражается: каждый процесс запускает свой eval‑цикл `_PyEval_EvalFrameDefault` и свой
-GIL‑менеджер (`ceval_gil.c`).
+## 7. fork() системный вызов (только Unix, spawn контекст)
 
-## Итоговая картина по подкапотной реализации
+```c
+// В Lib/multiprocessing/forking.py (C вызов)
+pid_t pid = fork();
+if (pid == 0) {
+    // Дочерний процесс
+    close(parent_fd);
+    _bootstrap_child();        // Входная точка
+} else {
+    // Родительский
+    close(child_fd);
+    return pid;
+}
+```
 
-- Процессы создаются через разные стратегии `Popen` (`fork`/`spawn`/`forkserver`), реализованные в
-  `Lib/multiprocessing/popen_*.py`, использующие `os.fork`, `subprocess` или серверный процесс.
-- Код и данные цели передаются либо наследованием адресного пространства (fork), либо pickling/unpickling и
-  переисполнением модуля (`spawn`), либо через отдельный fork‑server.
-- IPC реализован поверх `Pipe`/`Connection` и `Queue`, которые сериализуют объекты через `pickle` и гоняют байты по
-  kernel‑pipe/сокетам.
-- Весь `multiprocessing` сидит «над» стандартным CPython‑интерпретатором, не добавляя новых опкодов: с точки зрения VM
-  это просто ещё один процесс с собственным main‑циклом и GIL.
+**Объяснение для тупого человека:** `fork()` — **клонирует** **весь** процесс **мгновенно** (копирует **page table**
+памяти). **Оба** процесса видят **одинаковую** память до **первой записи** (Copy-on-Write). **Опасно** с GIL/threads!
 
+## 8. PyInterpreterState_New() в дочернем процессе
+
+```c
+PyStatus PyInterpreterState_New(PyThreadState *tstate) {
+    PyInterpreterState *interp;
+    
+    interp = PyMem_RawCalloc(1, sizeof(PyInterpreterState));
+    if (interp == NULL) {
+        return PyStatus_NoMemory();
+    }
+    
+    // Инициализируем **новый** интерпретатор
+    interp->tstate_head = NULL;
+    interp->modules = NULL;
+    interp->modules_reloading = 0;
+    interp->sysdict = NULL;
+    
+    // Создаём PyThreadState для этого процесса
+    PyThreadState *new_tstate = PyThreadState_New(interp);
+    PyThreadState_Swap(new_tstate);
+    
+    // Инициализация интерпретатора
+    if (_PyInterpreterState_Init(interp) < 0) {
+        PyInterpreterState_Delete(interp);
+        return PyStatus_Err();
+    }
+    
+    return PyStatus_OK();
+}
+```
+
+**Объяснение для тупого человека:** Каждый процесс имеет **свой** `PyInterpreterState` + `PyThreadState`. **Никаких**
+общих globals/modules/builtins. **Полная изоляция**.
+
+## 9. Shared Memory (multiprocessing.shared_memory)
+
+```c
+// Modules/_multiprocessing/shm_posix.c
+int shm_open(const char *name, int oflag, mode_t mode) {
+    // Создаёт /dev/shm/name сегмент памяти
+    return syscall(SYS_shm_open, name, oflag, mode);
+}
+
+void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset) {
+    // Отображает shm в адресное пространство процесса
+}
+```
+
+**Объяснение для тупого человека:** `SharedMemory('name', size=1e6)` → **/dev/shm/name** файл → `mmap()` → **общая
+физическая память**. **Байтовое** копирование между процессами.
+
+## 10. multiprocessing.Manager() - proxy объекты
+
+```python
+class Server:
+    def serve_forever(self):
+        # Запускает сокет сервер
+        while True:
+            conn = self.listener.accept()
+            t = threading.Thread(target=Dispatcher(conn))
+            t.start()
+```
+
+**Объяснение для тупого человека:** `Manager().dict()` → **отдельный процесс-сервер** → **Unix socket** → **pickle
+запросы** → **Python RPC**. **Автоматическая** сериализация.
+
+**Мультипроцессинг** в CPython 3.9+ — **spawn/fork/forkserver**, **новый PyInterpreterState** в каждом процессе, **Pipe
+** (`pickle` + Unix sockets), **sem_t/HANDLE** семафоры, **Pool** worker'ы, **Copy-on-Write** (`fork`), **SharedMemory
+** (`mmap`).
 
 - [Содержание](#содержание)
 
