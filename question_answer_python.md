@@ -14667,6 +14667,78 @@ super_descr_get(PyWrapperDescrObject *wrapper, PyObject *self, PyObject *instanc
 
 ---
 
+# Делегирование
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# Фабричные методы и абстрактные фабрики
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# Адаптеры и мосты
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# Наблюдатель (Observer)
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# Стратегия (Strategy)
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# Шаблонный метод (Template Method)
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
 # **Pytest**
 
 ## **Junior Level**
@@ -15486,6 +15558,330 @@ spec:
 статусом.  
 Контроллер просто повторяет паттерн Kubernetes: “desired → actual”.  
 Так QA-система становится частью экосистемы Kubernetes, а не надстройкой сверху.
+
+- [Содержание](#содержание)
+
+---
+
+# **unittest framework**
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# **Mocking и патчинг**
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# **Тестовые двойники**
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# **Фабрики тестовых данных**
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# **Параметризация тестов**
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# **Фикстуры разных уровней**
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# **Allure отчеты**
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# **Selenium/Playwright**
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# **Requests для API тестирования**
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# **BDD frameworks**
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# **Docker**
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# **CI/CD системы**
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# **Конфигурация окружений**
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# **Системы очередей**
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# **Базы данных в тестах**
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# **SQLAlchemy**
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# **Alembic**
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# **Pydantic**
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# **FastAPI/Flask/Django**
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# **Celery**
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# **Websockets**
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# **Paramiko**
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# **Prometheus/Grafana**
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# **Профилирование кода**
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# **Статический анализ**
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# **Анализ покрытия**
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# **Бенчмаркинг**
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
 
 - [Содержание](#содержание)
 
