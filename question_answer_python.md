@@ -14247,70 +14247,159 @@ super_descr_get(PyWrapperDescrObject *wrapper, PyObject *self, PyObject *instanc
 
 ## **Senior Level**
 
-1. **Optional и Union как алгебраические типы:**
-    - В теории типов `Union` является суммой типов (sum type), а кортеж — произведением типов (product type). Это основа
-      для построения сложных типов данных.
-    - `Optional` — это частный случай суммы типа с единичным типом (`None`).
-    - В Python 3.10 появился `TypeGuard` и `isinstance` с `Union` теперь работает лучше, но все еще есть ограничения.
+## Хранение аннотаций в CPython
 
-2. **TypeVar и вариативность:**
-    - **Инвариантность по умолчанию:** `List[T]` инвариантен: `List[Dog]` не является ни подтипом, ни надтипом
-      `List[Animal]`, потому что список можно изменять. Это предотвращает ошибки типа "добавление кота в список собак".
-    - **Ковариантность:** `Sequence[T]` (как и `Iterable[T]`) может быть ковариантен, потому что он только читает
-      данные. Если `Dog` подтип `Animal`, то `Sequence[Dog]` подтип `Sequence[Animal]`.
-    - **Контравариантность:** `Callable[[Animal], ...]` может быть контравариантен по аргументам. Функция, которая
-      принимает `Animal`, может принимать и `Dog`, поэтому `Callable[[Animal], ...]` является подтипом
-      `Callable[[Dog], ...]` (обратное отношение).
-    - Правильное указание вариативности в пользовательских дженериках критично для корректной работы статических
-      анализаторов.
+Аннотации типов в CPython (Python 3.9+) хранятся в специальном атрибуте `__annotations__` объектов (функций, классов,
+модулей). Этот атрибут представляет собой словарь `dict[str, object]`, где ключи — имена переменных/параметров, а
+значения — сами аннотации (типы или выражения). CPython не выполняет аннотации во время выполнения (runtime) — они
+остаются "ленивыми" объектами для статических анализаторов вроде mypy.
 
-3. **Generic и `__class_getitem__`:**
-    - Когда вы пишете `List[int]`, это не создает новый класс. Вместо этого вызывается метод `__class_getitem__` класса
-      `List`, который возвращает объект-алиас с сохраненной информацией о параметре типа.
-    - Пользовательские классы могут реализовать `__class_getitem__` для поддержки такой нотации, не наследуясь от
-      `Generic`. Но наследование от `Generic` автоматически предоставляет эту реализацию и другие возможности.
-    - `Generic` использует метаклассы и магию, чтобы сохранить параметры типов в `__parameters__` и `__args__`.
+В режиме `from __future__ import annotations` (по умолчанию с Python 3.10, рекомендуется в 3.9+), аннотации сохраняются
+как строки без вычисления, что предотвращает ошибки вроде `NameError` при ссылке на неопределённые имена. Это
+реализовано в парсере AST (Abstract Syntax Tree) CPython: во время компиляции в байткод аннотации парсятся как
+`ast.AnnAssign` и сериализуются в строки.
 
-4. **TypeVar и `NewType`:**
-    - `NewType` создает непрозрачный псевдоним типа, который статически считается подтипом исходного типа, но в runtime
-      это отдельный тип. Полезно для предотвращения логических ошибок (например, `UserId = NewType('UserId', int)`).
-    - `TypeVar` же используется для параметризации, а не создания новых типов.
+```python
+# Байткод примера: def func(x: str) -> int:
+# dis.dis(func) покажет LOAD_BUILD_CLASS и MAKE_FUNCTION с флагом CO_NESTED
+# Аннотации попадают в co_varnames и co_cellvars фрейма функции
+import dis
 
-5. **Для AQA:**
-    - **Создание типобезопасных DSL для тестов:** Используя `Generic` и `TypeVar`, можно создать DSL, который статически
-      проверяет цепочки вызовов. Например, `browser.element(by.id("login")).click()` — если `element` возвращает
-      `WebElement[T]`, где `T` — это тип элемента (кнопка, поле ввода), то можно гарантировать, что методы `click()` или
-      `send_keys()` доступны только для соответствующих типов.
-    - **Генерация тестов на основе типов:** Метакласс может анализировать аннотации типов тестовых методов и
-      автоматически генерировать тесты для разных типов данных. Например, для параметризованного теста
-      `test_sort[T: (int, str)]` можно сгенерировать два теста.
-    - **Валидация конфигураций тестов:** Используя `TypedDict` и `Literal`, можно статически проверять конфигурационные
-      файлы тестов (YAML/JSON) на соответствие схеме.
-    - **Мокирование с проверкой типов:** Создание моков, которые наследуются от `Generic[T]` и проверяют, что
-      возвращаемые значения соответствуют аннотациям. Можно использовать `__annotations__` реального класса для
-      автоматической настройки мока.
-    - **Протоколы и дженерики:** Комбинирование `Protocol` и `Generic` для описания обобщенных интерфейсов. Например,
-      `class Repository[T, U]: ...` — где `T` — тип модели, `U` — тип идентификатора. Это позволяет создавать
-      типобезопасные абстракции для тестовых данных.
-    - **Зависимые типы (эмуляция):** Хотя Python не поддерживает зависимые типы полноценно, можно использовать `Literal`
-      и `TypeVar` с bound для эмуляции простых случаев. Например, функция, которая возвращает длину списка, может быть
-      аннотирована так, чтобы статический анализатор понимал, что индекс не выйдет за границы.
-    - **Проблемы с рекурсивными типами:** Определение рекурсивных структур данных (например, дерева) требует
-      использования строковых аннотаций (`'Tree'`) или `from __future__ import annotations`. В тестовых фреймворках это
-      может возникать при описании сложных JSON-схем.
-    - **Производительность:** Использование `typing` модуля может замедлить запуск программы, потому что он содержит
-      много сложной логики. В продакшн-коде иногда используют `from typing import TYPE_CHECKING` для условного импорта.
-      В тестах это менее критично, но стоит помнить.
 
-6. **Ограничения и будущее:**
-    - **PEP 563 (Postponed Evaluation of Annotations):** Строковые аннотации по умолчанию с Python 3.10 (в 3.7—3.9 через
-      `from __future__ import annotations`). Это решает проблему forward references, но делает аннотации недоступными
-      для интроспекции в runtime (нужно использовать `get_type_hints`).
-    - **PEP 646 (Variadic Generics):** В Python 3.11 добавлены `TypeVarTuple` и `Unpack` для работы с произвольным
-      количеством типов (например, для многомерных массивов).
-    - **PEP 675 (LiteralString):** Для более точной типизации строковых литералов, полезно в SQL-запросах или командах
-      shell, чтобы предотвранить injection.
-    - **PEP 655 (Required/NotRequired для TypedDict):** Для указания обязательных и необязательных ключей.
+def func(x: str) -> int:
+    return x
+
+
+print(func.__annotations__)  # {'x': <class 'str'>, 'return': <class 'int'>}
+```
+
+Представь, что CPython — это почтальон. Когда ты пишешь `x: str`, он не проверяет посылку (str) сразу, а просто
+записывает адрес "x ожидает str" в специальную тетрадку `__annotations__`. Позже статический анализатор (mypy) открывает
+тетрадку и проверяет, всё ли правильно. Если включишь `from __future__ import annotations`, он даже не смотрит на типы —
+просто записывает как текст "str", чтоб не было ошибок, если имя типа ещё не определено.
+
+## Реализация в модуле Lib/typing.py
+
+Модуль `typing.py` (CPython sources: `Lib/typing.py`) — это чистый Python-код (~3000 строк в 3.12+), который создаёт
+подклассы и прокси для типов. Он не трогает C-уровень CPython напрямую, но использует служебные классы вроде
+`_GenericAlias`, `_SpecialForm`. Ключевые структуры: `_TypingEmpty`, `_TypingEllipsis` для специальных случаев (
+Tuple[...], Callable).
+
+Основная магия — в `__getitem__()` generic-типов. Когда пишешь `List[int]`, CPython вызывает `list.__getitem__(int)`, но
+typing перехватывает через подкласс `_GenericAlias`:
+
+```python
+# Из CPython Lib/typing.py (Python 3.12+ fragment, упрощённо)
+class _GenericAlias:
+    def __getitem__(self, params):
+        if not isinstance(params, tuple):
+            params = (params,)
+        # Проверяем, что параметры — валидные типы
+        msg = "Parameters to generic types must be types."
+        params = tuple(_type_check(p, msg) for p in params)
+        # Собираем type variables для подстановки
+        self.__parameters__ = _collect_type_vars(params)
+        # Создаём новый alias с подстановкой
+        return _subs_tvars(self, self.__parameters__, params)
+
+
+# Пример работы:
+List = _GenericAlias('list', inst=actual_list)  # actual_list из builtins
+List[int]  # -> _GenericAlias(list, (int,), name='list[int]')
+```
+
+`_GenericAlias` — как фабрика по производству "типовых коробок". `List[int]` говорит: "Возьми коробку list и пометь её,
+что внутри int". CPython проверяет, что `int` — настоящий тип (не число или строка), собирает переменные типов (
+TypeVar), подставляет их и выдаёт новую "метку" вида list[int]. Это не настоящий list, а прокси, который mypy понимает.
+На runtime ничего не проверяется — просто метка болтается в памяти.
+
+## C-уровень: Обработка __annotations__ в Objects
+
+На C-уровне (Objects/descrobject.c, Objects/functionobject.c) `__annotations__` — это дескриптор (data descriptor).
+Доступ через `PyObject_GenericGetAttr` → проверка `__dict__` → fallback на слоты типа `tp_getattro`.
+
+Для функций: при создании `PyFunctionObject` (Objects/funcobject.c) байткод компилятора (Python/compile.c) заполняет
+`func_annotations` через `STORE_ANNOTATION` opcode (с Python 3.5+). В 3.9+ добавлена оптимизация: аннотации кэшируются в
+`PyDictObject` и не пересчитываются.
+
+```c
+// Из CPython Objects/funcobject.c (Python 3.12, упрощённо)
+// PyFunctionObject структура:
+typedef struct {
+    PyObject_HEAD
+    PyObject *func_code;      /* код байткода */
+    PyObject *func_globals;   /* глобальное пространство */
+    PyObject *func_annotations; /* <-- НАШЕ dict[str, annotation] */
+    // ... другие слоты
+} PyFunctionObject;
+
+// В func_new():
+if (annotations != NULL) {
+    // Копируем dict аннотаций из co_annotations код-объекта
+    func->func_annotations = Py_NewRef(annotations);
+    // PyDict_SetItem копирует пары key:value без вычисления
+}
+```
+
+C-код CPython — это "склад товаров". Каждый объект (функция) имеет полку `func_annotations` — большой ящик-словарь.
+Когда компилятор видит `: str` в коде, он кладёт ярлык "{'x': str}" в этот ящик, не открывая посылки. При
+`func.__annotations__` C-функция просто достаёт ящик и отдаёт. Нет проверок типов — только хранение. В 3.9+ ящик
+сделан "ленивым": если `from __future__ import annotations`, ярлыки — сырые строки вроде "<class 'str'>", чтоб не
+ломалось при импорте.
+
+## Байткод и компиляция аннотаций (Python 3.9+)
+
+Компилятор (Python/compile.c → Python/symtable.c) парсит AST-узлы `AnnAssign`/`arg.annotation`. В 3.9+ добавлена
+поддержка built-in generics (`list[int]` вместо `typing.List[int]`) через `symtable.c` анализ forward refs.
+
+Ключевой opcode: `STORE_ANNOTATION` (opcode 95 в 3.12). Он сохраняет аннотацию в `co_annotations` код-объекта.
+
+```python
+# dis.dis для def func(a: int): pass
+import dis
+
+
+def func(a: int): pass
+
+
+dis.dis(func)
+# Вывод (Python 3.12):
+#   2           0 RESUME                   0
+#               1 LOAD_CONST               1 (<code object func>)
+#               ...
+# В co_annotations: {'a': <class 'int'>}
+```
+
+Байткод — инструкции для виртуальной машины CPython. `STORE_ANNOTATION` — команда "положи метку типа в специальный сейф
+код-объекта". При запуске функции VM берёт сейф и копирует в `func_annotations`. В 3.9+ парсер стал умнее: распознаёт
+`list[int]` на лету, без импорта typing, и сохраняет как `_GenericAlias`. Но на выполнении байткода типы игнорируются —
+VM просто пропускает STORE_ANNOTATION.
+
+## TypeVar и Generic: Внутренняя подстановка
+
+`TypeVar` — `_Final` subclass с `__parameters__`. Generic использует `_collect_type_vars()` для рекурсивного сбора
+переменных и `_subs_tvars()` для подстановки (из typing.py).
+
+```python
+# Из Lib/typing.py
+def _subs_tvars(original, parameters, args):
+    """Подстановка TypeVar в Generic"""
+    new_args = []
+    for arg in original.__args__:
+        if isinstance(arg, _TypeVarLike):
+            idx = parameters.index(arg)
+            new_args.append(args[idx])
+        else:
+            new_args.append(arg)
+    return type(original)(original.__origin__, tuple(new_args))
+```
+
+TypeVar — как пустая коробка с именем "T". Generic — шаблон "Коробка[T]". При `MyGeneric[str]` CPython находит все "T" в
+шаблоне, заменяет на "str" и выдаёт новую коробку "Коробка[str]". Это рекурсивно: если внутри T есть другие переменные,
+они тоже подставляются. Всё в Python-коде typing.py, без C, но быстро благодаря `@_tp_cache` (lru_cache).
+
+Эти механизмы делают typing эффективным: ~0 overhead на runtime, полная поддержка в IDE/mypy. Для собеседования
+акцентируй: нет enforcement в CPython, только storage/parsing.
 
 - [Содержание](#содержание)
 
