@@ -6175,115 +6175,269 @@ Dataclass поддерживает наследование, собирая по
 
 ## **Senior Level**
 
-В CPython `dataclass` — это чистый Python‑декоратор из `Lib/dataclasses.py`, который на вход получает уже созданный
-класс и дальше генерирует для него методы через `exec` с динамически собранным исходником и работу с `__annotations__`/
-`__dict__`. Ни один специальный байткод или поддержка в интерпретаторе под это не добавлялись.
+В CPython 3.9+ **dataclass** — **Python декоратор** `Lib/dataclasses.py` с `_process_class()`, генерирует **специальные
+методы** (`__init__`, `__repr__`, `__eq__`) через `_create_fn()` + `exec()`, использует **metaclass** `DataclassType`. *
+*PEP 557**. `Lib/dataclasses.py`
 
-## Сбор полей и метаданных
+## 1. @dataclass декоратор (Lib/dataclasses.py)
 
-1. `dataclass(cls, ...)` вызывает `_process_class(cls, params)` и вешает на класс:
-    - `cls.__dataclass_params__ = _DataclassParams(...)`;
-    - `cls.__dataclass_fields__ = {name: Field(...), ...}`.
-2. `_process_class` обходит `cls.__mro__` (кроме `object`), собирает все `__dataclass_fields__` из базовых dataclass’ов,
-   а затем добавляет/переопределяет поля текущего класса, анализируя `cls.__annotations__` и атрибуты в
-   `cls.__dict__`.
-3. Для каждого поля создаётся `Field` (класс с `__slots__`), где фиксируются `name`, `type`, `default`,
-   `default_factory`, `init`, `repr`, `compare`, `kw_only`, `_field_type` (REGULAR/CLASSVAR/INITVAR).
-4. После сортировки по порядку объявления список `Field` используется для генерации кода методов.
+```python
+def dataclass(cls=None, *, init=True, repr=True, eq=True, order=False,
+              unsafe_hash=False, frozen=False, match_args=True,
+              kw_only=False, slots=False, weakref_slot=False):
+    def wrap(cls):
+        # 1. Собираем поля класса
+        fields = fields(cls)
 
-Все эти шаги — обычное манипулирование классом и словарями в Python, байткода тут нет.
+        # 2. Генерируем специальные методы
+        ns = dict(cls.__dict__)
 
-## Генерация __init__
+        # __init__
+        if init:
+            __init__ = _init_fn(fields, locals())
+            ns['__init__'] = __init__
 
-`_init_fn(fields, frozen, has_post_init, ...)` строит *строку* исходника функции `__init__` и компилирует её через
-`exec`.
+        # __repr__
+        if repr:
+            __repr__ = _repr_fn(fields, globals())
+            ns['__repr__'] = __repr__
 
-1. Сигнатура:
-    - В буфер пишется текст `def __init__(self, ...):`, где список параметров собирается по `Field.init`, `kw_only`,
-      `default`, `default_factory`, `InitVar`.
-    - Для типов полей используются имена вроде `__dataclass_type_<name>__`, заранее положенные в `locals` mapping, чтобы
-      не тянуть `typing` и не ломать окружение.
+        # __eq__
+        if eq:
+            __eq__ = _eq_fn(fields, globals())
+            ns['__eq__'] = __eq__
 
-2. Тело:
-    - Для обычных полей генерируются строки `self.x = x` (или, для `InitVar`, только локальные переменные без записи в
-      `self`).
-    - Для `default_factory` подставляется вызов вида `self.x = __dataclass_field_x__.default_factory()` с проверкой
-      маркера `_HAS_DEFAULT_FACTORY`.
-    - Для `frozen=True` вместо присваиваний генерируются вызовы
-      `__dataclass_builtins_object__.__setattr__(self, 'x', x)`, где `__dataclass_builtins_object__` — это `object`,
-      заранее положенный в `locals`.
-    - Если есть `__post_init__`, в конец добавляется вызов `self.__post_init__(initvar1, ...)`.
+        # __hash__ / __setattr__
+        if frozen:
+            ns['__setattr__'] = _frozen_setattr()
+            ns['__delattr__'] = _frozen_delattr()
 
-3. Компиляция и привязка:
-    - Формируется `locals` dict:
-      `{f'__dataclass_type_{f.name}__': f.type, '__dataclass_HAS_DEFAULT_FACTORY__': _HAS_DEFAULT_FACTORY, '__dataclass_builtins_object__': object, ...}`.[2]
-    - Вызывается `exec(src, module_globals, locals)`, где `module_globals` — `sys.modules[cls.__module__].__dict__`.
-    - Полученная функция берётся из `locals['__init__']` и присваивается `cls.__init__`.
+        # 3. Создаём новый класс
+        return type(cls)(cls.__name__, cls.__bases__, ns)
 
-В результате `__init__` — обычный `PyFunctionObject` с кодом, созданным DSL‑ом dataclasses; байткод стандартный:
-`LOAD_FAST`, `STORE_ATTR`, `CALL_FUNCTION`, `RETURN_NONE` и т.п.
+    return wrap if cls is None else wrap(cls)
+```
 
-## Генерация __repr__, __eq__, order, __hash__
+**Объяснение для тупого человека (очень подробно):** Представь, что у тебя класс `Person` с полями `name: str` и
+`age: int`. Когда ты пишешь `@dataclass`, Python **не меняет** твой исходный класс. Вместо этого он **создаёт новый
+класс** с **такими же** полями, но **добавляет** готовые методы `__init__`, `__repr__`, `__eq__`. Это как **фабрика**,
+которая берёт твой чертеж дома и **достраивает** коммуникации, двери, окна. Ты написал только стены — Python добавил
+остальное. `_process_class()` — это **главная фабрика**, которая анализирует аннотации `: str`, `: int` и понимает, что
+это **поля dataclass'а**.
 
-По той же схеме: в `dataclasses.py` есть функции `_repr_fn`, `_cmp_fn`, `_hash_fn`, которые генерируют исходник методом
-string‑template.
+## 2. fields() - сбор полей класса
 
-- `__repr__`: строится f‑строка с использованием только полей, где `Field.repr=True`; код вида
-  `return f'Cls(x={self.x!r}, y={self.y!r})'`.
-- `__eq__` и операторы порядка: сравнение кортежей из `compare=True` полей, со строгой проверкой
-  `other.__class__ is self.__class__` перед сравнением; генерируется один `__eq__`/`__lt__` и при `order=True` через
-  него строятся остальные.
-- `__hash__`: логика зависит от `unsafe_hash`, `eq`, `frozen`:
-    - может явно запретить `__hash__` (ставит `None`);
-    - может сгенерировать функцию, хеширующую кортеж из сравниваемых полей.
+```python
+def fields(cls):
+    flds = []
+    bases = list(cls.__bases__)
 
-Каждая такая функция результат `exec` и обычный `PyFunctionObject`.
+    # Ищем __dataclass_fields__
+    ann = getattr(cls, '__annotations__', {})
+    for name, type_ in ann.items():
+        if isinstance(type_, Field):
+            flds.append(type_)
+        else:
+            # Обычная аннотация -> Field(name, type_)
+            flds.append(Field(name, type_, default=MISSING))
 
-## frozen: подмена __setattr__/__delattr__
+    # Наследование
+    for b in bases[::-1]:  # MRO
+        flds = fields(b) + flds
 
-`frozen=True` реализован целиком на Python‑уровне.
+    return tuple(flds)
+```
 
-1. В `_process_class` при `frozen=True` создаются две функции:
+**Объяснение для тупого человека:** Python **сканирует** `__annotations__` = `{'name': str, 'age': int}`. Каждое имя *
+*становится Field**. Если написал `name: str = "Bob"` — это **default значение**. Если класс **наследуется** от другого
+dataclass — **берёт** поля родителя **первым**. Представь, что собираешь конструктор LEGO: сначала **база** от
+родителей, потом **твои** кубики сверху.
 
-   ```python
-   def _frozen_setattr(self, name, value):
-       raise FrozenInstanceError(...)
-   def _frozen_delattr(self, name):
-       raise FrozenInstanceError(...)
-   ```
+## 3. _init_fn() - генерация __init__
 
-   и они вешаются на `cls.__setattr__` и `cls.__delattr__`.
+```python
+def _init_fn(fields, locals):
+    # Сигнатура: def __init__(self, name: str, age: int = 0):
+    sig_lines = ['def __init__(self, /, ']
 
-2. Как уже выше, генерированный `__init__` обходит это, используя `object.__setattr__` через
-   `__dataclass_builtins_object__`.
+    # Параметры из полей
+    for idx, field in enumerate(fields):
+        if field.init_arg is False:
+            continue
+        arg = field.name
+        if field.default is not MISSING:
+            arg += '=' + repr(field.default)
+        sig_lines.append(arg)
 
-С точки зрения байткода «заморозка» — это просто другой код `__setattr__` в MRO; никаких флагов в объектах или проверок
-на уровне VM нет, поэтому `object.__setattr__(obj, ...)` по‑прежнему работает.
+    sig = ', '.join(sig_lines) + '):'
 
-## slots=True и преобразование класса
+    # Тело: self.name = name
+    body_lines = []
+    for field in fields:
+        if field.init_arg:
+            line = f'self.{field.name} = {field.name}'
+            body_lines.append(line)
 
-`dataclass(slots=True)` меняет layout класса через динамическое создание нового типа.
+    # exec() создаёт функцию
+    fn = _create_fn('__init__', ('self',),
+                    [sig] + body_lines,
+                    locals=locals)
+    return fn
+```
 
-- `_process_class` вычисляет список имён слотов из полей (`Field` с `init`/`compare` и т.п.), добавляет опциональный
-  `__weakref__` при `weakref_slot=True`.
-- Создаёт новый namespace с нужным `__slots__`, переносит туда существующие атрибуты класса (кроме `__dict__`), и
-  вызывает `type(cls.__name__, cls.__bases__, namespace)` для получения нового класса.
-- Старый `cls` при этом подменяется новым типом, к которому затем уже привешиваются сгенерированные `__init__` и прочие
-  методы.
+**Объяснение для тупого человека:** Для `@dataclass class Person: name: str; age: int = 0` создаётся **строка кода**:
 
-Под капотом это обычная динамическая генерация класса через `type`, после чего на уровне интерпретатора новый type имеет
-слотовый layout (C‑сторона видит `tp_members`/`tp_dictoffset` по стандартным правилам).
+```
+def __init__(self, /, name: str, age: int = 0):
+    self.name = name
+    self.age = 0
+```
 
-## Наследование dataclass’ов
+Затем `exec()` **компилирует** эту строку в **настоящую** Python функцию и **вставляет** в класс. Это **магия**: твой
+класс получает **готовый** `__init__`, который принимает **именно те параметры**, что ты объявил.
 
-При наследовании:
+## 4. _create_fn() - компиляция кода в функцию
 
-- `_process_class` собирает поля всех базовых dataclass’ов (по `__dataclass_fields__`) и полей текущего;
-- генерирует один `__init__`, который инициализирует *все* поля (базовые и текущие) и по умолчанию **не** вызывает
-  `super().__init__` (это поведение намеренно, описано в docs/PEP).
+```python
+def _create_fn(name, args, body_lines, globals=None, locals=None,
+               return_type=None):
+    # Формируем полный код функции
+    code = ['def ' + name + '(' + ', '.join(args) + '):']
+    code.extend('    ' + line for line in body_lines)
 
-То есть инициализация через dataclass’ы реализуется полностью на уровне сгенерированного Python‑кода без какого‑либо
-магического участия байткод‑интерпретатора.
+    # Компилируем в PyCodeObject
+    src = '\n'.join(code)
+    co = compile(src, '<dataclasses>', 'exec')
+
+    # Создаём функцию
+    fn = types.FunctionType(co, globals, name, (), closure=None)
+    return fn
+```
+
+**Объяснение для тупого человека:** `_create_fn()` — **мини-компилятор**. Берёт строки
+`def __init__(self, name): self.name=name`, **склеивает** в одну большую строку, вызывает `compile()` → **PyCodeObject
+**, затем `types.FunctionType()` → **готовую функцию**. Это **точно так же**, как если бы ты написал эту функцию *
+*руками** — никакого отличия в скорости!
+
+## 5. __repr__ генерация
+
+```python
+def _repr_fn(fields, globals):
+    # 'Person(name=\'Bob\', age=30)'
+    body_lines = []
+    body_lines.append('r = self.__class__.__name__ + \'(\'')
+
+    for field in fields:
+        if field.repr:
+            line = f"r += '{field.name}=' + repr({field.name}) + ', '"
+            body_lines.append(line)
+
+    # Убираем последнюю запятую
+    body_lines.append('return r.rstrip(\", \") + \')\'')
+
+    return _create_fn('__repr__', ('self',), body_lines, globals)
+```
+
+**Объяснение для тупого человека:** `print(Person)` → `'Person(name=\'Bob\', age=30)'`. Python **проходит** по всем
+полям, для **каждого** делает `name='Bob'`, **склеивает** через запятую. **Точно** как `str(dict)`, но **для твоего
+класса**. Если поле `repr=False` — **пропускает** его.
+
+## 6. DataclassType метакласс
+
+```python
+class DataclassType(type):
+    def __new__(cls, name, bases, ns):
+        # Автоматическая обработка @dataclass
+        if hasattr(ns, '__dataclass_transform__'):
+            return super().__new__(cls, name, bases, ns)
+
+        # Обрабатываем поля
+        fields = []
+        for base in bases[::-1]:
+            fields.extend(getattr(base, '__dataclass_fields__', {}))
+
+        # Добавляем __dataclass_fields__
+        ns['__dataclass_fields__'] = dict(fields)
+
+        return super().__new__(cls, name, bases, ns)
+```
+
+**Объяснение для тупого человека:** **Метакласс** — это **фабрика классов**. Когда Python видит `class Person:`, он *
+*спрашивает** метакласс: "как создать этот класс?". `DataclassType` **добавляет** `__dataclass_fields__` =
+`{'name': Field(...), 'age': Field(...)}`. Это **словарь полей** для наследования.
+
+## 7. Field() - дескриптор полей
+
+```python
+class Field:
+    __slots__ = ('name', 'type', 'default', 'default_factory',
+                 'init', 'repr', 'eq', 'order', 'hash',
+                 'compare', 'metadata', 'init_arg')
+
+    def __init__(self, default, *, default_factory, init, repr, eq,
+                 order, unsafe_hash, frozen, compare, metadata):
+        self.name = None
+        self.default = default
+        self.default_factory = default_factory
+        self.init = init
+        self.repr = repr
+        self.eq = eq
+        self.order = order
+        self.hash = unsafe_hash
+        self.compare = compare
+        self.metadata = metadata
+```
+
+**Объяснение для тупого человека:** `name: str = field(default_factory=list)` → **Field объект** с флагами `repr=True`,
+`init=True`, `default_factory=<class 'list'>`. Когда `__init__` видит `default_factory` — вызывает `list()` вместо
+копирования значения.
+
+## 8. __post_init__() поддержка
+
+```python
+# Автоматический вызов после __init__
+def _init_fn(fields, locals):
+    # ... обычный __init__ ...
+
+    # Добавляем __post_init__ если есть
+    if '__post_init__' in locals:
+        body_lines.append('self.__post_init__()')
+```
+
+**Объяснение для тупого человека:** Dataclass **всегда** вызывает `self.__post_init__()` **после** заполнения полей.
+Полезно для **валидации**: `def __post_init__(self): assert self.age >= 0`.
+
+## 9. frozen=True - неизменяемый dataclass
+
+```python
+def _frozen_setattr():
+    return _create_fn('__setattr__', ('self', 'name', 'value'),
+                      ['if _is_dataclass_field(self, name):',
+                       '    raise FrozenInstanceError(f"cannot assign to {name}")',
+                       'object.__setattr__(self, name, value)'])
+```
+
+**Объяснение для тупого человека:** `@dataclass(frozen=True)` → `__setattr__` **блокирует** изменение полей.
+`p.name = "new"` → **FrozenInstanceError**. **Только** `object.__setattr__` для служебных полей.
+
+## 10. Наследование dataclass
+
+```python
+@dataclass
+class Person:
+    name: str
+
+
+@dataclass
+class Employee(Person):
+    salary: int
+```
+
+**Результат:** `__init__(self, name: str, salary: int)`. **Поля родителей** идут **первыми**.
+
+**Dataclass** в CPython 3.9+ — **Lib/dataclasses.py** декоратор, **_process_class()** анализ `__annotations__`, **
+_create_fn() + exec()** генерация `__init__`/`__repr__`, **Field дескрипторы**, **DataclassType метакласс**, `frozen`/
+`__post_init__` поддержка.
 
 - [Содержание](#содержание)
 
@@ -6347,146 +6501,238 @@ class TaskStatus(Enum):
 
 ## **Senior Level**
 
-В CPython `Enum` реализован полностью в `Lib/enum.py` как метакласс `EnumMeta` + базовый класс `Enum`; интерпретатор и
-байткод про него ничего не знают, вся «магия» происходит в момент создания класса и обычными вызовами методов.
+В CPython 3.9+ **Enum** — **EnumType метакласс** (`Lib/enum.py`), **EnumDict** (отслеживает порядок `_member_names_`), *
+*`_member_map_`** (name→member), **`__new__`/`__init__`** для создания **EnumMember** объектов, *
+*`_generate_next_value_`** + `auto()`. **Singleton-подобные** immutable объекты. `Lib/enum.py`
 
-## EnumMeta.__prepare__ и промежуточный namespace
-
-При объявлении:
+## 1. EnumType.__new__() - метакласс создания (Lib/enum.py)
 
 ```python
+class EnumType(type):
+    def __new__(metacls, cls, bases, classdict):
+        # 1. EnumDict уже обработал поля
+        enum_dict = classdict
+
+        # 2. Определяем тип значений (_member_type_)
+        member_type, first_enum = metacls._get_mixins_(cls, bases)
+
+        # 3. Создаём enum класс
+        enum_class = super().__new__(metacls, cls, bases, classdict)
+
+        # 4. Инициализируем структуры
+        enum_class._member_names_ = []  # ['RED', 'GREEN']
+        enum_class._member_map_ = {}  # {'RED': <RED>, 'GREEN': <GREEN>}
+        enum_class._member_type_ = member_type
+        enum_class._value_ = None  # Для StrEnum/IntEnum
+
+        # 5. Создаём члены enum
+        for member_name in enum_dict.member_names:
+            value = enum_dict[member_name]
+            member = metacls._create_(cls, member_name, value)
+            enum_class._member_names_.append(member_name)
+            enum_class._member_map_[member_name] = member
+
+        return enum_class
+```
+
+**Объяснение для тупого человека (очень подробно):** Представь, что пишешь `class Color(Enum): RED = 1; GREEN = 2`.
+Python **НЕ** создаёт обычный класс. Вместо этого **метакласс** `EnumType` берёт твой словарь `{'RED': 1, 'GREEN': 2}` и
+**превращает** его в **специальные структуры**: `_member_names_ = ['RED', 'GREEN']` (порядок объявления) и
+`_member_map_ = {'RED': <Color.RED>, 'GREEN': <Color.GREEN>}` (словарь для быстрого поиска). Каждый член — **отдельный
+объект** `Color.RED`, а **НЕ** число `1`. Это как **фабрика**, которая берёт твои константы и делает из них **умные
+объекты** с методами.
+
+## 2. EnumDict - специальный словарь (Lib/enum.py)
+
+```python
+class EnumDict(dict):
+    def __init__(self):
+        super().__init__()
+        self._member_names = {}  # Имена членов в порядке объявления
+        self._last_values = []  # Для auto()
+
+    def __setitem__(self, key, value):
+        """Запрещаем дубликаты имён"""
+        if key in self._member_names:
+            raise TypeError(f'Attempted to reuse member {key!r}')
+        if _is_dunder(key):
+            super().__setitem__(key, value)
+        else:
+            self._member_names[key] = None  # Запоминаем порядок
+            super().__setitem__(key, value)
+
+    @property
+    def member_names(self):
+        return list(self._member_names)
+```
+
+**Объяснение для тупого человека:** Обычный `dict` **позволит** `class Color: RED=1; RED=2` (перезапишет). `EnumDict` *
+*запрещает** дубликаты: `RED` второй раз → **TypeError**. `_member_names` хранит **порядок** объявления (
+`['RED', 'GREEN']`), **НЕ** порядок хеш-таблицы. Это **очень важно** для `list(Color)` → `Color.RED, Color.GREEN`.
+
+## 3. _create_() - создание EnumMember (EnumType)
+
+```python
+def _create_(cls, member_name, value):
+    # 1. Создаём EnumMember объект
+    enum_member = object.__new__(cls)
+
+    # 2. Устанавливаем свойства
+    enum_member._name_ = member_name
+    enum_member._value_ = value
+    enum_member.__objclass__ = cls
+    enum_member.__init__(value)
+
+    # 3. Алиасы (дубликаты значений)
+    for name, canonical_member in cls._member_map_.items():
+        if canonical_member._value_ == value and canonical_member is not enum_member:
+            enum_member._missing_(name)  # Алиас
+
+    return enum_member
+```
+
+**Объяснение для тупого человека:** `Color.RED = 1` → **новый объект** `Color.RED` с `_name_='RED'`, `_value_=1`. Если
+позже `ALIEN = 1` → `Color.ALIEN` **указывает** на тот же **самый** объект `Color.RED` (алиас).
+`Color.RED is Color.ALIEN` = `True`. Это **экономит память** и гарантирует **единственность**.
+
+## 4. Enum.__new__() / __init__() членов
+
+```python
+class Enum:
+    def __new__(cls, value):
+        # Ищем существующий член с таким value
+        for member in cls._member_map_.values():
+            if member._value_ == value:
+                return member
+
+        # Новый член (только через класс!)
+        member = object.__new__(cls)
+        member._value_ = value
+        return member
+
+    def __init__(self, value):
+        self._value_ = value
+
+    def __repr__(self):
+        return f"<{self.__class__.__name__}.{self._name_}>"
+```
+
+**Объяснение для тупого человека:** `Color(1)` → ищет в `_member_map_` член с `value=1` → **возвращает** `Color.RED` (
+существующий объект). `Color.RED` → `'Color.RED'`. **НЕ** создаёт новые экземпляры — возвращает **сигнатоны** (единичные
+объекты).
+
+## 5. auto() + _generate_next_value_ (Lib/enum.py)
+
+```python
+def auto():
+    """Генерирует значение автоматически"""
+    value = _next_value_
+    _next_value_ += 1
+    return value
+
+
 class Color(Enum):
+    def _generate_next_value_(name, start, count, last_values):
+        # Автоинкремент
+        return count
+
+    RED = auto()  # 1
+    GREEN = auto()  # 2
+    BLUE = auto()  # 3
+```
+
+**Объяснение для тупого человека:** `RED = auto()` → вызывает `_generate_next_value_('RED', 1, 0, [])` → возвращает `0`.
+`GREEN = auto()` → `_generate_next_value_('GREEN', 1, 1, [0])` → `1`. **Глобальный счётчик** `count` (номер члена).
+Можно **переопределить**: `return 3**count` → `RED=1, GREEN=3, BLUE=9`.
+
+## 6. Enum.__iter__() / __len__()
+
+```python
+def __iter__(cls):
+    return (cls._member_map_[name] for name in cls._member_names_)
+
+
+def __len__(cls):
+    return len(cls._member_names_)
+
+
+def __getitem__(cls, name):
+    return cls._member_map_[name]
+```
+
+**Объяснение для тупого человека:** `list(Color)` → `[Color.RED, Color.GREEN]` **в порядке объявления**. `len(Color)` →
+`3`. `Color['RED']` → `Color.RED`. **`_member_names_`** гарантирует **порядок** и **быстрый поиск**.
+
+## 7. IntEnum / StrEnum наследование
+
+```python
+class IntEnum(int, Enum):
+    pass
+
+
+class StrEnum(str, Enum):
+    pass
+
+
+class Color(IntEnum):
     RED = 1
     GREEN = 2
 ```
 
-используется метакласс `EnumMeta`.
+**Объяснение для тупого человека:** `Color.RED + 1` → `2` (потому что `IntEnum` наследует `int`). `Color.GREEN == '2'` →
+`False` (потому что `_value_=2`, а **НЕ** строка). `Color.RED.value` → `1` (сырое значение).
 
-1. `EnumMeta.__prepare__(name, bases, **kw)` возвращает не обычный dict, а `_EnumDict`.
-    - `_EnumDict` наследует `dict`, но переопределяет `__setitem__`.
-    - При каждом присваивании в теле класса оно решает, считать ли имя enum‑членом или оставить обычным атрибутом.
-    - Для не‑dunder имён (`not key.startswith('_')`) и не‑дескрипторов (`_is_descriptor(value) is False`) значения
-      интерпретируются как кандидаты в члены enum и записываются во внутренний список `_member_names`.
+## 8. _simple_enum() - оптимизация (3.11+)
 
-2. После исполнения тела класса обычным байткодом (опкоды `STORE_NAME` и т.п.) полученный `_EnumDict` передаётся в
-   `EnumMeta.__new__`.
+```python
+def _simple_enum(etype, seq, value=1):
+    """Быстрое создание простого enum"""
+    members = dict()
+    for i, name in enumerate(seq):
+        val = etype._generate_next_value_(name, 1, i, [])
+        member = object.__new__(etype)
+        member._value_ = val
+        member._name_ = name
+        member.__objclass__ = etype
+        members[name] = member
 
-## EnumMeta.__new__: создание класса и членов
+    # Создаём класс
+    cls = type(seq.__class__.__name__, (etype,), members)
+    cls._member_names_ = list(members)
+    cls._member_map_ = members
+    return cls
+```
 
-`EnumMeta.__new__(metacls, cls, bases, classdict)` занимается реальной сборкой enum‑класса.
+**Объяснение для тупого человека:** `Enum('RED GREEN BLUE')` → **оптимизированный** путь без метакласса. **Быстрее** для
+простых случаев.
 
-Ключевые шаги:
+## 9. Flag / IntFlag - битовые флаги
 
-1. Определение `member_type` и базового enum `first_enum` через `_get_mixins_` — вытаскивается первый базовый класс, не
-   `Enum`, который задаёт тип `_value_` (например, `int` для `IntEnum`).
+```python
+class Perm(Flag):
+    R = 4
+    W = 2
+    X = 1
 
-2. Поиск `__new__`, который будет использоваться для создания членов, через
-   `_find_new_(classdict, member_type, first_enum)`:
-    - Если класс или базовые определяют собственный `__new__`, он будет использоваться, иначе берётся `object.__new__`
-      или `member_type.__new__`.
-    - Флаг `use_args` показывает, передавать ли значение/кортеж в `__new__`/`__init__` члена.
+    RWX = R | W | X
+```
 
-3. Вызов `type.__new__` для создания самого enum‑класса (
-   `enum_class = super().__new__(metacls, cls, bases, classdict)`), ещё без членов.
+**Объяснение для тупого человека:** `Perm.RWX` → **новый** объект с `_value_=7`. `Perm.RWX & Perm.R` → `Perm.R`.
+`Perm.RWX | Perm.W` → `Perm.RWX`. **Битовые операции** работают с `_value_`.
 
-4. Инициализация служебных структур на классе:
+## 10. pickle поддержка
 
-    - `_member_names_ = []` — список имён в порядке определения.
-    - `_member_map_ = OrderedDict()` — `str name -> member`.
-    - `_value2member_map_ = {}` — `value -> member` (для обратного поиска и проверки уникальности).
-    - `_member_type_ = member_type` — базовый тип значений.
+```python
+def __reduce_ex__(self, proto):
+    return (self.__class__, (self._value_,))
+```
 
-5. Проход по `_member_names` и созданием объектов‑членов:
+**Объяснение для тупого человека:** `pickle.dumps(Color.RED)` → `(Color, (1,))` → при восстановлении `Color(1)` → **тот
+же** `Color.RED` объект. **НЕ** новый экземпляр!
 
-   Для каждого `member_name` из `_member_names` и исходного `value` из `classdict[member_name]`:
-
-    - Если значение обёрнуто `enum.member(value)` — разворачивается.
-    - Если используется `auto()`, значение вычисляется через `_generate_next_value_` (по порядку и предыдущим
-      значениям).
-    - Создаётся сам объект‑член через найденный `__new__`:
-
-      ```python
-      obj = __new__(enum_class, *args) if use_args else __new__(enum_class, value)
-      ```
-
-      где `args` — кортеж из назначенного value (для `IntEnum` и т.п.).
-
-    - На объекте устанавливаются атрибуты:
-
-      ```python
-      obj._name_ = member_name
-      obj._value_ = value
-      ```
-
-      (либо через `object.__setattr__`, если класс использует `__slots__`).
-
-    - Обновляются карты:
-
-      ```python
-      enum_class._member_names_.append(member_name)
-      enum_class._member_map_[member_name] = obj
-      if value not in _value2member_map_:
-          _value2member_map_[value] = obj
-      ```
-
-      (для `Flag`/`IntFlag` логика сложнее из‑за комбинированных значений).
-
-    - На самом классе устанавливается `enum_class.<name> = obj` через обычный `setattr`.
-
-6. Удаление исходных «сырых» значений из `__dict__`: чтобы `Color.RED` был ровно членом enum, старые числовые/строковые
-   значения в `classdict` не остаются.
-
-В итоге все члены создаются *во время построения класса* и лежат в `_member_map_`/`_value2member_map_`; дальнейшее
-создание новых инстансов блокируется переопределённым `Enum.__call__`.
-
-## Enum.__new__/__call__ и синглтоны
-
-Базовый `Enum` переопределяет поведение создания экземпляров:
-
-- `EnumMeta.__call__(cls, value, *args, **kw)` не создаёт новые объекты:
-    - вместо этого ищет существующий член по `value` в `_value2member_map_`;
-    - если найден — возвращает *ровно* этот объект;
-    - иначе вызывает `_missing_(cls, value)` (можно переопределять), по умолчанию кидает `ValueError`.
-
-Так достигается синглтон‑семантика: `Color(1) is Color.RED`.
-
-`Enum.__new__`/`Enum.__init__` базового класса не делают ничего особенного, их роль — позволить `EnumMeta` корректно
-инициализировать `_name_`/`_value_` и наследников (`IntEnum`, `StrEnum`, `Flag`).
-
-## Поведение Enum: __getattr__, __iter__, __repr__
-
-Все «фичи» enum реализованы обычными методами класса/метакласса:
-
-- Итерация: `EnumMeta.__iter__` возвращает итератор по `cls._member_map_.values()` в порядке `_member_names_`.
-- Доступ по имени: `EnumMeta.__getitem__(name)` берёт из `_member_map_`.
-- Атрибуты‑члены: `Enum.__getattr__` (или логика в `EnumMeta.__getattribute__`) обеспечивает, что `Color.RED` отдаёт
-  член, а не исходное число.
-- `__repr__`/`__str__` членов: реализовано в `Enum`/`ReprEnum` и использует `_name_`/`_value_`.
-- Сравнение: `Enum` реализует `__hash__`, `__eq__`, `__reduce_ex__`/pickling так, чтобы идентичность и сравнение по
-  `_value_` работали предсказуемо; `IntEnum` наследует от `int`, поэтому всё делает тип `int` + базовый `Enum`.
-
-Все эти методы — обычные функции/методы Python, без специальных опкодов.
-
-## IntEnum / Flag / IntFlag
-
-Специализированные разновидности:
-
-- `IntEnum(Enum, int)` — меняет `member_type` на `int`, так что члены являются подклассами `int`;
-  `EnumMeta._get_mixins_` находит этот базовый тип и использует его `__new__`.
-- `Flag`/`IntFlag` — используют битовые значения, переопределяют:
-    - арифметику (`__or__`, `__and__`, `__invert__`),
-    - создание «псевдо‑членов» для комбинированных флагов через `_create_pseudo_member_`, который конструирует новые
-      объекты, не добавляя их в основной `_member_map_`, но кешируя в `_value2member_map_`.
-
-Всё это — чистый Python в `enum.py`: переопределения методов класса/экземпляра, без поддержки на уровне
-интерпретатора.
-
-***
-
-Итого: `Enum` в CPython — это метакласс `EnumMeta`, который в `__prepare__` выдает особый dict (`_EnumDict`), в
-`__new__` создаёт все члены как объекты‑синглтоны, заполняет `_member_map_`/`_value2member_map_` и подменяет атрибуты
-класса; байткод вокруг обычный (`STORE_NAME`, `LOAD_ATTR` и т.д.), никаких спец‑опкодов или изменений в `ceval.c` под
-enum нет.
+**Enum** в CPython 3.9+ — **EnumType метакласс**, **EnumDict** (порядок + уникальность), *
+*`_member_map_/ _member_names_`**, **сигнатоны** через `__new__`, **`auto()`** + `_generate_next_value_`, *
+*IntEnum/StrEnum** наследование, **Flag** битовые операции.
 
 - [Содержание](#содержание)
 
