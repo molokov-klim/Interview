@@ -26,6 +26,7 @@
 - [Garbage Collector (сборщик мусора)](#garbage-collector-сборщик-мусора)
 - [Сложность кода (Asymptotic, Cyclomatic, Coupling, Maintainability)](#сложность-кода-asymptotic-cyclomatic-coupling-maintainability)
 - [typing](#typing)
+- [Инвариантность и ковариантность](#инвариантность-и-ковариантность)
 - [Сравнение объектов](#сравнение-объектов)
 - [Управление памятью](#управление-памятью)
 - [Исключения и обработка ошибок](#исключения-и-обработка-ошибок)
@@ -51,7 +52,6 @@
 - [Полиморфизм (ООП)](#полиморфизм)
 - [Diamond Problem](#diamond-problem)
 - [Магические методы](#магические-методы)
-- [Инвариантность и ковариантность](#инвариантность-и-ковариантность)
 - [ABC (Abstract Base Classes)](#abc)
 - [Протокол (Protocol)](#protocol)
 - [Паттерны проектирования](#паттерны-проектирования)
@@ -7634,6 +7634,226 @@ def monster_function(a, b, c, d, e, f):
 # из-за глубокой вложенности и множества условий
 ```
 
+# **typing**
+
+## **Junior Level**
+
+`typing` модуль в Python предоставляет инструменты для добавления подсказок типов (type hints) в код. Это не меняет
+поведение программы во время выполнения, но помогает разработчикам, IDE и статическим анализаторам понимать, какие типы
+данных ожидаются.
+
+**Optional[X]** означает, что значение может быть либо типа `X`, либо `None`. Это удобный способ сказать "этот аргумент
+может быть передан, а может и нет".
+
+**Union[X, Y, ...]** означает, что значение может быть одного из перечисленных типов. Например, `Union[int, str]` — это
+либо целое число, либо строка.
+
+**TypeVar** используется для создания обобщенных (generic) типов. Например, если у вас есть функция, которая работает со
+списками любого типа, вы можете использовать `TypeVar` чтобы показать, что тип элементов входного списка и выходного
+значения одинаков.
+
+**Generic** — это способ создавать классы или функции, которые могут работать с разными типами, но сохранять информацию
+о конкретном типе. Например, `List[int]` — это список целых чисел, а `List[str]` — список строк. `Generic` позволяет вам
+создавать свои собственные классы, которые могут быть параметризованы типами.
+
+## **Middle Level**
+
+Технически, эти конструкции являются частью системы типизации, которая реализована в модуле `typing` и поддерживается
+статическими анализаторами (mypy, pyright, PyCharm).
+
+1. **Optional и Union:**
+    - `Optional[X]` это просто сокращение для `Union[X, None]`.
+    - `Union` может использоваться для любого количества типов. В Python 3.10 появился синтаксис `X | Y` как
+      альтернатива `Union[X, Y]`.
+    - Важно: `Optional` и `Union` не выполняют проверку типов во время выполнения. Они только для статического анализа.
+    - Для проверки в runtime можно использовать `isinstance()` с кортежем типов, но это не связано напрямую с
+      аннотациями.
+
+2. **TypeVar:**
+    - Создается вызовом `TypeVar(name, *constraints, bound=None, covariant=False, contravariant=False)`.
+    - **Ограничения (constraints):** TypeVar может быть ограничен конкретными типами. Тогда он может представлять только
+      один из них.
+    - **Связывание (bound):** TypeVar может быть связан с базовым классом или протоколом. Тогда он представляет любой
+      подтип этого базового класса.
+    - **Ковариантность/контравариантность:** Позволяют выразить отношения между производными типами. Например, если `C`
+      ковариантен по `T`, то `C[Dog]` является подтипом `C[Animal]` (при условии, что `Dog` подтип `Animal`). Это важно
+      для корректного определения подтипов в обобщенных классах.
+
+3. **Generic:**
+    - Класс, наследующийся от `Generic[T]`, где `T` — это TypeVar, становится обобщенным.
+    - Можно использовать несколько TypeVar: `Generic[T, U]`.
+    - Внутри класса можно использовать `T` как обычный тип в аннотациях методов и атрибутов.
+    - При наследовании от обобщенного класса можно либо конкретизировать тип (`ChildClass[int]`), либо передать TypeVar
+      дальше.
+
+4. **Для AQA:**
+    - Type hints помогают документировать интерфейсы тестовых утилит и фикстур.
+    - `Optional` часто используется для необязательных аргументов в функциях-фикстурах.
+    - `Union` полезен, когда функция может возвращать разные типы данных в зависимости от условий (например,
+      `Union[WebElement, None]` при поиске элемента).
+    - `Generic` и `TypeVar` позволяют создавать гибкие, переиспользуемые компоненты тестовых фреймворков, например,
+      абстрактный репозиторий для тестовых данных `Repository[T]`, где `T` — тип модели.
+
+## **Senior Level**
+
+## Хранение аннотаций в CPython
+
+Аннотации типов в CPython (Python 3.9+) хранятся в специальном атрибуте `__annotations__` объектов (функций, классов,
+модулей). Этот атрибут представляет собой словарь `dict[str, object]`, где ключи — имена переменных/параметров, а
+значения — сами аннотации (типы или выражения). CPython не выполняет аннотации во время выполнения (runtime) — они
+остаются "ленивыми" объектами для статических анализаторов вроде mypy.
+
+В режиме `from __future__ import annotations` (по умолчанию с Python 3.10, рекомендуется в 3.9+), аннотации сохраняются
+как строки без вычисления, что предотвращает ошибки вроде `NameError` при ссылке на неопределённые имена. Это
+реализовано в парсере AST (Abstract Syntax Tree) CPython: во время компиляции в байткод аннотации парсятся как
+`ast.AnnAssign` и сериализуются в строки.
+
+```python
+# Байткод примера: def func(x: str) -> int:
+# dis.dis(func) покажет LOAD_BUILD_CLASS и MAKE_FUNCTION с флагом CO_NESTED
+# Аннотации попадают в co_varnames и co_cellvars фрейма функции
+import dis
+
+
+def func(x: str) -> int:
+    return x
+
+
+print(func.__annotations__)  # {'x': <class 'str'>, 'return': <class 'int'>}
+```
+
+Представь, что CPython — это почтальон. Когда ты пишешь `x: str`, он не проверяет посылку (str) сразу, а просто
+записывает адрес "x ожидает str" в специальную тетрадку `__annotations__`. Позже статический анализатор (mypy) открывает
+тетрадку и проверяет, всё ли правильно. Если включишь `from __future__ import annotations`, он даже не смотрит на типы —
+просто записывает как текст "str", чтоб не было ошибок, если имя типа ещё не определено.
+
+## Реализация в модуле Lib/typing.py
+
+Модуль `typing.py` (CPython sources: `Lib/typing.py`) — это чистый Python-код (~3000 строк в 3.12+), который создаёт
+подклассы и прокси для типов. Он не трогает C-уровень CPython напрямую, но использует служебные классы вроде
+`_GenericAlias`, `_SpecialForm`. Ключевые структуры: `_TypingEmpty`, `_TypingEllipsis` для специальных случаев (
+Tuple[...], Callable).
+
+Основная магия — в `__getitem__()` generic-типов. Когда пишешь `List[int]`, CPython вызывает `list.__getitem__(int)`, но
+typing перехватывает через подкласс `_GenericAlias`:
+
+```python
+# Из CPython Lib/typing.py (Python 3.12+ fragment, упрощённо)
+class _GenericAlias:
+    def __getitem__(self, params):
+        if not isinstance(params, tuple):
+            params = (params,)
+        # Проверяем, что параметры — валидные типы
+        msg = "Parameters to generic types must be types."
+        params = tuple(_type_check(p, msg) for p in params)
+        # Собираем type variables для подстановки
+        self.__parameters__ = _collect_type_vars(params)
+        # Создаём новый alias с подстановкой
+        return _subs_tvars(self, self.__parameters__, params)
+
+
+# Пример работы:
+List = _GenericAlias('list', inst=actual_list)  # actual_list из builtins
+List[int]  # -> _GenericAlias(list, (int,), name='list[int]')
+```
+
+`_GenericAlias` — как фабрика по производству "типовых коробок". `List[int]` говорит: "Возьми коробку list и пометь её,
+что внутри int". CPython проверяет, что `int` — настоящий тип (не число или строка), собирает переменные типов (
+TypeVar), подставляет их и выдаёт новую "метку" вида list[int]. Это не настоящий list, а прокси, который mypy понимает.
+На runtime ничего не проверяется — просто метка болтается в памяти.
+
+## C-уровень: Обработка __annotations__ в Objects
+
+На C-уровне (Objects/descrobject.c, Objects/functionobject.c) `__annotations__` — это дескриптор (data descriptor).
+Доступ через `PyObject_GenericGetAttr` → проверка `__dict__` → fallback на слоты типа `tp_getattro`.
+
+Для функций: при создании `PyFunctionObject` (Objects/funcobject.c) байткод компилятора (Python/compile.c) заполняет
+`func_annotations` через `STORE_ANNOTATION` opcode (с Python 3.5+). В 3.9+ добавлена оптимизация: аннотации кэшируются в
+`PyDictObject` и не пересчитываются.
+
+```c
+// Из CPython Objects/funcobject.c (Python 3.12, упрощённо)
+// PyFunctionObject структура:
+typedef struct {
+    PyObject_HEAD
+    PyObject *func_code;      /* код байткода */
+    PyObject *func_globals;   /* глобальное пространство */
+    PyObject *func_annotations; /* <-- НАШЕ dict[str, annotation] */
+    // ... другие слоты
+} PyFunctionObject;
+
+// В func_new():
+if (annotations != NULL) {
+    // Копируем dict аннотаций из co_annotations код-объекта
+    func->func_annotations = Py_NewRef(annotations);
+    // PyDict_SetItem копирует пары key:value без вычисления
+}
+```
+
+C-код CPython — это "склад товаров". Каждый объект (функция) имеет полку `func_annotations` — большой ящик-словарь.
+Когда компилятор видит `: str` в коде, он кладёт ярлык "{'x': str}" в этот ящик, не открывая посылки. При
+`func.__annotations__` C-функция просто достаёт ящик и отдаёт. Нет проверок типов — только хранение. В 3.9+ ящик
+сделан "ленивым": если `from __future__ import annotations`, ярлыки — сырые строки вроде "<class 'str'>", чтоб не
+ломалось при импорте.
+
+## Байткод и компиляция аннотаций (Python 3.9+)
+
+Компилятор (Python/compile.c → Python/symtable.c) парсит AST-узлы `AnnAssign`/`arg.annotation`. В 3.9+ добавлена
+поддержка built-in generics (`list[int]` вместо `typing.List[int]`) через `symtable.c` анализ forward refs.
+
+Ключевой opcode: `STORE_ANNOTATION` (opcode 95 в 3.12). Он сохраняет аннотацию в `co_annotations` код-объекта.
+
+```python
+# dis.dis для def func(a: int): pass
+import dis
+
+
+def func(a: int): pass
+
+
+dis.dis(func)
+# Вывод (Python 3.12):
+#   2           0 RESUME                   0
+#               1 LOAD_CONST               1 (<code object func>)
+#               ...
+# В co_annotations: {'a': <class 'int'>}
+```
+
+Байткод — инструкции для виртуальной машины CPython. `STORE_ANNOTATION` — команда "положи метку типа в специальный сейф
+код-объекта". При запуске функции VM берёт сейф и копирует в `func_annotations`. В 3.9+ парсер стал умнее: распознаёт
+`list[int]` на лету, без импорта typing, и сохраняет как `_GenericAlias`. Но на выполнении байткода типы игнорируются —
+VM просто пропускает STORE_ANNOTATION.
+
+## TypeVar и Generic: Внутренняя подстановка
+
+`TypeVar` — `_Final` subclass с `__parameters__`. Generic использует `_collect_type_vars()` для рекурсивного сбора
+переменных и `_subs_tvars()` для подстановки (из typing.py).
+
+```python
+# Из Lib/typing.py
+def _subs_tvars(original, parameters, args):
+    """Подстановка TypeVar в Generic"""
+    new_args = []
+    for arg in original.__args__:
+        if isinstance(arg, _TypeVarLike):
+            idx = parameters.index(arg)
+            new_args.append(args[idx])
+        else:
+            new_args.append(arg)
+    return type(original)(original.__origin__, tuple(new_args))
+```
+
+TypeVar — как пустая коробка с именем "T". Generic — шаблон "Коробка[T]". При `MyGeneric[str]` CPython находит все "T" в
+шаблоне, заменяет на "str" и выдаёт новую коробку "Коробка[str]". Это рекурсивно: если внутри T есть другие переменные,
+они тоже подставляются. Всё в Python-коде typing.py, без C, но быстро благодаря `@_tp_cache` (lru_cache).
+
+Эти механизмы делают typing эффективным: ~0 overhead на runtime, полная поддержка в IDE/mypy. Для собеседования
+акцентируй: нет enforcement в CPython, только storage/parsing.
+
+- [Содержание](#содержание)
+
+---
+
 ### **3. Сложность связей (Coupling Complexity)**
 
 #### **Content Coupling (Худший вид)**
@@ -7861,6 +8081,524 @@ def process_device_data(
             status="PROCESSING_ERROR"
         )
 ```
+
+- [Содержание](#содержание)
+
+---
+
+# **Инвариантность и ковариантность**
+
+## **Junior Level**
+
+Инвариантность и ковариантность — это понятия из теории типов, которые описывают, как отношения между типами сохраняются
+при использовании в обобщённых (generic) конструкциях.
+
+Представьте, что у вас есть коробки для фруктов. У вас есть:
+
+- Коробка для любых фруктов (`Box[Fruit]`)
+- Коробка для яблок (`Box[Apple]`), где `Apple` — подтип `Fruit`
+
+**Ковариантность** означает, что отношение "является подтипом" сохраняется и для коробок: если `Apple` — подтип `Fruit`,
+то `Box[Apple]` — подтип `Box[Fruit]`. То есть коробку яблок можно использовать там, где ожидается коробка фруктов.
+
+**Инвариантность** означает, что эти типы не связаны: `Box[Apple]` и `Box[Fruit]` — совершенно разные, независимые типы.
+Коробку яблок нельзя использовать вместо коробки фруктов, и наоборот.
+
+**Контравариантность** (обратное ковариантности) — когда отношение обращается: если `Apple` — подтип `Fruit`, то
+`Box[Fruit]` — подтип `Box[Apple]`.
+
+В Python эти концепции важны при работе с типизацией (type hints), особенно при использовании обобщённых типов вроде
+`List[T]`, `Callable[[T], R]`.
+
+## **Middle Level**
+
+В контексте Python и статической типизации:
+
+1. **Ковариантность (covariant)**:
+    - Обозначается `+T` в определении типа
+    - Если `A` — подтип `B`, то `Generic[A]` — подтип `Generic[B]`
+    - Пример: `typing.Sequence` ковариантен по типу элемента
+
+2. **Контравариантность (contravariant)**:
+    - Обозначается `-T`
+    - Если `A` — подтип `B`, то `Generic[B]` — подтип `Generic[A]` (обратное отношение)
+    - Пример: `typing.Callable` контравариантен по типам аргументов
+
+3. **Инвариантность (invariant)**:
+    - Наиболее распространённый случай по умолчанию
+    - Никаких отношений между `Generic[A]` и `Generic[B]`, даже если `A` и `B` связаны
+    - Пример: `List[T]` инвариантен (по соображениям безопасности)
+
+4. **Проблема изменяемости**:
+    - Ковариантность безопасна для "read-only" типов (`Sequence`, `Iterable`)
+    - Изменяемые типы (`List`, `Dict`) должны быть инвариантны для безопасности типов
+    - Иначе можно было бы добавить апельсин в список яблок
+
+5. **Практическое применение в Python**:
+   ```python
+   from typing import TypeVar, Generic, List, Sequence
+   
+   class Fruit: pass
+   class Apple(Fruit): pass
+   
+   # Ковариантный тип
+   T_co = TypeVar('T_co', covariant=True)
+   class ReadOnlyBox(Generic[T_co]): pass
+   
+   # Контравариантный тип  
+   T_contra = TypeVar('T_contra', contravariant=True)
+   class Consumer(Generic[T_contra]): pass
+   ```
+
+6. **Проверка типов (mypy, pyright)**:
+    - Статические анализаторы используют информацию о вариативности для проверки безопасности типов
+    - Ошибки вариативности — частые причины ошибок типизации
+
+## **Senior Level**
+
+В CPython 3.9+ **инвариантность/ковариантность** реализованы в **generic alias** (`list[T]`) через
+`PyGenericAliasObject` (`Objects/genericaliasobject.c`), где **variance** хранится в `ga_variance` поля TypeVar (
+`covariant=True`). **Runtime** — только `__class_getitem__`, **статическая проверка** — в type checker'ах (
+mypy). `Objects/genericaliasobject.c`,`Include/cpython/typeobject.h`
+
+## 1. Generic alias: list[T] как PyGenericAliasObject
+
+```c
+// Objects/genericaliasobject.c — list[int] = PyGenericAliasObject
+typedef struct {
+    PyObject_HEAD
+    PyObject *ga_origin;           // list (оригинальный тип)
+    PyObject *ga_params;           // tuple(int,) параметры
+    int ga_flags;                  // флаги
+    Py_hash_t ga_hash;             // кэш хэша
+    unsigned char ga_variance;     // ← VARIANCE! 0=invariant, 1=covariant, 2=contravariant
+} PyGenericAliasObject;
+```
+
+`list[int]` — **НЕ** класс, а **специальный объект** `PyGenericAliasObject` с полями: `ga_origin=list`,
+`ga_params=(int,)`, `ga_variance=1` (covariant). **Runtime** не проверяет типы — только хранит!
+
+## 2. Создание generic alias: __class_getitem__
+
+```c
+// Objects/typeobject.c — List.__class_getitem__(int)
+static PyObject *
+type_subscript(PyTypeObject *type, PyObject *item)
+{
+    // type=list, item=int → list[int]
+    if (PyTuple_Check(item)) {
+        // list[int, str]
+        return PyGenericAlias_New(type, item, NULL);
+    }
+    
+    // list[int]
+    PyObject *params = PyTuple_New(1);
+    PyTuple_SET_ITEM(params, 0, Py_NewRef(item));
+    return PyGenericAlias_New(type, params, NULL);
+}
+
+// Objects/genericaliasobject.c
+PyObject *
+PyGenericAlias_New(PyObject *origin, PyObject *params, PyObject *context)
+{
+    PyGenericAliasObject *ga = PyObject_GC_New(PyGenericAliasObject, &PyGenericAlias_Type);
+    if (ga == NULL)
+        return NULL;
+    
+    Py_INCREF(origin);
+    ga->ga_origin = origin;        // list
+    
+    Py_INCREF(params);
+    ga->ga_params = params;        // (int,)
+    
+    ga->ga_flags = 0;
+    ga->ga_variance = 0;           // по умолчанию invariant
+    
+    PyObject_GC_Track(ga);
+    return (PyObject *)ga;
+}
+```
+
+`list[int]` → `list.__class_getitem__(int)` → `PyGenericAlias_New(list, (int,), NULL)` → **новый объект** с
+`ga_origin=list`, `ga_params=(int,)`. **НЕ** создаёт новый класс!
+
+## 3. TypeVar с variance (typing.TypeVar)
+
+```c
+// Lib/typing.py (упрощённо) → компилируется в C-объекты
+class TypeVar:
+    def __init__(self, name, *constraints, covariant=False, contravariant=False):
+        self.__name__ = name
+        self.__covariant__ = covariant      # True для covariant
+        self.__contravariant__ = contravariant  # True для contravariant
+        
+# T_co = TypeVar('T_co', covariant=True)
+# → T_co.__covariant__ = True
+```
+
+```python
+from typing import TypeVar
+
+T_co = TypeVar('T_co', covariant=True)  # variance=1
+T_inv = TypeVar('T_inv')  # variance=0 (по умолчанию)
+```
+
+В CPython это **PyTypeVarObject** (внутреннее представление):
+
+```c
+typedef struct {
+    PyObject_HEAD
+    PyObject *tv_name;             // 'T_co'
+    int tv_variance;               // 1=covariant, 0=invariant, -1=contravariant
+    PyObject *tv_bound;            // ограничение типа
+} PyTypeVarObject;
+```
+
+`TypeVar('T', covariant=True)` создаёт объект с флагом `tv_variance=1`. При подстановке в `list[T_co]` этот флаг
+копируется в `ga_variance`.
+
+## 4. Подстановка параметров: list[T_co][Animal] → list[Cat]
+
+```c
+// Objects/genericaliasobject.c — list[T_co][Animal]
+PyObject *
+generic_alias_subscript(PyGenericAliasObject *ga, PyObject *item)
+{
+    // ga = list[T_co], item = Animal
+    PyObject *params = ga->ga_params;  // (T_co,)
+    PyObject *tv = PyTuple_GET_ITEM(params, 0);  // T_co
+    
+    // подставляем T_co = Animal
+    PyObject *sub = PyGenericAlias_Substitute(ga->ga_origin, params, item);
+    return sub;  // list[Animal]
+}
+```
+
+`list[T_co][Animal]` **НЕ** `list[Animal]` напрямую. Сначала `T_co` замещается на `Animal`, **с учётом variance**.
+Runtime **не проверяет** `Cat <: Animal`.
+
+## 5. Variance в isinstance() и issubclass() (ограниченная проверка)
+
+```c
+// Objects/abstract.c — isinstance(obj, list[int])
+int
+PyObject_IsInstance(PyObject *inst, PyObject *cls)
+{
+    // если cls — generic alias (list[int])
+    if (PyGenericAlias_CheckExact(cls)) {
+        PyGenericAliasObject *ga = (PyGenericAliasObject*)cls;
+        PyObject *origin = ga->ga_origin;  // list
+        
+        // рекурсивно: isinstance(obj, list) И params совместимы
+        int res = PyObject_IsInstance(inst, origin);
+        if (res == 0)
+            return 0;
+            
+        // ПРОВЕРКА VARIANCE ТОЛЬКО ДЛЯ BUILTIN!
+        return generic_alias_isinstance(inst, ga);
+    }
+}
+```
+
+`isinstance(x, list[int])` работает **только для builtin** (`list`, `tuple`). Для пользовательских классов **игнорирует
+** параметры. **НЕ** проверяет `Cat <: Animal`!
+
+## 6. Проверка variance в generic_alias_isinstance()
+
+```c
+// Objects/genericaliasobject.c (упрощённо)
+static int
+generic_alias_isinstance(PyObject *inst, PyGenericAliasObject *ga)
+{
+    PyObject *origin = ga->ga_origin;      // list
+    PyObject *inst_type = Py_TYPE(inst);   // type(x)
+    
+    // 1. x должен быть list
+    if (!PyObject_IsInstance(inst, origin))
+        return 0;
+    
+    // 2. для list[T_co] где T_co covariant:
+    //    Cat <: Animal → list[Cat] OK для list[Animal]
+    PyObject *params = ga->ga_params;      // (Animal,)
+    unsigned char variance = ga->ga_variance;  // 1=covariant
+    
+    if (variance == 1) {  // covariant
+        // проверим подтипность параметров
+        return check_covariant_params(inst_type, params);
+    }
+    
+    // invariant: точное совпадение
+    return check_exact_params(inst_type, params);
+}
+```
+
+**Runtime проверка** работает **только для covariant builtin** типа `list[int]`. `list[Cat](cat)` **проходит**
+`isinstance(cat, list[Animal])` **если** `Cat <: Animal`. **НЕ работает** для пользовательских классов!
+
+## 7. __class_getitem__ для пользовательских generic (PEP 585, 3.9+)
+
+```c
+// Objects/typeobject.c — MyGeneric[int]
+static PyObject *
+type_subscript_user_generic(PyTypeObject *type, PyObject *item)
+{
+    // пользовательский класс с Generic[T]
+    if (has_generic_base(type)) {
+        // возвращаем GenericAlias с origin=type
+        return PyGenericAlias_New((PyObject*)type, PyTuple_New(1, item), NULL);
+    }
+}
+```
+
+```python
+from typing import Generic, TypeVar
+
+T = TypeVar('T', covariant=True)
+
+
+class Box(Generic[T]):  # Box[int]
+    pass
+```
+
+Пользовательский `Box[int]` тоже `PyGenericAliasObject` с `ga_origin=Box`. **Но** `isinstance(x, Box[int])` **НЕ
+РАБОТАЕТ** — только статическая проверка в mypy!
+
+## 8. Байткод работы с generic alias
+
+```python
+from typing import List
+
+x: List[int] = [1, 2, 3]
+```
+
+```
+# Байткод (аннотации):
+  0 LOAD_GLOBAL          0 (List)
+  2 LOAD_GLOBAL          1 (int)
+  4 CALL_FUNCTION        1          # List[int] ← __class_getitem__
+  6 LOAD_CONST           0 ([])     # дефолт []
+  8 STORE_FAST           0 (x)
+```
+
+`List[int]` в байткоде — **обычный вызов** `List.__class_getitem__(int)` → `PyGenericAliasObject`. **Runtime** не
+проверяет типы в списке!
+
+## 9. Variance в type checker (mypy, НЕ CPython!)
+
+```python
+T_co = TypeVar('T_co', covariant=True)
+
+
+class Box(Generic[T_co]): pass
+
+
+def accept_box(box: Box[Animal]): ...
+
+
+b: Box[Cat] = Box()  # Cat <: Animal
+accept_box(b)  # OK! covariant
+```
+
+**Mypy логика (псевдокод):**
+
+```
+if Box.ga_variance == COVARIANT and issubclass(Cat, Animal):
+    OK: Box[Cat] <: Box[Animal]
+else:
+    Error!
+```
+
+**CPython runtime** хранит `ga_variance`, **НО** проверку **НЕ делает**. `isinstance()` работает только для **builtin
+covariant** коллекций. Полная проверка **только в type checker** (mypy, pyright).
+
+## Итог инвариантности/ковариантности в CPython 3.9+
+
+1. **Хранение**: `PyGenericAliasObject.ga_variance` из `TypeVar(covariant=True)`.
+2. **Создание**: `list[int]` → `__class_getitem__` → `PyGenericAlias_New()`.
+3. **Runtime**: `isinstance()` **только для builtin** (`list`, `tuple`), **игнорирует** пользовательские классы.
+4. **Type checking**: **mypy** анализирует `ga_variance` + подтипность параметров **статически**.
+
+**НЕ путай**: variance — это **информация для статических анализаторов**, **НЕ runtime проверка типов**!
+
+- [Содержание](#содержание)
+
+---
+
+# Сравнение объектов**
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# Управление памятью
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# Исключения и обработка ошибок
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# Сериализация/десериализация
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# Работа с файлами и путями
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# Системные вызовы
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# Метаклассы
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# Дескрипторы
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# Слоты
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# Weak references
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# Атрибуты объектов
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# Система импорта
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# Пул потоков/процессов
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# Очереди
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
+
+- [Содержание](#содержание)
+
+---
+
+# Синхронизация
+
+## **Junior Level**
+
+## **Middle Level**
+
+## **Senior Level**
 
 - [Содержание](#содержание)
 
@@ -10559,344 +11297,6 @@ type_call(PyTypeObject *type, PyObject *args, PyObject *kwds)
 
 ---
 
-# **Инвариантность и ковариантность**
-
-## **Junior Level**
-
-Инвариантность и ковариантность — это понятия из теории типов, которые описывают, как отношения между типами сохраняются
-при использовании в обобщённых (generic) конструкциях.
-
-Представьте, что у вас есть коробки для фруктов. У вас есть:
-
-- Коробка для любых фруктов (`Box[Fruit]`)
-- Коробка для яблок (`Box[Apple]`), где `Apple` — подтип `Fruit`
-
-**Ковариантность** означает, что отношение "является подтипом" сохраняется и для коробок: если `Apple` — подтип `Fruit`,
-то `Box[Apple]` — подтип `Box[Fruit]`. То есть коробку яблок можно использовать там, где ожидается коробка фруктов.
-
-**Инвариантность** означает, что эти типы не связаны: `Box[Apple]` и `Box[Fruit]` — совершенно разные, независимые типы.
-Коробку яблок нельзя использовать вместо коробки фруктов, и наоборот.
-
-**Контравариантность** (обратное ковариантности) — когда отношение обращается: если `Apple` — подтип `Fruit`, то
-`Box[Fruit]` — подтип `Box[Apple]`.
-
-В Python эти концепции важны при работе с типизацией (type hints), особенно при использовании обобщённых типов вроде
-`List[T]`, `Callable[[T], R]`.
-
-## **Middle Level**
-
-В контексте Python и статической типизации:
-
-1. **Ковариантность (covariant)**:
-    - Обозначается `+T` в определении типа
-    - Если `A` — подтип `B`, то `Generic[A]` — подтип `Generic[B]`
-    - Пример: `typing.Sequence` ковариантен по типу элемента
-
-2. **Контравариантность (contravariant)**:
-    - Обозначается `-T`
-    - Если `A` — подтип `B`, то `Generic[B]` — подтип `Generic[A]` (обратное отношение)
-    - Пример: `typing.Callable` контравариантен по типам аргументов
-
-3. **Инвариантность (invariant)**:
-    - Наиболее распространённый случай по умолчанию
-    - Никаких отношений между `Generic[A]` и `Generic[B]`, даже если `A` и `B` связаны
-    - Пример: `List[T]` инвариантен (по соображениям безопасности)
-
-4. **Проблема изменяемости**:
-    - Ковариантность безопасна для "read-only" типов (`Sequence`, `Iterable`)
-    - Изменяемые типы (`List`, `Dict`) должны быть инвариантны для безопасности типов
-    - Иначе можно было бы добавить апельсин в список яблок
-
-5. **Практическое применение в Python**:
-   ```python
-   from typing import TypeVar, Generic, List, Sequence
-   
-   class Fruit: pass
-   class Apple(Fruit): pass
-   
-   # Ковариантный тип
-   T_co = TypeVar('T_co', covariant=True)
-   class ReadOnlyBox(Generic[T_co]): pass
-   
-   # Контравариантный тип  
-   T_contra = TypeVar('T_contra', contravariant=True)
-   class Consumer(Generic[T_contra]): pass
-   ```
-
-6. **Проверка типов (mypy, pyright)**:
-    - Статические анализаторы используют информацию о вариативности для проверки безопасности типов
-    - Ошибки вариативности — частые причины ошибок типизации
-
-## **Senior Level**
-
-В CPython 3.9+ **инвариантность/ковариантность** реализованы в **generic alias** (`list[T]`) через
-`PyGenericAliasObject` (`Objects/genericaliasobject.c`), где **variance** хранится в `ga_variance` поля TypeVar (
-`covariant=True`). **Runtime** — только `__class_getitem__`, **статическая проверка** — в type checker'ах (
-mypy). `Objects/genericaliasobject.c`,`Include/cpython/typeobject.h`
-
-## 1. Generic alias: list[T] как PyGenericAliasObject
-
-```c
-// Objects/genericaliasobject.c — list[int] = PyGenericAliasObject
-typedef struct {
-    PyObject_HEAD
-    PyObject *ga_origin;           // list (оригинальный тип)
-    PyObject *ga_params;           // tuple(int,) параметры
-    int ga_flags;                  // флаги
-    Py_hash_t ga_hash;             // кэш хэша
-    unsigned char ga_variance;     // ← VARIANCE! 0=invariant, 1=covariant, 2=contravariant
-} PyGenericAliasObject;
-```
-
-`list[int]` — **НЕ** класс, а **специальный объект** `PyGenericAliasObject` с полями: `ga_origin=list`,
-`ga_params=(int,)`, `ga_variance=1` (covariant). **Runtime** не проверяет типы — только хранит!
-
-## 2. Создание generic alias: __class_getitem__
-
-```c
-// Objects/typeobject.c — List.__class_getitem__(int)
-static PyObject *
-type_subscript(PyTypeObject *type, PyObject *item)
-{
-    // type=list, item=int → list[int]
-    if (PyTuple_Check(item)) {
-        // list[int, str]
-        return PyGenericAlias_New(type, item, NULL);
-    }
-    
-    // list[int]
-    PyObject *params = PyTuple_New(1);
-    PyTuple_SET_ITEM(params, 0, Py_NewRef(item));
-    return PyGenericAlias_New(type, params, NULL);
-}
-
-// Objects/genericaliasobject.c
-PyObject *
-PyGenericAlias_New(PyObject *origin, PyObject *params, PyObject *context)
-{
-    PyGenericAliasObject *ga = PyObject_GC_New(PyGenericAliasObject, &PyGenericAlias_Type);
-    if (ga == NULL)
-        return NULL;
-    
-    Py_INCREF(origin);
-    ga->ga_origin = origin;        // list
-    
-    Py_INCREF(params);
-    ga->ga_params = params;        // (int,)
-    
-    ga->ga_flags = 0;
-    ga->ga_variance = 0;           // по умолчанию invariant
-    
-    PyObject_GC_Track(ga);
-    return (PyObject *)ga;
-}
-```
-
-`list[int]` → `list.__class_getitem__(int)` → `PyGenericAlias_New(list, (int,), NULL)` → **новый объект** с
-`ga_origin=list`, `ga_params=(int,)`. **НЕ** создаёт новый класс!
-
-## 3. TypeVar с variance (typing.TypeVar)
-
-```c
-// Lib/typing.py (упрощённо) → компилируется в C-объекты
-class TypeVar:
-    def __init__(self, name, *constraints, covariant=False, contravariant=False):
-        self.__name__ = name
-        self.__covariant__ = covariant      # True для covariant
-        self.__contravariant__ = contravariant  # True для contravariant
-        
-# T_co = TypeVar('T_co', covariant=True)
-# → T_co.__covariant__ = True
-```
-
-```python
-from typing import TypeVar
-
-T_co = TypeVar('T_co', covariant=True)  # variance=1
-T_inv = TypeVar('T_inv')  # variance=0 (по умолчанию)
-```
-
-В CPython это **PyTypeVarObject** (внутреннее представление):
-
-```c
-typedef struct {
-    PyObject_HEAD
-    PyObject *tv_name;             // 'T_co'
-    int tv_variance;               // 1=covariant, 0=invariant, -1=contravariant
-    PyObject *tv_bound;            // ограничение типа
-} PyTypeVarObject;
-```
-
-`TypeVar('T', covariant=True)` создаёт объект с флагом `tv_variance=1`. При подстановке в `list[T_co]` этот флаг
-копируется в `ga_variance`.
-
-## 4. Подстановка параметров: list[T_co][Animal] → list[Cat]
-
-```c
-// Objects/genericaliasobject.c — list[T_co][Animal]
-PyObject *
-generic_alias_subscript(PyGenericAliasObject *ga, PyObject *item)
-{
-    // ga = list[T_co], item = Animal
-    PyObject *params = ga->ga_params;  // (T_co,)
-    PyObject *tv = PyTuple_GET_ITEM(params, 0);  // T_co
-    
-    // подставляем T_co = Animal
-    PyObject *sub = PyGenericAlias_Substitute(ga->ga_origin, params, item);
-    return sub;  // list[Animal]
-}
-```
-
-`list[T_co][Animal]` **НЕ** `list[Animal]` напрямую. Сначала `T_co` замещается на `Animal`, **с учётом variance**.
-Runtime **не проверяет** `Cat <: Animal`.
-
-## 5. Variance в isinstance() и issubclass() (ограниченная проверка)
-
-```c
-// Objects/abstract.c — isinstance(obj, list[int])
-int
-PyObject_IsInstance(PyObject *inst, PyObject *cls)
-{
-    // если cls — generic alias (list[int])
-    if (PyGenericAlias_CheckExact(cls)) {
-        PyGenericAliasObject *ga = (PyGenericAliasObject*)cls;
-        PyObject *origin = ga->ga_origin;  // list
-        
-        // рекурсивно: isinstance(obj, list) И params совместимы
-        int res = PyObject_IsInstance(inst, origin);
-        if (res == 0)
-            return 0;
-            
-        // ПРОВЕРКА VARIANCE ТОЛЬКО ДЛЯ BUILTIN!
-        return generic_alias_isinstance(inst, ga);
-    }
-}
-```
-
-`isinstance(x, list[int])` работает **только для builtin** (`list`, `tuple`). Для пользовательских классов **игнорирует
-** параметры. **НЕ** проверяет `Cat <: Animal`!
-
-## 6. Проверка variance в generic_alias_isinstance()
-
-```c
-// Objects/genericaliasobject.c (упрощённо)
-static int
-generic_alias_isinstance(PyObject *inst, PyGenericAliasObject *ga)
-{
-    PyObject *origin = ga->ga_origin;      // list
-    PyObject *inst_type = Py_TYPE(inst);   // type(x)
-    
-    // 1. x должен быть list
-    if (!PyObject_IsInstance(inst, origin))
-        return 0;
-    
-    // 2. для list[T_co] где T_co covariant:
-    //    Cat <: Animal → list[Cat] OK для list[Animal]
-    PyObject *params = ga->ga_params;      // (Animal,)
-    unsigned char variance = ga->ga_variance;  // 1=covariant
-    
-    if (variance == 1) {  // covariant
-        // проверим подтипность параметров
-        return check_covariant_params(inst_type, params);
-    }
-    
-    // invariant: точное совпадение
-    return check_exact_params(inst_type, params);
-}
-```
-
-**Runtime проверка** работает **только для covariant builtin** типа `list[int]`. `list[Cat](cat)` **проходит**
-`isinstance(cat, list[Animal])` **если** `Cat <: Animal`. **НЕ работает** для пользовательских классов!
-
-## 7. __class_getitem__ для пользовательских generic (PEP 585, 3.9+)
-
-```c
-// Objects/typeobject.c — MyGeneric[int]
-static PyObject *
-type_subscript_user_generic(PyTypeObject *type, PyObject *item)
-{
-    // пользовательский класс с Generic[T]
-    if (has_generic_base(type)) {
-        // возвращаем GenericAlias с origin=type
-        return PyGenericAlias_New((PyObject*)type, PyTuple_New(1, item), NULL);
-    }
-}
-```
-
-```python
-from typing import Generic, TypeVar
-
-T = TypeVar('T', covariant=True)
-
-
-class Box(Generic[T]):  # Box[int]
-    pass
-```
-
-Пользовательский `Box[int]` тоже `PyGenericAliasObject` с `ga_origin=Box`. **Но** `isinstance(x, Box[int])` **НЕ
-РАБОТАЕТ** — только статическая проверка в mypy!
-
-## 8. Байткод работы с generic alias
-
-```python
-from typing import List
-
-x: List[int] = [1, 2, 3]
-```
-
-```
-# Байткод (аннотации):
-  0 LOAD_GLOBAL          0 (List)
-  2 LOAD_GLOBAL          1 (int)
-  4 CALL_FUNCTION        1          # List[int] ← __class_getitem__
-  6 LOAD_CONST           0 ([])     # дефолт []
-  8 STORE_FAST           0 (x)
-```
-
-`List[int]` в байткоде — **обычный вызов** `List.__class_getitem__(int)` → `PyGenericAliasObject`. **Runtime** не
-проверяет типы в списке!
-
-## 9. Variance в type checker (mypy, НЕ CPython!)
-
-```python
-T_co = TypeVar('T_co', covariant=True)
-
-
-class Box(Generic[T_co]): pass
-
-
-def accept_box(box: Box[Animal]): ...
-
-
-b: Box[Cat] = Box()  # Cat <: Animal
-accept_box(b)  # OK! covariant
-```
-
-**Mypy логика (псевдокод):**
-
-```
-if Box.ga_variance == COVARIANT and issubclass(Cat, Animal):
-    OK: Box[Cat] <: Box[Animal]
-else:
-    Error!
-```
-
-**CPython runtime** хранит `ga_variance`, **НО** проверку **НЕ делает**. `isinstance()` работает только для **builtin
-covariant** коллекций. Полная проверка **только в type checker** (mypy, pyright).
-
-## Итог инвариантности/ковариантности в CPython 3.9+
-
-1. **Хранение**: `PyGenericAliasObject.ga_variance` из `TypeVar(covariant=True)`.
-2. **Создание**: `list[int]` → `__class_getitem__` → `PyGenericAlias_New()`.
-3. **Runtime**: `isinstance()` **только для builtin** (`list`, `tuple`), **игнорирует** пользовательские классы.
-4. **Type checking**: **mypy** анализирует `ga_variance` + подтипность параметров **статически**.
-
-**НЕ путай**: variance — это **информация для статических анализаторов**, **НЕ runtime проверка типов**!
-
-- [Содержание](#содержание)
-
----
-
 # **ABC**
 
 ## **Junior Level*
@@ -11753,6 +12153,575 @@ method_call(PyMethodObject *meth, PyObject *args, PyObject *kwds)
 | **Command**   | `PyMethodObject`           | `Objects/classobject.c`   |
 
 **CPython** — **библиотека паттернов** на C-уровне!
+
+- [Содержание](#содержание)
+
+---
+
+# **Наследование vs композиция**
+
+## **Junior Level**
+
+Наследование и композиция — это два фундаментальных подхода к организации кода в объектно-ориентированном
+программировании, и выбор между ними определяет, насколько гибкой, понятной и удобной для поддержки будет ваша система.
+
+Основное различие лежит в типе отношений, которые они моделируют:
+
+* **Наследование** описывает отношение **«является»** (is-a). Например, `Dog` (Собака) наследует от `Animal` (Животное),
+  потому что собака *является* конкретным видом животного. Это позволяет `Dog` автоматически получить общие для всех
+  животных свойства и методы (например, `eat()` или `sleep()`), а также добавить свои уникальные (`bark()`).
+* **Композиция** описывает отношение **«имеет»** (has-a). Класс `Car` (Автомобиль) не является двигателем, но он *имеет*
+  его как составную часть. Двигатель — это независимый компонент, с которым автомобиль взаимодействует через четко
+  определенный интерфейс.
+
+**Ключевое правило современной разработки: предпочитайте композицию наследованию.** Наследование создает жесткую,
+статическую связь, подобную родственной. Изменения в «родительском» классе могут неожиданно «сломать» всех его
+«потомков». Композиция же строит более гибкие, договорные отношения: вы можете заменить «двигатель» на другой, не
+переделывая всю «машину». Для тестирования это преимущество критично — компоненты, переданные через композицию, легко
+подменить на заглушки (mocks), что позволяет тестировать классы изолированно.
+
+## **Middle Level**
+
+### **Детали и тонкости наследования в Python**
+
+1. **Механизм и порядок разрешения методов (MRO)**: Python поддерживает множественное наследование. Чтобы управлять
+   потенциальным хаосом при поиске методов, используется строгий **MRO (Method Resolution Order)**, вычисляемый по
+   алгоритму C3 (`ClassName.__mro__`). Этот порядок гарантирует, что каждый класс в иерархии будет проверен только один
+   раз и предсказуемо.
+
+2. **Инструмент `super()` и кооперативное наследование**: `super()` — это не просто вызов метода родителя. В условиях
+   MRO он делегирует выполнение **следующему классу в цепочке**. Это позволяет нескольким классам-предкам (например,
+   `Mixin`-ам) кооперативно участвовать в выполнении одного метода (например, `__init__`), не мешая друг другу.
+
+3. **Наследование как потенциальное нарушение инкапсуляции**: Это ключевая критика наследования. Дочерний класс получает
+   доступ к защищённым (`_protected`) членам родителя, что создает хрупкую, скрытую зависимость от его внутренней
+   реализации. Тестировать такой класс сложно, так как для понимания его поведения необходимо глубоко знать детали
+   работы родителя.
+
+4. **Множественное наследование и Mixins**: Python разрешает множественное наследование, что часто используется для *
+   *Mixins** — небольших классов, добавляющих конкретную функциональность (например, `JSONSerializableMixin`). Mixin не
+   предназначен для использования отдельно. При их применении важно проектировать имена методов так, чтобы избежать
+   конфликтов, разрешаемых через MRO.
+
+5. **Абстрактные классы (ABC)**: Модуль `abc` позволяет создавать формальные «чертежи» — классы, объявляющие
+   обязательные методы (через `@abstractmethod`). Они заставляют наследников соблюдать контракт, явно формализуя
+   отношение «является».
+
+### **Детали и тонкости композиции в Python**
+
+1. **Композиция vs Агрегация: управление жизненным циклом**:
+    * **Композиция (сильная связь)**: Компонент (например, `Heart` для `Human`) не существует отдельно. Он создаётся и
+      уничтожается вместе с объектом-владельцем (обычно в `__init__`).
+    * **Агрегация (слабая связь)**: Компонент (например, `Driver` для `Car`) существует независимо и передаётся объекту
+      извне (как аргумент). Их жизненные циклы разделены.
+
+2. **Композиция и структурная типизация (Протоколы)**: Вместо жесткого наследования от абстрактного класса для
+   достижения полиморфизма в Python всё чаще используют **композицию с протоколами** (`typing.Protocol`). Объекту не
+   нужно объявлять «я наследник `Reader`» — достаточно просто реализовать метод `read()`. Это резко снижает связанность.
+   В тестах можно подставить любой объект с нужным методом, не строя сложных иерархий.
+
+3. **Делегирование как явная форма композиции**: Паттерн **Делегирование** — это когда внешний объект (делегатор) явно
+   передает выполнение задачи внутреннему объекту (делегату). В Python его можно элегантно реализовать через
+   `__getattr__`, автоматически перенаправляя вызовы. Это основа для объеков-обёрток (адаптеров, прокси), которые дают
+   полный контроль над взаимодействием и являются идеальной точкой для внедрения моков в тестах.
+
+4. **Динамическое поведение**: Композиция позволяет менять поведение объекта во время выполнения программы, заменяя его
+   компоненты. Этот принцип лежит в основе многих паттернов, таких как **Стратегия** (Strategy), где алгоритм можно
+   «подменить на лету».
+
+### **Сравнительный анализ для проектирования и тестирования**
+
+* **Гибкость и связность**: Наследование фиксирует отношения на этапе компиляции, приводя к высокой связности.
+  Композиция/агрегация определяют поведение во время выполнения, обеспечивая слабую связность и большую гибкость.
+
+* **Тестируемость**: Класс, построенный на композиции, легко тестировать изолированно. Его зависимости — это просто
+  аргументы, которые можно подменить. Тестирование глубокой иерархии наследования требует создания сложных фикстур и
+  мокирования родительских методов, что увеличивает сложность тестов.
+
+* **Проблема хрупкого базового класса**: Это главный риск наследования. Даже безопасное на вид изменение во внутренней
+  логике родителя может сломать работу непредусмотревшего этого наследника. В больших проектах отследить такие побочные
+  эффекты крайне трудно.
+
+* **Борьба со сложностью архитектуры**: Глубокие иерархии наследования имеют тенденцию разрастаться и усложняться.
+  Композиция предлагает альтернативную парадигму: строить сложную систему не через вертикальное ветвление, а через
+  горизонтальную сборку из небольших, независимых и легко заменяемых компонентов. Это прямой путь к более
+  поддерживаемому и надежному коду.
+
+## **Senior Level**
+
+## Базовая структура объектов CPython
+
+В CPython все объекты наследуют от базовой структуры `PyObject`, которая имитирует наследование через композицию в C.
+Это видно в заголовочном файле `Include/object.h`.
+
+```c
+// Include/object.h: базовая структура всех Python объектов
+#define PyObject_HEAD                   PyObject ob_base;
+
+struct _object {
+    // Счетчик ссылок (может быть разбит на части для 64-битных систем)
+    union {
+#if SIZEOF_VOID_P > 4
+        PY_INT64_T ob_refcnt_full;
+        struct {
+# if PY_BIG_ENDIAN
+            uint16_t ob_flags;     // Флаги объекта
+            uint16_t ob_overflow;  // Переполнение refcnt
+            uint32_t ob_refcnt;    // Основной счетчик ссылок
+# else
+            uint32_t ob_refcnt;    // Основной счетчик ссылок
+            uint16_t ob_overflow;  // Переполнение refcnt
+            uint16_t ob_flags;     // Флаги объекта
+# endif
+        };
+#else
+        Py_ssize_t ob_refcnt;          // Простой счетчик ссылок
+#endif
+    };
+    PyTypeObject *ob_type;             // Указатель на тип объекта
+};
+```
+
+Каждый Python-объект в памяти начинается с "шапки" — счетчика ссылок (сколько мест держит ссылку
+на объект) и указателя на его тип. Это как паспорт объекта: "кто я и сколько на меня ссылок". Любая конкретная
+структура (число, строка, список) начинается с этой шапки, а потом идут свои поля. Благодаря этому любой указатель на
+объект можно безопасно привести к `PyObject*` — первые байты всегда одинаковые.
+
+## PyTypeObject — сердце наследования
+
+Типы в CPython — это объекты `PyTypeObject`, которые содержат слоты (vtable) для методов. Наследование — это копирование
+и переопределение этих слотов.
+
+```c
+// Objects/typeobject.c: фрагмент инициализации типа
+typedef struct {
+    int slot;              // Номер слота (tp_new, tp_call и т.д.)
+    void *pfunc;           // Указатель на C-функцию
+} PyType_Slot;
+
+// PyTypeObject содержит сотни таких слотов
+// Ключевые для наследования:
+PyTypeObject {
+    PyObject_HEAD           // Наследует от PyObject
+    Py_ssize_t tp_basicsize; // Размер базовой части объекта
+    Py_ssize_t tp_itemsize;  // Размер для VarObject
+    unsigned long tp_flags;  // Флаги типа
+    PyObject *tp_bases;      // Кортеж базовых классов (!!!)
+    PyObject *tp_base;       // Прямой базовый класс
+    PyObject *tp_dict;       // Словарь атрибутов типа
+    PyObject *tp_mro;        // Method Resolution Order
+    // ... сотни слотов методов: tp_new, tp_init, tp_call ...
+};
+```
+
+`PyTypeObject` — это "рецепт" для создания объектов определенного типа. Он хранит список базовых
+классов (`tp_bases`) и порядок поиска методов (`tp_mro`). Когда создается новый класс, CPython копирует слоты из
+родителей, разрешает конфликты по MRO и создает новый тип. Это не C++ наследование — это ручное копирование таблиц
+методов.
+
+## Инициализация наследования в PyType_Ready()
+
+Функция `PyType_Ready()` вычисляет MRO, наследует слоты и подготавливает тип. Вот ключевой фрагмент.
+
+```c
+// Objects/typeobject.c: упрощенный фрагмент PyType_Ready()
+static int
+type_ready(PyTypeObject *type) {
+    // 1. Берем базовые классы
+    PyObject *bases = lookup_tp_bases(type);  // Кортеж родителей
+    
+    // 2. Вычисляем MRO (порядок разрешения методов)
+    if (type->tp_mro == NULL) {
+        type->tp_mro = mro_internal(type);    // C3-линеаризация
+        if (type->tp_mro == NULL) {
+            return -1;
+        }
+    }
+    
+    // 3. Наследуем слоты методов от родителей
+    for (Py_ssize_t i = 0; i < PyTuple_GET_SIZE(bases); i++) {
+        PyTypeObject *base = PyTuple_GET_ITEM(bases, i);
+        inherit_slots(type, base);            // Копируем слоты
+    }
+    
+    // 4. Разрешаем конфликты по MRO
+    resolve_slots(type);
+    
+    // 5. Устанавливаем флаги готовности
+    type_add_flags(type, Py_TPFLAGS_READY);
+    return 0;
+}
+```
+
+При создании класса `PyType_Ready()` делает три вещи: 1) строит MRO (очередь "от кого наследовать
+методы"), 2) копирует методы из родителей в свою таблицу слотов, 3) разрешает конфликты (если метод есть у нескольких
+родителей — берет по приоритету MRO). После этого тип "готов" и объекты можно создавать.
+
+## Композиция через указатели на типы
+
+Композиция в CPython — это когда объект содержит указатели на другие типы, а не наследует их структуры. Пример:
+`PyFloatObject`.
+
+```c
+// Objects/floatobject.c: Float содержит PyObject_HEAD + свои поля
+typedef struct {
+    PyObject_HEAD                // Наследование "слева"
+    double ob_fval;              // Свое поле: значение double
+} PyFloatObject;
+
+// Использование: любой PyFloat* можно привести к PyObject*
+PyFloatObject *f = ...;
+PyObject *obj = (PyObject*)f;      // Безопасно!
+PyTypeObject *type = obj->ob_type; // Получаем тип float
+```
+
+Композиция — это "имеет-a": float "имеет" PyObject в начале + double. Наследование — "является-a":
+любой float "является" PyObject. В памяти это одно и то же — первые байты всегда PyObject. Разница в семантике:
+наследование дает слоты методов автоматически, композиция — требует явных вызовов.
+
+## MRO (Method Resolution Order) — C3 алгоритм
+
+MRO решает, чей метод вызывать при множественном наследовании. Вычисляется рекурсивно.
+
+```c
+// Objects/typeobject.c: упрощенный mro_internal()
+static PyObject *
+mro_internal(PyTypeObject *type) {
+    PyObject *bases = type->tp_bases;     // Список родителей
+    PyObject *seqs = PyTuple_New(1 + PyTuple_GET_SIZE(bases));
+    
+    // Собираем MRO всех родителей
+    for (Py_ssize_t i = 0; i < PyTuple_GET_SIZE(bases); i++) {
+        PyTypeObject *base = PyTuple_GET_ITEM(bases, i);
+        PyObject *parent_mro = lookup_tp_mro(base);
+        PyTuple_SET_ITEM(seqs, i+1, Py_NewRef(parent_mro));
+    }
+    
+    // C3-линеаризация: решает порядок с учетом приоритетов
+    PyObject *mro = merge_mros(seqs);     // Алгоритм C3
+    return mro;
+}
+```
+
+MRO — это "очередь родителей": сначала сам класс, потом родители слева направо, исключая уже
+использованных. Алгоритм C3 гарантирует, что родители сохраняют свой порядок. При вызове метода CPython идет по этой
+очереди до первого совпадения: `type->tp_call`, `base1->tp_call`, `base2->tp_call`....
+
+## __slots__ и ограничения множественного наследования
+
+`__slots__` конфликтует с наследованием из-за фиксированных смещений в памяти.
+
+```c
+// Objects/typeobject.c: проверка слотов при наследовании
+static int
+check_slots(PyTypeObject *type) {
+    // Если несколько родителей с __slots__, layouts конфликтуют
+    for (Py_ssize_t i = 0; i < PyTuple_GET_SIZE(type->tp_bases); i++) {
+        PyTypeObject *base = PyTuple_GET_ITEM(type->tp_bases, i);
+        if (base->tp_dictoffset && type->tp_dictoffset &&
+            base->tp_dictoffset != type->tp_dictoffset) {
+            PyErr_SetString(PyExc_TypeError,
+                "multiple parents with conflicting __slots__");
+            return -1;
+        }
+    }
+    return 0;
+}
+```
+
+`__slots__` фиксирует места атрибутов в памяти (экономит память, убирает `__dict__`). При
+наследовании смещения должны совпадать, иначе дескрипторы слотов "смотрят не туда". Композиция решает проблему — просто
+держишь объект внутри без наследования структур.
+
+## Кэш атрибутов и версии типов
+
+CPython кэширует поиск атрибутов через `tp_version_tag`. Изменение базовых классов инвалидирует кэш рекурсивно.
+
+```c
+// Objects/typeobject.c: инвалидация при изменении иерархии
+void PyType_Modified(PyTypeObject *type) {
+    BEGIN_TYPE_LOCK();                    // Глобальная блокировка типов
+    type_modified_unlocked(type);         // Рекурсивно по подклассам
+    END_TYPE_LOCK();
+}
+
+static void type_modified_unlocked(PyTypeObject *type) {
+    // Сбрасываем версию кэша
+    set_version_unlocked(type, 0);
+    
+    // Рекурсивно инвалидируем подклассы
+    PyObject *subclasses = lookup_tp_subclasses(type);
+    for each subclass in subclasses {
+        type_modified_unlocked(subclass);
+    }
+}
+```
+
+Каждый тип имеет "версию". При поиске `obj.x` CPython проверяет кэш по версии типа. Изменение
+родителей → смена версии → инвалидация кэша для всего поддерева. Это дорого, поэтому наследование иерархий в runtime —
+редкость.
+
+## Итоговое сравнение под капотом
+
+| Аспект        | Наследование                  | Композиция                          |
+|---------------|-------------------------------|-------------------------------------|
+| **Память**    | PyObject_HEAD + поля          | PyObject_HEAD + указатель на объект |
+| **Методы**    | Автокопирование слотов по MRO | Ручной вызов `self.child.method()`  |
+| **Атрибуты**  | Поиск по MRO, кэш с версиями  | Прямой доступ через указатель       |
+| **Slots**     | Конфликты layouts             | Нет проблем                         |
+| **Изменение** | Инвалидация всего поддерева   | Локальное                           |
+
+Наследование быстрее для статичных иерархий (автоматическое копирование слотов), композиция гибче (без конфликтов
+слотов, локальные изменения).
+
+- [Содержание](#содержание)
+
+---
+
+# **Композиция и агрегация**
+
+## **Junior Level*
+
+Композиция и агрегация — это два способа создания отношений между объектами в объектно-ориентированном программировании.
+Обе описывают ситуацию, когда один объект содержит в себе другой, но с критически важным различием в силе связи и
+управлении жизненным циклом.
+
+Представьте, что вы строите дом. **Композиция** — это как комната в доме. Комната не существует отдельно от дома. Когда
+дом сносят, комната исчезает вместе с ним. Объект-владелец (дом) полностью контролирует жизнь объекта-части (комнаты). *
+*Агрегация** — это как мебель в доме. Стол, стул, диван существуют независимо от дома. Их занесли в дом, а потом могут
+вынести в другой дом или на склад. Объект-владелец (дом) использует объект-часть (мебель), но не управляет его рождением
+и смертью.
+
+В разработке композиция означает, что при уничтожении основного объекта уничтожаются и все его составные части.
+Агрегация означает, что объекты собраны вместе, но могут жить самостоятельно. Для QA инженера понимание этого различия
+помогает проектировать тестовые фикстуры и моки, правильно управлять их жизненным циклом и понимать, какие зависимости
+нужно создавать заново, а какие можно переиспользовать между тестами.
+
+## **Middle Level**
+
+С технической точки зрения, композиция и агрегация реализуются через **атрибуты класса**, но с разной семантикой
+создания и владения.
+
+1. **Реализация:**
+    * **Композиция (Composition):** Объект-часть создается **внутри** конструктора (или иного метода) объекта-владельца.
+      Владелец полностью инкапсулирует создание и, как правило, не предоставляет публичных методов для замены этой
+      части. Часть реализуется как внутренний, приватный атрибут.
+    * **Агрегация (Aggregation):** Объект-часть создается **вне** объекта-владельца и передается ему в качестве
+      аргумента (чаще всего в конструктор). Владелец сохраняет ссылку на эту часть, но не управляет ее созданием.
+      Объект-часть может быть общим (разделяемым) ресурсом.
+
+2. **Жизненный цикл:**
+    * При **композиции** жизненный цикл части жестко привязан к жизненному циклу целого. Когда объект-владелец
+      удаляется (например, сборщиком мусора), удаляется и объект-часть, если на него больше нет ссылок.
+    * При **агрегации** жизненные циклы независимы. Удаление владельца не влечет удаление части, так как на нее могут
+      оставаться ссылки из других объектов.
+
+3. **Для AQA:**
+    * **Фикстуры в Pytest:** Композиция часто используется для создания сложных, вложенных фикстур, которые существуют
+      только в рамках одной тестовой сессии или модуля и автоматически очищаются. Агрегация похожа на фикстуры с
+      областью видимости `session` или `package`, которые создаются один раз и переиспользуются многими тестами.
+    * **Тестовые данные:** Понимание, когда создавать новый экземпляр тестовых данных для каждого кейса (композиция), а
+      когда использовать общий, предсозданный набор данных (агрегация), критично для скорости и изоляции тестов.
+    * **Page Object:** Внутри Page Object может существовать композиция из элементов (например, `Button`, `InputField`),
+      которые не имеют смысла вне контекста этой страницы. И агрегация — например, общий `Header` или `Footer`, которые
+      могут быть переданы в несколько Page Object.
+
+4. **Отличия от наследования:** И композиция, и агрегация — это альтернативы наследованию, предпочитаемые в современном
+   дизайне ("предпочитай композицию наследованию"). Они обеспечивают большую гибкость и слабую связанность.
+
+## **Senior Level**
+
+## Базовые структуры композиции в CPython
+
+Композиция в CPython реализуется через **встраивание структур** (embedding) — `PyObject_HEAD` + поля + другие
+`PyObject`. Агрегация — через **указатели** на объекты. Разница в управлении памятью и временем жизни.
+
+```c
+// Include/object.h: базовые макросы для композиции
+#define PyObject_HEAD                   PyObject ob_base;  // Шапка: refcnt + type
+#define PyObject_VAR_HEAD               PyVarObject ob_base; // Шапка + размер
+
+struct _object {                       // PyObject — минимальный объект
+    union {                            // Счетчик ссылок (refcnt)
+#if SIZEOF_VOID_P > 4
+        PY_INT64_T ob_refcnt_full;     // 64-битный refcnt
+        struct {
+# if PY_BIG_ENDIAN
+            uint16_t ob_flags;         // Флаги объекта
+            uint16_t ob_overflow;      // Переполнение refcnt
+            uint32_t ob_refcnt;        // Основной refcnt
+# else
+            uint32_t ob_refcnt;        // Основной refcnt
+            uint16_t ob_overflow;      // Переполнение refcnt
+            uint16_t ob_flags;         // Флаги объекта
+# endif
+        };
+#else
+        Py_ssize_t ob_refcnt;          // 32-битный refcnt
+#endif
+    };
+    PyTypeObject *ob_type;             // Указатель на тип (vtable)
+};
+```
+
+`PyObject_HEAD` — это **обязательная "шапка"** в начале **каждого** Python-объекта (8-16 байт). Она содержит: 1) *
+*refcnt** (сколько ссылок держит объект живым), 2) **ob_type** (указатель на таблицу методов типа). Любая структура типа
+начинается с этой шапки. Композиция = шапка + свои поля + другие шапки.
+
+## Пример композиции: PyTupleObject (строгая композиция)
+
+Кортеж содержит **встроенный массив PyObject*** — классическая композиция "имеет-A".
+
+```c
+// Include/tupleobject.h + Objects/tupleobject.c
+typedef struct {
+    PyObject_VAR_HEAD                // Шапка PyObject + ob_size (кол-во элементов)
+    PyObject *ob_item[1];            // Массив объектов (гибкий размер!)
+} PyTupleObject;
+
+// Реальная структура в памяти: PyObject_HEAD + Py_ssize_t ob_size + PyObject** об_item
+// Размер выделяется: sizeof(PyTupleObject) + (size-1)*sizeof(PyObject*)
+```
+
+Кортеж `(1, "a", [])` в памяти — **один большой блок**: шапка кортежа + число элементов (3) + **3 указателя** на объекты
+1, "a", []. Это **композиция**: кортеж **владеет** массивом указателей. Когда refcnt кортежа → 0, **все указатели
+остаются жить** (их refcnt не трогаем).
+
+## Пример агрегации: PyDictObject (слабая композиция)
+
+Словарь содержит **указатели** на хэш-таблицу PyDictKeysObject — агрегация.
+
+```c
+// Objects/dictobject.c: PyDictObject (Python 3.9+)
+typedef struct {
+    PyObject_HEAD                    // Шапка словаря
+    Py_ssize_t ma_used;              // Кол-во используемых слотов
+    PyDictKeysObject *ma_keys;       // УКАЗАТЕЛЬ на отдельный объект ключей!!!
+    PyObject **ma_values;            // Указатель на массив значений (опционально)
+} PyDictObject;
+
+typedef struct {
+    Py_ssize_t dk_size;              // Размер хэш-таблицы
+    PyDictUnicodeEntry *dk_entries;  // Массив записей (ключ+хэш)
+    vectorcallfunc vectorcall;       // Методы для vectorcall
+} PyDictKeysObject;
+```
+
+Словарь `{"a": 1}` — **два объекта**: 1) PyDictObject (шапка + указатель на ключи), 2) PyDictKeysObject (отдельная
+хэш-таблица). Это **агрегация**: словарь **ссылается** на таблицу ключей, но **не владеет** ею. Таблица ключей может
+использоваться **несколькими** словарями (shared keys optimization).
+
+## Создание составных объектов: PyTuple_New()
+
+Композиция создается **атомарно** — выделяется память под всю структуру сразу.
+
+```c
+// Objects/tupleobject.c: PyTuple_New()
+PyObject *
+PyTuple_New(Py_ssize_t size) {
+    PyTupleObject *op;                 // Указатель на новый кортеж
+    Py_ssize_t nbytes;                 // Общий размер в байтах
+    
+    if (size < 0) {                    // Проверка отрицательного размера
+        PyErr_BadInternalCall();
+        return NULL;
+    }
+    
+    // Вычисляем размер: шапка + (size-1)*sizeof(PyObject*)
+    nbytes = size * sizeof(PyObject *) + sizeof(PyTupleObject) - sizeof(PyObject *);
+    
+    // Выделяем память атомарно
+    op = PyObject_GC_NewVar(PyTupleObject, &PyTuple_Type, size);
+    if (op == NULL)                    // Ошибка выделения
+        return NULL;
+        
+    // Инициализируем все указатели NULL (zero-filling)
+    for (Py_ssize_t i = 0; i < size; i++)
+        op->ob_item[i] = NULL;         // Каждый слот = NULL
+    
+    PyObject_GC_Track(op);             // Регистрируем в GC
+    return (PyObject *) op;
+}
+```
+
+`tuple(1,2,3)` → CPython **одним malloc()** выделяет **весь блок** (шапка + 3 указателя). Потом заполняет указатели
+PyLong(1), PyLong(2), PyLong(3). **Композиция = единый блок памяти**. Когда refcnt → 0, **один free()** освобождает
+всё.
+
+## Разница в деструкторах: tp_dealloc
+
+Композиция освобождает **свои** поля, агрегация — **НЕ трогает** подчиненные объекты.
+
+```c
+// Objects/tupleobject.c: tp_dealloc для PyTuple_Type
+static void
+tuple_dealloc(PyTupleObject *op) {
+    Py_ssize_t len = Py_SIZE(op);      // Длина кортежа
+    PyObject **items = op->ob_item;    // Указатель на массив
+    
+    PyObject_GC_UnTrack(op);           // Убираем из GC
+    Py_TRASHCAN_SAFE_BEGIN(op)         // Защита от рекурсии
+    
+    // НЕ освобождаем ob_item[i]! Это агрегированные объекты
+    // Просто обнуляем указатели (для отладки)
+    while (--len >= 0) {
+        Py_CLEAR(items[len]);          // Снижаем refcnt элементов
+    }
+    
+    Py_TYPE(op)->tp_free((PyObject*)op); // free() всей структуры
+    Py_TRASHCAN_SAFE_END(op)
+}
+```
+
+Кортеж умирает → **НЕ трогает** содержимое (1,2,3 живут дальше), только **снижает их refcnt** и **освобождает свой блок
+**. Словарь при смерти **НЕ трогает** ma_keys (агрегация). **Композиция** бы трогала встроенные объекты.
+
+## __slots__ как экстремальная композиция
+
+`__slots__` создает **фиксированную композицию** без `__dict__` — экономит память.
+
+```c
+// Objects/typeobject.c: обработка __slots__ в PyType_Ready()
+static int
+slotptr_cmp(PyObject *slot1, PyObject *slot2) {
+    // Сортируем слоты по алфавиту для детерминизма
+    return PyUnicode_Compare(slot1, slot2);
+}
+
+static PyObject *
+collect_slots(PyTypeObject *type) {
+    PyObject *slots = PyObject_GetAttrString((PyObject*)type, "__slots__");
+    if (!slots) return NULL;
+    
+    // Сортируем и вычисляем смещения атрибутов
+    Py_ssize_t nslots = PyList_GET_SIZE(slots);
+    for (Py_ssize_t i = 0; i < nslots; i++) {
+        PyObject *name = PyList_GET_ITEM(slots, i);
+        PyMemberDef *member = create_member(name);  // Создаем дескриптор
+        // member->offset = смещение в памяти экземпляра
+    }
+    
+    type->tp_basicsize += nslots * sizeof(PyObject*); // Фиксируем размер
+    return slots;
+}
+```
+
+`__slots__ = ['x', 'y']` → CPython создает **фиксированные поля** сразу после PyObject_HEAD:
+`[PyObject_HEAD | PyObject* x | PyObject* y]`. **Нет `__dict__`**, нет хэш-таблицы. **Чистая композиция** с известным
+layout'ом памяти.
+
+## Сравнение композиции и агрегации под капотом
+
+| Аспект          | Композиция (встраивание)   | Агрегация (указатели)            |
+|-----------------|----------------------------|----------------------------------|
+| **Память**      | Единый malloc/free         | Несколько malloc (dict + keys)   |
+| **Время жизни** | Владелец управляет всем    | Подчиненные живут независимо     |
+| **Размер**      | sizeof(HEAD) + поля + HEAD | sizeof(HEAD) + sizeof(PyObject*) |
+| **GC**          | Рекурсивно все поля        | Только указатели (не владеет)    |
+| **Shared**      | Невозможно                 | Возможно (dict keys)             |
+
+**Композиция** = "встроить структуру целиком", **агрегация** = "указатель на чужой объект". В CPython **tuple =
+композиция** (встроенный массив), **dict = агрегация** (отдельные keys/values).
 
 - [Содержание](#содержание)
 
@@ -13038,575 +14007,6 @@ load_framework = APITestFramework(
 
 ---
 
-# **Наследование vs композиция**
-
-## **Junior Level**
-
-Наследование и композиция — это два фундаментальных подхода к организации кода в объектно-ориентированном
-программировании, и выбор между ними определяет, насколько гибкой, понятной и удобной для поддержки будет ваша система.
-
-Основное различие лежит в типе отношений, которые они моделируют:
-
-* **Наследование** описывает отношение **«является»** (is-a). Например, `Dog` (Собака) наследует от `Animal` (Животное),
-  потому что собака *является* конкретным видом животного. Это позволяет `Dog` автоматически получить общие для всех
-  животных свойства и методы (например, `eat()` или `sleep()`), а также добавить свои уникальные (`bark()`).
-* **Композиция** описывает отношение **«имеет»** (has-a). Класс `Car` (Автомобиль) не является двигателем, но он *имеет*
-  его как составную часть. Двигатель — это независимый компонент, с которым автомобиль взаимодействует через четко
-  определенный интерфейс.
-
-**Ключевое правило современной разработки: предпочитайте композицию наследованию.** Наследование создает жесткую,
-статическую связь, подобную родственной. Изменения в «родительском» классе могут неожиданно «сломать» всех его
-«потомков». Композиция же строит более гибкие, договорные отношения: вы можете заменить «двигатель» на другой, не
-переделывая всю «машину». Для тестирования это преимущество критично — компоненты, переданные через композицию, легко
-подменить на заглушки (mocks), что позволяет тестировать классы изолированно.
-
-## **Middle Level**
-
-### **Детали и тонкости наследования в Python**
-
-1. **Механизм и порядок разрешения методов (MRO)**: Python поддерживает множественное наследование. Чтобы управлять
-   потенциальным хаосом при поиске методов, используется строгий **MRO (Method Resolution Order)**, вычисляемый по
-   алгоритму C3 (`ClassName.__mro__`). Этот порядок гарантирует, что каждый класс в иерархии будет проверен только один
-   раз и предсказуемо.
-
-2. **Инструмент `super()` и кооперативное наследование**: `super()` — это не просто вызов метода родителя. В условиях
-   MRO он делегирует выполнение **следующему классу в цепочке**. Это позволяет нескольким классам-предкам (например,
-   `Mixin`-ам) кооперативно участвовать в выполнении одного метода (например, `__init__`), не мешая друг другу.
-
-3. **Наследование как потенциальное нарушение инкапсуляции**: Это ключевая критика наследования. Дочерний класс получает
-   доступ к защищённым (`_protected`) членам родителя, что создает хрупкую, скрытую зависимость от его внутренней
-   реализации. Тестировать такой класс сложно, так как для понимания его поведения необходимо глубоко знать детали
-   работы родителя.
-
-4. **Множественное наследование и Mixins**: Python разрешает множественное наследование, что часто используется для *
-   *Mixins** — небольших классов, добавляющих конкретную функциональность (например, `JSONSerializableMixin`). Mixin не
-   предназначен для использования отдельно. При их применении важно проектировать имена методов так, чтобы избежать
-   конфликтов, разрешаемых через MRO.
-
-5. **Абстрактные классы (ABC)**: Модуль `abc` позволяет создавать формальные «чертежи» — классы, объявляющие
-   обязательные методы (через `@abstractmethod`). Они заставляют наследников соблюдать контракт, явно формализуя
-   отношение «является».
-
-### **Детали и тонкости композиции в Python**
-
-1. **Композиция vs Агрегация: управление жизненным циклом**:
-    * **Композиция (сильная связь)**: Компонент (например, `Heart` для `Human`) не существует отдельно. Он создаётся и
-      уничтожается вместе с объектом-владельцем (обычно в `__init__`).
-    * **Агрегация (слабая связь)**: Компонент (например, `Driver` для `Car`) существует независимо и передаётся объекту
-      извне (как аргумент). Их жизненные циклы разделены.
-
-2. **Композиция и структурная типизация (Протоколы)**: Вместо жесткого наследования от абстрактного класса для
-   достижения полиморфизма в Python всё чаще используют **композицию с протоколами** (`typing.Protocol`). Объекту не
-   нужно объявлять «я наследник `Reader`» — достаточно просто реализовать метод `read()`. Это резко снижает связанность.
-   В тестах можно подставить любой объект с нужным методом, не строя сложных иерархий.
-
-3. **Делегирование как явная форма композиции**: Паттерн **Делегирование** — это когда внешний объект (делегатор) явно
-   передает выполнение задачи внутреннему объекту (делегату). В Python его можно элегантно реализовать через
-   `__getattr__`, автоматически перенаправляя вызовы. Это основа для объеков-обёрток (адаптеров, прокси), которые дают
-   полный контроль над взаимодействием и являются идеальной точкой для внедрения моков в тестах.
-
-4. **Динамическое поведение**: Композиция позволяет менять поведение объекта во время выполнения программы, заменяя его
-   компоненты. Этот принцип лежит в основе многих паттернов, таких как **Стратегия** (Strategy), где алгоритм можно
-   «подменить на лету».
-
-### **Сравнительный анализ для проектирования и тестирования**
-
-* **Гибкость и связность**: Наследование фиксирует отношения на этапе компиляции, приводя к высокой связности.
-  Композиция/агрегация определяют поведение во время выполнения, обеспечивая слабую связность и большую гибкость.
-
-* **Тестируемость**: Класс, построенный на композиции, легко тестировать изолированно. Его зависимости — это просто
-  аргументы, которые можно подменить. Тестирование глубокой иерархии наследования требует создания сложных фикстур и
-  мокирования родительских методов, что увеличивает сложность тестов.
-
-* **Проблема хрупкого базового класса**: Это главный риск наследования. Даже безопасное на вид изменение во внутренней
-  логике родителя может сломать работу непредусмотревшего этого наследника. В больших проектах отследить такие побочные
-  эффекты крайне трудно.
-
-* **Борьба со сложностью архитектуры**: Глубокие иерархии наследования имеют тенденцию разрастаться и усложняться.
-  Композиция предлагает альтернативную парадигму: строить сложную систему не через вертикальное ветвление, а через
-  горизонтальную сборку из небольших, независимых и легко заменяемых компонентов. Это прямой путь к более
-  поддерживаемому и надежному коду.
-
-## **Senior Level**
-
-## Базовая структура объектов CPython
-
-В CPython все объекты наследуют от базовой структуры `PyObject`, которая имитирует наследование через композицию в C.
-Это видно в заголовочном файле `Include/object.h`.
-
-```c
-// Include/object.h: базовая структура всех Python объектов
-#define PyObject_HEAD                   PyObject ob_base;
-
-struct _object {
-    // Счетчик ссылок (может быть разбит на части для 64-битных систем)
-    union {
-#if SIZEOF_VOID_P > 4
-        PY_INT64_T ob_refcnt_full;
-        struct {
-# if PY_BIG_ENDIAN
-            uint16_t ob_flags;     // Флаги объекта
-            uint16_t ob_overflow;  // Переполнение refcnt
-            uint32_t ob_refcnt;    // Основной счетчик ссылок
-# else
-            uint32_t ob_refcnt;    // Основной счетчик ссылок
-            uint16_t ob_overflow;  // Переполнение refcnt
-            uint16_t ob_flags;     // Флаги объекта
-# endif
-        };
-#else
-        Py_ssize_t ob_refcnt;          // Простой счетчик ссылок
-#endif
-    };
-    PyTypeObject *ob_type;             // Указатель на тип объекта
-};
-```
-
-Каждый Python-объект в памяти начинается с "шапки" — счетчика ссылок (сколько мест держит ссылку
-на объект) и указателя на его тип. Это как паспорт объекта: "кто я и сколько на меня ссылок". Любая конкретная
-структура (число, строка, список) начинается с этой шапки, а потом идут свои поля. Благодаря этому любой указатель на
-объект можно безопасно привести к `PyObject*` — первые байты всегда одинаковые.
-
-## PyTypeObject — сердце наследования
-
-Типы в CPython — это объекты `PyTypeObject`, которые содержат слоты (vtable) для методов. Наследование — это копирование
-и переопределение этих слотов.
-
-```c
-// Objects/typeobject.c: фрагмент инициализации типа
-typedef struct {
-    int slot;              // Номер слота (tp_new, tp_call и т.д.)
-    void *pfunc;           // Указатель на C-функцию
-} PyType_Slot;
-
-// PyTypeObject содержит сотни таких слотов
-// Ключевые для наследования:
-PyTypeObject {
-    PyObject_HEAD           // Наследует от PyObject
-    Py_ssize_t tp_basicsize; // Размер базовой части объекта
-    Py_ssize_t tp_itemsize;  // Размер для VarObject
-    unsigned long tp_flags;  // Флаги типа
-    PyObject *tp_bases;      // Кортеж базовых классов (!!!)
-    PyObject *tp_base;       // Прямой базовый класс
-    PyObject *tp_dict;       // Словарь атрибутов типа
-    PyObject *tp_mro;        // Method Resolution Order
-    // ... сотни слотов методов: tp_new, tp_init, tp_call ...
-};
-```
-
-`PyTypeObject` — это "рецепт" для создания объектов определенного типа. Он хранит список базовых
-классов (`tp_bases`) и порядок поиска методов (`tp_mro`). Когда создается новый класс, CPython копирует слоты из
-родителей, разрешает конфликты по MRO и создает новый тип. Это не C++ наследование — это ручное копирование таблиц
-методов.
-
-## Инициализация наследования в PyType_Ready()
-
-Функция `PyType_Ready()` вычисляет MRO, наследует слоты и подготавливает тип. Вот ключевой фрагмент.
-
-```c
-// Objects/typeobject.c: упрощенный фрагмент PyType_Ready()
-static int
-type_ready(PyTypeObject *type) {
-    // 1. Берем базовые классы
-    PyObject *bases = lookup_tp_bases(type);  // Кортеж родителей
-    
-    // 2. Вычисляем MRO (порядок разрешения методов)
-    if (type->tp_mro == NULL) {
-        type->tp_mro = mro_internal(type);    // C3-линеаризация
-        if (type->tp_mro == NULL) {
-            return -1;
-        }
-    }
-    
-    // 3. Наследуем слоты методов от родителей
-    for (Py_ssize_t i = 0; i < PyTuple_GET_SIZE(bases); i++) {
-        PyTypeObject *base = PyTuple_GET_ITEM(bases, i);
-        inherit_slots(type, base);            // Копируем слоты
-    }
-    
-    // 4. Разрешаем конфликты по MRO
-    resolve_slots(type);
-    
-    // 5. Устанавливаем флаги готовности
-    type_add_flags(type, Py_TPFLAGS_READY);
-    return 0;
-}
-```
-
-При создании класса `PyType_Ready()` делает три вещи: 1) строит MRO (очередь "от кого наследовать
-методы"), 2) копирует методы из родителей в свою таблицу слотов, 3) разрешает конфликты (если метод есть у нескольких
-родителей — берет по приоритету MRO). После этого тип "готов" и объекты можно создавать.
-
-## Композиция через указатели на типы
-
-Композиция в CPython — это когда объект содержит указатели на другие типы, а не наследует их структуры. Пример:
-`PyFloatObject`.
-
-```c
-// Objects/floatobject.c: Float содержит PyObject_HEAD + свои поля
-typedef struct {
-    PyObject_HEAD                // Наследование "слева"
-    double ob_fval;              // Свое поле: значение double
-} PyFloatObject;
-
-// Использование: любой PyFloat* можно привести к PyObject*
-PyFloatObject *f = ...;
-PyObject *obj = (PyObject*)f;      // Безопасно!
-PyTypeObject *type = obj->ob_type; // Получаем тип float
-```
-
-Композиция — это "имеет-a": float "имеет" PyObject в начале + double. Наследование — "является-a":
-любой float "является" PyObject. В памяти это одно и то же — первые байты всегда PyObject. Разница в семантике:
-наследование дает слоты методов автоматически, композиция — требует явных вызовов.
-
-## MRO (Method Resolution Order) — C3 алгоритм
-
-MRO решает, чей метод вызывать при множественном наследовании. Вычисляется рекурсивно.
-
-```c
-// Objects/typeobject.c: упрощенный mro_internal()
-static PyObject *
-mro_internal(PyTypeObject *type) {
-    PyObject *bases = type->tp_bases;     // Список родителей
-    PyObject *seqs = PyTuple_New(1 + PyTuple_GET_SIZE(bases));
-    
-    // Собираем MRO всех родителей
-    for (Py_ssize_t i = 0; i < PyTuple_GET_SIZE(bases); i++) {
-        PyTypeObject *base = PyTuple_GET_ITEM(bases, i);
-        PyObject *parent_mro = lookup_tp_mro(base);
-        PyTuple_SET_ITEM(seqs, i+1, Py_NewRef(parent_mro));
-    }
-    
-    // C3-линеаризация: решает порядок с учетом приоритетов
-    PyObject *mro = merge_mros(seqs);     // Алгоритм C3
-    return mro;
-}
-```
-
-MRO — это "очередь родителей": сначала сам класс, потом родители слева направо, исключая уже
-использованных. Алгоритм C3 гарантирует, что родители сохраняют свой порядок. При вызове метода CPython идет по этой
-очереди до первого совпадения: `type->tp_call`, `base1->tp_call`, `base2->tp_call`....
-
-## __slots__ и ограничения множественного наследования
-
-`__slots__` конфликтует с наследованием из-за фиксированных смещений в памяти.
-
-```c
-// Objects/typeobject.c: проверка слотов при наследовании
-static int
-check_slots(PyTypeObject *type) {
-    // Если несколько родителей с __slots__, layouts конфликтуют
-    for (Py_ssize_t i = 0; i < PyTuple_GET_SIZE(type->tp_bases); i++) {
-        PyTypeObject *base = PyTuple_GET_ITEM(type->tp_bases, i);
-        if (base->tp_dictoffset && type->tp_dictoffset &&
-            base->tp_dictoffset != type->tp_dictoffset) {
-            PyErr_SetString(PyExc_TypeError,
-                "multiple parents with conflicting __slots__");
-            return -1;
-        }
-    }
-    return 0;
-}
-```
-
-`__slots__` фиксирует места атрибутов в памяти (экономит память, убирает `__dict__`). При
-наследовании смещения должны совпадать, иначе дескрипторы слотов "смотрят не туда". Композиция решает проблему — просто
-держишь объект внутри без наследования структур.
-
-## Кэш атрибутов и версии типов
-
-CPython кэширует поиск атрибутов через `tp_version_tag`. Изменение базовых классов инвалидирует кэш рекурсивно.
-
-```c
-// Objects/typeobject.c: инвалидация при изменении иерархии
-void PyType_Modified(PyTypeObject *type) {
-    BEGIN_TYPE_LOCK();                    // Глобальная блокировка типов
-    type_modified_unlocked(type);         // Рекурсивно по подклассам
-    END_TYPE_LOCK();
-}
-
-static void type_modified_unlocked(PyTypeObject *type) {
-    // Сбрасываем версию кэша
-    set_version_unlocked(type, 0);
-    
-    // Рекурсивно инвалидируем подклассы
-    PyObject *subclasses = lookup_tp_subclasses(type);
-    for each subclass in subclasses {
-        type_modified_unlocked(subclass);
-    }
-}
-```
-
-Каждый тип имеет "версию". При поиске `obj.x` CPython проверяет кэш по версии типа. Изменение
-родителей → смена версии → инвалидация кэша для всего поддерева. Это дорого, поэтому наследование иерархий в runtime —
-редкость.
-
-## Итоговое сравнение под капотом
-
-| Аспект        | Наследование                  | Композиция                          |
-|---------------|-------------------------------|-------------------------------------|
-| **Память**    | PyObject_HEAD + поля          | PyObject_HEAD + указатель на объект |
-| **Методы**    | Автокопирование слотов по MRO | Ручной вызов `self.child.method()`  |
-| **Атрибуты**  | Поиск по MRO, кэш с версиями  | Прямой доступ через указатель       |
-| **Slots**     | Конфликты layouts             | Нет проблем                         |
-| **Изменение** | Инвалидация всего поддерева   | Локальное                           |
-
-Наследование быстрее для статичных иерархий (автоматическое копирование слотов), композиция гибче (без конфликтов
-слотов, локальные изменения).
-
-- [Содержание](#содержание)
-
----
-
-# **Композиция и агрегация**
-
-## **Junior Level*
-
-Композиция и агрегация — это два способа создания отношений между объектами в объектно-ориентированном программировании.
-Обе описывают ситуацию, когда один объект содержит в себе другой, но с критически важным различием в силе связи и
-управлении жизненным циклом.
-
-Представьте, что вы строите дом. **Композиция** — это как комната в доме. Комната не существует отдельно от дома. Когда
-дом сносят, комната исчезает вместе с ним. Объект-владелец (дом) полностью контролирует жизнь объекта-части (комнаты). *
-*Агрегация** — это как мебель в доме. Стол, стул, диван существуют независимо от дома. Их занесли в дом, а потом могут
-вынести в другой дом или на склад. Объект-владелец (дом) использует объект-часть (мебель), но не управляет его рождением
-и смертью.
-
-В разработке композиция означает, что при уничтожении основного объекта уничтожаются и все его составные части.
-Агрегация означает, что объекты собраны вместе, но могут жить самостоятельно. Для QA инженера понимание этого различия
-помогает проектировать тестовые фикстуры и моки, правильно управлять их жизненным циклом и понимать, какие зависимости
-нужно создавать заново, а какие можно переиспользовать между тестами.
-
-## **Middle Level**
-
-С технической точки зрения, композиция и агрегация реализуются через **атрибуты класса**, но с разной семантикой
-создания и владения.
-
-1. **Реализация:**
-    * **Композиция (Composition):** Объект-часть создается **внутри** конструктора (или иного метода) объекта-владельца.
-      Владелец полностью инкапсулирует создание и, как правило, не предоставляет публичных методов для замены этой
-      части. Часть реализуется как внутренний, приватный атрибут.
-    * **Агрегация (Aggregation):** Объект-часть создается **вне** объекта-владельца и передается ему в качестве
-      аргумента (чаще всего в конструктор). Владелец сохраняет ссылку на эту часть, но не управляет ее созданием.
-      Объект-часть может быть общим (разделяемым) ресурсом.
-
-2. **Жизненный цикл:**
-    * При **композиции** жизненный цикл части жестко привязан к жизненному циклу целого. Когда объект-владелец
-      удаляется (например, сборщиком мусора), удаляется и объект-часть, если на него больше нет ссылок.
-    * При **агрегации** жизненные циклы независимы. Удаление владельца не влечет удаление части, так как на нее могут
-      оставаться ссылки из других объектов.
-
-3. **Для AQA:**
-    * **Фикстуры в Pytest:** Композиция часто используется для создания сложных, вложенных фикстур, которые существуют
-      только в рамках одной тестовой сессии или модуля и автоматически очищаются. Агрегация похожа на фикстуры с
-      областью видимости `session` или `package`, которые создаются один раз и переиспользуются многими тестами.
-    * **Тестовые данные:** Понимание, когда создавать новый экземпляр тестовых данных для каждого кейса (композиция), а
-      когда использовать общий, предсозданный набор данных (агрегация), критично для скорости и изоляции тестов.
-    * **Page Object:** Внутри Page Object может существовать композиция из элементов (например, `Button`, `InputField`),
-      которые не имеют смысла вне контекста этой страницы. И агрегация — например, общий `Header` или `Footer`, которые
-      могут быть переданы в несколько Page Object.
-
-4. **Отличия от наследования:** И композиция, и агрегация — это альтернативы наследованию, предпочитаемые в современном
-   дизайне ("предпочитай композицию наследованию"). Они обеспечивают большую гибкость и слабую связанность.
-
-## **Senior Level**
-
-## Базовые структуры композиции в CPython
-
-Композиция в CPython реализуется через **встраивание структур** (embedding) — `PyObject_HEAD` + поля + другие
-`PyObject`. Агрегация — через **указатели** на объекты. Разница в управлении памятью и временем жизни.
-
-```c
-// Include/object.h: базовые макросы для композиции
-#define PyObject_HEAD                   PyObject ob_base;  // Шапка: refcnt + type
-#define PyObject_VAR_HEAD               PyVarObject ob_base; // Шапка + размер
-
-struct _object {                       // PyObject — минимальный объект
-    union {                            // Счетчик ссылок (refcnt)
-#if SIZEOF_VOID_P > 4
-        PY_INT64_T ob_refcnt_full;     // 64-битный refcnt
-        struct {
-# if PY_BIG_ENDIAN
-            uint16_t ob_flags;         // Флаги объекта
-            uint16_t ob_overflow;      // Переполнение refcnt
-            uint32_t ob_refcnt;        // Основной refcnt
-# else
-            uint32_t ob_refcnt;        // Основной refcnt
-            uint16_t ob_overflow;      // Переполнение refcnt
-            uint16_t ob_flags;         // Флаги объекта
-# endif
-        };
-#else
-        Py_ssize_t ob_refcnt;          // 32-битный refcnt
-#endif
-    };
-    PyTypeObject *ob_type;             // Указатель на тип (vtable)
-};
-```
-
-`PyObject_HEAD` — это **обязательная "шапка"** в начале **каждого** Python-объекта (8-16 байт). Она содержит: 1) *
-*refcnt** (сколько ссылок держит объект живым), 2) **ob_type** (указатель на таблицу методов типа). Любая структура типа
-начинается с этой шапки. Композиция = шапка + свои поля + другие шапки.
-
-## Пример композиции: PyTupleObject (строгая композиция)
-
-Кортеж содержит **встроенный массив PyObject*** — классическая композиция "имеет-A".
-
-```c
-// Include/tupleobject.h + Objects/tupleobject.c
-typedef struct {
-    PyObject_VAR_HEAD                // Шапка PyObject + ob_size (кол-во элементов)
-    PyObject *ob_item[1];            // Массив объектов (гибкий размер!)
-} PyTupleObject;
-
-// Реальная структура в памяти: PyObject_HEAD + Py_ssize_t ob_size + PyObject** об_item
-// Размер выделяется: sizeof(PyTupleObject) + (size-1)*sizeof(PyObject*)
-```
-
-Кортеж `(1, "a", [])` в памяти — **один большой блок**: шапка кортежа + число элементов (3) + **3 указателя** на объекты
-1, "a", []. Это **композиция**: кортеж **владеет** массивом указателей. Когда refcnt кортежа → 0, **все указатели
-остаются жить** (их refcnt не трогаем).
-
-## Пример агрегации: PyDictObject (слабая композиция)
-
-Словарь содержит **указатели** на хэш-таблицу PyDictKeysObject — агрегация.
-
-```c
-// Objects/dictobject.c: PyDictObject (Python 3.9+)
-typedef struct {
-    PyObject_HEAD                    // Шапка словаря
-    Py_ssize_t ma_used;              // Кол-во используемых слотов
-    PyDictKeysObject *ma_keys;       // УКАЗАТЕЛЬ на отдельный объект ключей!!!
-    PyObject **ma_values;            // Указатель на массив значений (опционально)
-} PyDictObject;
-
-typedef struct {
-    Py_ssize_t dk_size;              // Размер хэш-таблицы
-    PyDictUnicodeEntry *dk_entries;  // Массив записей (ключ+хэш)
-    vectorcallfunc vectorcall;       // Методы для vectorcall
-} PyDictKeysObject;
-```
-
-Словарь `{"a": 1}` — **два объекта**: 1) PyDictObject (шапка + указатель на ключи), 2) PyDictKeysObject (отдельная
-хэш-таблица). Это **агрегация**: словарь **ссылается** на таблицу ключей, но **не владеет** ею. Таблица ключей может
-использоваться **несколькими** словарями (shared keys optimization).
-
-## Создание составных объектов: PyTuple_New()
-
-Композиция создается **атомарно** — выделяется память под всю структуру сразу.
-
-```c
-// Objects/tupleobject.c: PyTuple_New()
-PyObject *
-PyTuple_New(Py_ssize_t size) {
-    PyTupleObject *op;                 // Указатель на новый кортеж
-    Py_ssize_t nbytes;                 // Общий размер в байтах
-    
-    if (size < 0) {                    // Проверка отрицательного размера
-        PyErr_BadInternalCall();
-        return NULL;
-    }
-    
-    // Вычисляем размер: шапка + (size-1)*sizeof(PyObject*)
-    nbytes = size * sizeof(PyObject *) + sizeof(PyTupleObject) - sizeof(PyObject *);
-    
-    // Выделяем память атомарно
-    op = PyObject_GC_NewVar(PyTupleObject, &PyTuple_Type, size);
-    if (op == NULL)                    // Ошибка выделения
-        return NULL;
-        
-    // Инициализируем все указатели NULL (zero-filling)
-    for (Py_ssize_t i = 0; i < size; i++)
-        op->ob_item[i] = NULL;         // Каждый слот = NULL
-    
-    PyObject_GC_Track(op);             // Регистрируем в GC
-    return (PyObject *) op;
-}
-```
-
-`tuple(1,2,3)` → CPython **одним malloc()** выделяет **весь блок** (шапка + 3 указателя). Потом заполняет указатели
-PyLong(1), PyLong(2), PyLong(3). **Композиция = единый блок памяти**. Когда refcnt → 0, **один free()** освобождает
-всё.
-
-## Разница в деструкторах: tp_dealloc
-
-Композиция освобождает **свои** поля, агрегация — **НЕ трогает** подчиненные объекты.
-
-```c
-// Objects/tupleobject.c: tp_dealloc для PyTuple_Type
-static void
-tuple_dealloc(PyTupleObject *op) {
-    Py_ssize_t len = Py_SIZE(op);      // Длина кортежа
-    PyObject **items = op->ob_item;    // Указатель на массив
-    
-    PyObject_GC_UnTrack(op);           // Убираем из GC
-    Py_TRASHCAN_SAFE_BEGIN(op)         // Защита от рекурсии
-    
-    // НЕ освобождаем ob_item[i]! Это агрегированные объекты
-    // Просто обнуляем указатели (для отладки)
-    while (--len >= 0) {
-        Py_CLEAR(items[len]);          // Снижаем refcnt элементов
-    }
-    
-    Py_TYPE(op)->tp_free((PyObject*)op); // free() всей структуры
-    Py_TRASHCAN_SAFE_END(op)
-}
-```
-
-Кортеж умирает → **НЕ трогает** содержимое (1,2,3 живут дальше), только **снижает их refcnt** и **освобождает свой блок
-**. Словарь при смерти **НЕ трогает** ma_keys (агрегация). **Композиция** бы трогала встроенные объекты.
-
-## __slots__ как экстремальная композиция
-
-`__slots__` создает **фиксированную композицию** без `__dict__` — экономит память.
-
-```c
-// Objects/typeobject.c: обработка __slots__ в PyType_Ready()
-static int
-slotptr_cmp(PyObject *slot1, PyObject *slot2) {
-    // Сортируем слоты по алфавиту для детерминизма
-    return PyUnicode_Compare(slot1, slot2);
-}
-
-static PyObject *
-collect_slots(PyTypeObject *type) {
-    PyObject *slots = PyObject_GetAttrString((PyObject*)type, "__slots__");
-    if (!slots) return NULL;
-    
-    // Сортируем и вычисляем смещения атрибутов
-    Py_ssize_t nslots = PyList_GET_SIZE(slots);
-    for (Py_ssize_t i = 0; i < nslots; i++) {
-        PyObject *name = PyList_GET_ITEM(slots, i);
-        PyMemberDef *member = create_member(name);  // Создаем дескриптор
-        // member->offset = смещение в памяти экземпляра
-    }
-    
-    type->tp_basicsize += nslots * sizeof(PyObject*); // Фиксируем размер
-    return slots;
-}
-```
-
-`__slots__ = ['x', 'y']` → CPython создает **фиксированные поля** сразу после PyObject_HEAD:
-`[PyObject_HEAD | PyObject* x | PyObject* y]`. **Нет `__dict__`**, нет хэш-таблицы. **Чистая композиция** с известным
-layout'ом памяти.
-
-## Сравнение композиции и агрегации под капотом
-
-| Аспект          | Композиция (встраивание)   | Агрегация (указатели)            |
-|-----------------|----------------------------|----------------------------------|
-| **Память**      | Единый malloc/free         | Несколько malloc (dict + keys)   |
-| **Время жизни** | Владелец управляет всем    | Подчиненные живут независимо     |
-| **Размер**      | sizeof(HEAD) + поля + HEAD | sizeof(HEAD) + sizeof(PyObject*) |
-| **GC**          | Рекурсивно все поля        | Только указатели (не владеет)    |
-| **Shared**      | Невозможно                 | Возможно (dict keys)             |
-
-**Композиция** = "встроить структуру целиком", **агрегация** = "указатель на чужой объект". В CPython **tuple =
-композиция** (встроенный массив), **dict = агрегация** (отдельные keys/values).
-
-- [Содержание](#содержание)
-
----
-
 # **Метапрограммирование**
 
 ## **Junior Level**
@@ -14266,224 +14666,6 @@ super_descr_get(PyWrapperDescrObject *wrapper, PyObject *self, PyObject *instanc
 - [Содержание](#содержание)
 
 ---
-
-# **typing**
-
-## **Junior Level*
-
-`typing` модуль в Python предоставляет инструменты для добавления подсказок типов (type hints) в код. Это не меняет
-поведение программы во время выполнения, но помогает разработчикам, IDE и статическим анализаторам понимать, какие типы
-данных ожидаются.
-
-**Optional[X]** означает, что значение может быть либо типа `X`, либо `None`. Это удобный способ сказать "этот аргумент
-может быть передан, а может и нет".
-
-**Union[X, Y, ...]** означает, что значение может быть одного из перечисленных типов. Например, `Union[int, str]` — это
-либо целое число, либо строка.
-
-**TypeVar** используется для создания обобщенных (generic) типов. Например, если у вас есть функция, которая работает со
-списками любого типа, вы можете использовать `TypeVar` чтобы показать, что тип элементов входного списка и выходного
-значения одинаков.
-
-**Generic** — это способ создавать классы или функции, которые могут работать с разными типами, но сохранять информацию
-о конкретном типе. Например, `List[int]` — это список целых чисел, а `List[str]` — список строк. `Generic` позволяет вам
-создавать свои собственные классы, которые могут быть параметризованы типами.
-
-## **Middle Level**
-
-Технически, эти конструкции являются частью системы типизации, которая реализована в модуле `typing` и поддерживается
-статическими анализаторами (mypy, pyright, PyCharm).
-
-1. **Optional и Union:**
-    - `Optional[X]` это просто сокращение для `Union[X, None]`.
-    - `Union` может использоваться для любого количества типов. В Python 3.10 появился синтаксис `X | Y` как
-      альтернатива `Union[X, Y]`.
-    - Важно: `Optional` и `Union` не выполняют проверку типов во время выполнения. Они только для статического анализа.
-    - Для проверки в runtime можно использовать `isinstance()` с кортежем типов, но это не связано напрямую с
-      аннотациями.
-
-2. **TypeVar:**
-    - Создается вызовом `TypeVar(name, *constraints, bound=None, covariant=False, contravariant=False)`.
-    - **Ограничения (constraints):** TypeVar может быть ограничен конкретными типами. Тогда он может представлять только
-      один из них.
-    - **Связывание (bound):** TypeVar может быть связан с базовым классом или протоколом. Тогда он представляет любой
-      подтип этого базового класса.
-    - **Ковариантность/контравариантность:** Позволяют выразить отношения между производными типами. Например, если `C`
-      ковариантен по `T`, то `C[Dog]` является подтипом `C[Animal]` (при условии, что `Dog` подтип `Animal`). Это важно
-      для корректного определения подтипов в обобщенных классах.
-
-3. **Generic:**
-    - Класс, наследующийся от `Generic[T]`, где `T` — это TypeVar, становится обобщенным.
-    - Можно использовать несколько TypeVar: `Generic[T, U]`.
-    - Внутри класса можно использовать `T` как обычный тип в аннотациях методов и атрибутов.
-    - При наследовании от обобщенного класса можно либо конкретизировать тип (`ChildClass[int]`), либо передать TypeVar
-      дальше.
-
-4. **Для AQA:**
-    - Type hints помогают документировать интерфейсы тестовых утилит и фикстур.
-    - `Optional` часто используется для необязательных аргументов в функциях-фикстурах.
-    - `Union` полезен, когда функция может возвращать разные типы данных в зависимости от условий (например,
-      `Union[WebElement, None]` при поиске элемента).
-    - `Generic` и `TypeVar` позволяют создавать гибкие, переиспользуемые компоненты тестовых фреймворков, например,
-      абстрактный репозиторий для тестовых данных `Repository[T]`, где `T` — тип модели.
-
-## **Senior Level**
-
-## Хранение аннотаций в CPython
-
-Аннотации типов в CPython (Python 3.9+) хранятся в специальном атрибуте `__annotations__` объектов (функций, классов,
-модулей). Этот атрибут представляет собой словарь `dict[str, object]`, где ключи — имена переменных/параметров, а
-значения — сами аннотации (типы или выражения). CPython не выполняет аннотации во время выполнения (runtime) — они
-остаются "ленивыми" объектами для статических анализаторов вроде mypy.
-
-В режиме `from __future__ import annotations` (по умолчанию с Python 3.10, рекомендуется в 3.9+), аннотации сохраняются
-как строки без вычисления, что предотвращает ошибки вроде `NameError` при ссылке на неопределённые имена. Это
-реализовано в парсере AST (Abstract Syntax Tree) CPython: во время компиляции в байткод аннотации парсятся как
-`ast.AnnAssign` и сериализуются в строки.
-
-```python
-# Байткод примера: def func(x: str) -> int:
-# dis.dis(func) покажет LOAD_BUILD_CLASS и MAKE_FUNCTION с флагом CO_NESTED
-# Аннотации попадают в co_varnames и co_cellvars фрейма функции
-import dis
-
-
-def func(x: str) -> int:
-    return x
-
-
-print(func.__annotations__)  # {'x': <class 'str'>, 'return': <class 'int'>}
-```
-
-Представь, что CPython — это почтальон. Когда ты пишешь `x: str`, он не проверяет посылку (str) сразу, а просто
-записывает адрес "x ожидает str" в специальную тетрадку `__annotations__`. Позже статический анализатор (mypy) открывает
-тетрадку и проверяет, всё ли правильно. Если включишь `from __future__ import annotations`, он даже не смотрит на типы —
-просто записывает как текст "str", чтоб не было ошибок, если имя типа ещё не определено.
-
-## Реализация в модуле Lib/typing.py
-
-Модуль `typing.py` (CPython sources: `Lib/typing.py`) — это чистый Python-код (~3000 строк в 3.12+), который создаёт
-подклассы и прокси для типов. Он не трогает C-уровень CPython напрямую, но использует служебные классы вроде
-`_GenericAlias`, `_SpecialForm`. Ключевые структуры: `_TypingEmpty`, `_TypingEllipsis` для специальных случаев (
-Tuple[...], Callable).
-
-Основная магия — в `__getitem__()` generic-типов. Когда пишешь `List[int]`, CPython вызывает `list.__getitem__(int)`, но
-typing перехватывает через подкласс `_GenericAlias`:
-
-```python
-# Из CPython Lib/typing.py (Python 3.12+ fragment, упрощённо)
-class _GenericAlias:
-    def __getitem__(self, params):
-        if not isinstance(params, tuple):
-            params = (params,)
-        # Проверяем, что параметры — валидные типы
-        msg = "Parameters to generic types must be types."
-        params = tuple(_type_check(p, msg) for p in params)
-        # Собираем type variables для подстановки
-        self.__parameters__ = _collect_type_vars(params)
-        # Создаём новый alias с подстановкой
-        return _subs_tvars(self, self.__parameters__, params)
-
-
-# Пример работы:
-List = _GenericAlias('list', inst=actual_list)  # actual_list из builtins
-List[int]  # -> _GenericAlias(list, (int,), name='list[int]')
-```
-
-`_GenericAlias` — как фабрика по производству "типовых коробок". `List[int]` говорит: "Возьми коробку list и пометь её,
-что внутри int". CPython проверяет, что `int` — настоящий тип (не число или строка), собирает переменные типов (
-TypeVar), подставляет их и выдаёт новую "метку" вида list[int]. Это не настоящий list, а прокси, который mypy понимает.
-На runtime ничего не проверяется — просто метка болтается в памяти.
-
-## C-уровень: Обработка __annotations__ в Objects
-
-На C-уровне (Objects/descrobject.c, Objects/functionobject.c) `__annotations__` — это дескриптор (data descriptor).
-Доступ через `PyObject_GenericGetAttr` → проверка `__dict__` → fallback на слоты типа `tp_getattro`.
-
-Для функций: при создании `PyFunctionObject` (Objects/funcobject.c) байткод компилятора (Python/compile.c) заполняет
-`func_annotations` через `STORE_ANNOTATION` opcode (с Python 3.5+). В 3.9+ добавлена оптимизация: аннотации кэшируются в
-`PyDictObject` и не пересчитываются.
-
-```c
-// Из CPython Objects/funcobject.c (Python 3.12, упрощённо)
-// PyFunctionObject структура:
-typedef struct {
-    PyObject_HEAD
-    PyObject *func_code;      /* код байткода */
-    PyObject *func_globals;   /* глобальное пространство */
-    PyObject *func_annotations; /* <-- НАШЕ dict[str, annotation] */
-    // ... другие слоты
-} PyFunctionObject;
-
-// В func_new():
-if (annotations != NULL) {
-    // Копируем dict аннотаций из co_annotations код-объекта
-    func->func_annotations = Py_NewRef(annotations);
-    // PyDict_SetItem копирует пары key:value без вычисления
-}
-```
-
-C-код CPython — это "склад товаров". Каждый объект (функция) имеет полку `func_annotations` — большой ящик-словарь.
-Когда компилятор видит `: str` в коде, он кладёт ярлык "{'x': str}" в этот ящик, не открывая посылки. При
-`func.__annotations__` C-функция просто достаёт ящик и отдаёт. Нет проверок типов — только хранение. В 3.9+ ящик
-сделан "ленивым": если `from __future__ import annotations`, ярлыки — сырые строки вроде "<class 'str'>", чтоб не
-ломалось при импорте.
-
-## Байткод и компиляция аннотаций (Python 3.9+)
-
-Компилятор (Python/compile.c → Python/symtable.c) парсит AST-узлы `AnnAssign`/`arg.annotation`. В 3.9+ добавлена
-поддержка built-in generics (`list[int]` вместо `typing.List[int]`) через `symtable.c` анализ forward refs.
-
-Ключевой opcode: `STORE_ANNOTATION` (opcode 95 в 3.12). Он сохраняет аннотацию в `co_annotations` код-объекта.
-
-```python
-# dis.dis для def func(a: int): pass
-import dis
-
-
-def func(a: int): pass
-
-
-dis.dis(func)
-# Вывод (Python 3.12):
-#   2           0 RESUME                   0
-#               1 LOAD_CONST               1 (<code object func>)
-#               ...
-# В co_annotations: {'a': <class 'int'>}
-```
-
-Байткод — инструкции для виртуальной машины CPython. `STORE_ANNOTATION` — команда "положи метку типа в специальный сейф
-код-объекта". При запуске функции VM берёт сейф и копирует в `func_annotations`. В 3.9+ парсер стал умнее: распознаёт
-`list[int]` на лету, без импорта typing, и сохраняет как `_GenericAlias`. Но на выполнении байткода типы игнорируются —
-VM просто пропускает STORE_ANNOTATION.
-
-## TypeVar и Generic: Внутренняя подстановка
-
-`TypeVar` — `_Final` subclass с `__parameters__`. Generic использует `_collect_type_vars()` для рекурсивного сбора
-переменных и `_subs_tvars()` для подстановки (из typing.py).
-
-```python
-# Из Lib/typing.py
-def _subs_tvars(original, parameters, args):
-    """Подстановка TypeVar в Generic"""
-    new_args = []
-    for arg in original.__args__:
-        if isinstance(arg, _TypeVarLike):
-            idx = parameters.index(arg)
-            new_args.append(args[idx])
-        else:
-            new_args.append(arg)
-    return type(original)(original.__origin__, tuple(new_args))
-```
-
-TypeVar — как пустая коробка с именем "T". Generic — шаблон "Коробка[T]". При `MyGeneric[str]` CPython находит все "T" в
-шаблоне, заменяет на "str" и выдаёт новую коробку "Коробка[str]". Это рекурсивно: если внутри T есть другие переменные,
-они тоже подставляются. Всё в Python-коде typing.py, без C, но быстро благодаря `@_tp_cache` (lru_cache).
-
-Эти механизмы делают typing эффективным: ~0 overhead на runtime, полная поддержка в IDE/mypy. Для собеседования
-акцентируй: нет enforcement в CPython, только storage/parsing.
-
-- [Содержание](#содержание)
 
 # **Pytest**
 
