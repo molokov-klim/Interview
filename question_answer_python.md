@@ -5889,7 +5889,7 @@ def set_start_method(method, force=False):
     _current_context._set_start_method(method, force)
 ```
 
-**Объяснение для тупого человека:** Когда ты пишешь `mp.set_start_method('spawn')`, Python **выбирает способ** создания
+Когда ты пишешь `mp.set_start_method('spawn')`, Python **выбирает способ** создания
 нового процесса. `'fork'` — **быстрое копирование** текущего процесса (только Linux), `'spawn'` — **с нуля** (
 Windows/macOS/Linux), `'forkserver'` — **сервер копий**. Это **критично** влияет на производительность и безопасность.
 
@@ -5906,7 +5906,7 @@ def _bootstrap():
     _run_module_as_main(main_path, code)
 ```
 
-**Объяснение для тупого человека:** Новый процесс запускается с **аргументами**
+Новый процесс запускается с **аргументами**
 `python -c "import main; main.worker()"`. **Главное** — `if __name__ == '__main__':` **обязательно**, иначе *
 *бесконечный импорт** main модуля в дочернем процессе.
 
@@ -5927,7 +5927,7 @@ def _main(fd):
     exec(code, {'__file__': filename})
 ```
 
-**Объяснение для тупого человека:** **spawn** = **новый процесс** → **pipe** с родителем → **чтение** `main.py`
+**spawn** = **новый процесс** → **pipe** с родителем → **чтение** `main.py`
 байткода → **PyInterpreterState_New()** → **отдельный интерпретатор** → `exec(main.worker())`. **Ничего** от родителя не
 наследуется!
 
@@ -5950,7 +5950,7 @@ class Connection:
         return pickle.loads(buf)
 ```
 
-**Объяснение для тупого человека:** `Queue.put(123)` → `pickle.dumps(123)` → **запись** в Unix pipe → другой процесс
+`Queue.put(123)` → `pickle.dumps(123)` → **запись** в Unix pipe → другой процесс
 `pipe.read()` → `pickle.loads()`. **Единственный способ** передачи данных между процессами.
 
 ## 5. _multiprocessing.SemLock - семафоры (Modules/_multiprocessing/semaphore.c)
@@ -5980,7 +5980,7 @@ static PyObject *semlock_acquire(SemLockObject *self) {
 }
 ```
 
-**Объяснение для тупого человека:** `Lock.acquire()` → **system semaphore** (Unix `sem_t`, Windows `HANDLE`). **Один**
+`Lock.acquire()` → **system semaphore** (Unix `sem_t`, Windows `HANDLE`). **Один**
 процесс захватывает, **другие ждут**. **Не Python lock** — **ОС-level** синхронизация.
 
 ## 6. multiprocessing.Pool - пул процессов (Lib/multiprocessing/pool.py)
@@ -6003,7 +6003,7 @@ class Pool:
         pass
 ```
 
-**Объяснение для тупого человека:** `Pool(4)` → **4 постоянных** процесса-worker'ов → `map(f, lst)` → **разбивает**
+`Pool(4)` → **4 постоянных** процесса-worker'ов → `map(f, lst)` → **разбивает**
 `lst` на куски → **отправляет** в Queue каждому worker'у → **собирает** результаты.
 
 ## 7. fork() системный вызов (только Unix, spawn контекст)
@@ -6022,7 +6022,7 @@ if (pid == 0) {
 }
 ```
 
-**Объяснение для тупого человека:** `fork()` — **клонирует** **весь** процесс **мгновенно** (копирует **page table**
+`fork()` — **клонирует** **весь** процесс **мгновенно** (копирует **page table**
 памяти). **Оба** процесса видят **одинаковую** память до **первой записи** (Copy-on-Write). **Опасно** с GIL/threads!
 
 ## 8. PyInterpreterState_New() в дочернем процессе
@@ -6056,7 +6056,7 @@ PyStatus PyInterpreterState_New(PyThreadState *tstate) {
 }
 ```
 
-**Объяснение для тупого человека:** Каждый процесс имеет **свой** `PyInterpreterState` + `PyThreadState`. **Никаких**
+Каждый процесс имеет **свой** `PyInterpreterState` + `PyThreadState`. **Никаких**
 общих globals/modules/builtins. **Полная изоляция**.
 
 ## 9. Shared Memory (multiprocessing.shared_memory)
@@ -6073,7 +6073,7 @@ void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
 }
 ```
 
-**Объяснение для тупого человека:** `SharedMemory('name', size=1e6)` → **/dev/shm/name** файл → `mmap()` → **общая
+`SharedMemory('name', size=1e6)` → **/dev/shm/name** файл → `mmap()` → **общая
 физическая память**. **Байтовое** копирование между процессами.
 
 ## 10. multiprocessing.Manager() - proxy объекты
@@ -6088,7 +6088,7 @@ class Server:
             t.start()
 ```
 
-**Объяснение для тупого человека:** `Manager().dict()` → **отдельный процесс-сервер** → **Unix socket** → **pickle
+`Manager().dict()` → **отдельный процесс-сервер** → **Unix socket** → **pickle
 запросы** → **Python RPC**. **Автоматическая** сериализация.
 
 **Мультипроцессинг** в CPython 3.9+ — **spawn/fork/forkserver**, **новый PyInterpreterState** в каждом процессе, **Pipe
@@ -6248,7 +6248,7 @@ def fields(cls):
     return tuple(flds)
 ```
 
-**Объяснение для тупого человека:** Python **сканирует** `__annotations__` = `{'name': str, 'age': int}`. Каждое имя *
+Python **сканирует** `__annotations__` = `{'name': str, 'age': int}`. Каждое имя *
 *становится Field**. Если написал `name: str = "Bob"` — это **default значение**. Если класс **наследуется** от другого
 dataclass — **берёт** поля родителя **первым**. Представь, что собираешь конструктор LEGO: сначала **база** от
 родителей, потом **твои** кубики сверху.
@@ -6285,7 +6285,7 @@ def _init_fn(fields, locals):
     return fn
 ```
 
-**Объяснение для тупого человека:** Для `@dataclass class Person: name: str; age: int = 0` создаётся **строка кода**:
+Для `@dataclass class Person: name: str; age: int = 0` создаётся **строка кода**:
 
 ```
 def __init__(self, /, name: str, age: int = 0):
@@ -6314,7 +6314,7 @@ def _create_fn(name, args, body_lines, globals=None, locals=None,
     return fn
 ```
 
-**Объяснение для тупого человека:** `_create_fn()` — **мини-компилятор**. Берёт строки
+`_create_fn()` — **мини-компилятор**. Берёт строки
 `def __init__(self, name): self.name=name`, **склеивает** в одну большую строку, вызывает `compile()` → **PyCodeObject
 **, затем `types.FunctionType()` → **готовую функцию**. Это **точно так же**, как если бы ты написал эту функцию *
 *руками** — никакого отличия в скорости!
@@ -6338,7 +6338,7 @@ def _repr_fn(fields, globals):
     return _create_fn('__repr__', ('self',), body_lines, globals)
 ```
 
-**Объяснение для тупого человека:** `print(Person)` → `'Person(name=\'Bob\', age=30)'`. Python **проходит** по всем
+`print(Person)` → `'Person(name=\'Bob\', age=30)'`. Python **проходит** по всем
 полям, для **каждого** делает `name='Bob'`, **склеивает** через запятую. **Точно** как `str(dict)`, но **для твоего
 класса**. Если поле `repr=False` — **пропускает** его.
 
@@ -6362,7 +6362,7 @@ class DataclassType(type):
         return super().__new__(cls, name, bases, ns)
 ```
 
-**Объяснение для тупого человека:** **Метакласс** — это **фабрика классов**. Когда Python видит `class Person:`, он *
+**Метакласс** — это **фабрика классов**. Когда Python видит `class Person:`, он *
 *спрашивает** метакласс: "как создать этот класс?". `DataclassType` **добавляет** `__dataclass_fields__` =
 `{'name': Field(...), 'age': Field(...)}`. Это **словарь полей** для наследования.
 
@@ -6388,7 +6388,7 @@ class Field:
         self.metadata = metadata
 ```
 
-**Объяснение для тупого человека:** `name: str = field(default_factory=list)` → **Field объект** с флагами `repr=True`,
+`name: str = field(default_factory=list)` → **Field объект** с флагами `repr=True`,
 `init=True`, `default_factory=<class 'list'>`. Когда `__init__` видит `default_factory` — вызывает `list()` вместо
 копирования значения.
 
@@ -6404,7 +6404,7 @@ def _init_fn(fields, locals):
         body_lines.append('self.__post_init__()')
 ```
 
-**Объяснение для тупого человека:** Dataclass **всегда** вызывает `self.__post_init__()` **после** заполнения полей.
+Dataclass **всегда** вызывает `self.__post_init__()` **после** заполнения полей.
 Полезно для **валидации**: `def __post_init__(self): assert self.age >= 0`.
 
 ## 9. frozen=True - неизменяемый dataclass
@@ -6417,7 +6417,7 @@ def _frozen_setattr():
                        'object.__setattr__(self, name, value)'])
 ```
 
-**Объяснение для тупого человека:** `@dataclass(frozen=True)` → `__setattr__` **блокирует** изменение полей.
+`@dataclass(frozen=True)` → `__setattr__` **блокирует** изменение полей.
 `p.name = "new"` → **FrozenInstanceError**. **Только** `object.__setattr__` для служебных полей.
 
 ## 10. Наследование dataclass
@@ -6566,7 +6566,7 @@ class EnumDict(dict):
         return list(self._member_names)
 ```
 
-**Объяснение для тупого человека:** Обычный `dict` **позволит** `class Color: RED=1; RED=2` (перезапишет). `EnumDict` *
+Обычный `dict` **позволит** `class Color: RED=1; RED=2` (перезапишет). `EnumDict` *
 *запрещает** дубликаты: `RED` второй раз → **TypeError**. `_member_names` хранит **порядок** объявления (
 `['RED', 'GREEN']`), **НЕ** порядок хеш-таблицы. Это **очень важно** для `list(Color)` → `Color.RED, Color.GREEN`.
 
@@ -6591,7 +6591,7 @@ def _create_(cls, member_name, value):
     return enum_member
 ```
 
-**Объяснение для тупого человека:** `Color.RED = 1` → **новый объект** `Color.RED` с `_name_='RED'`, `_value_=1`. Если
+`Color.RED = 1` → **новый объект** `Color.RED` с `_name_='RED'`, `_value_=1`. Если
 позже `ALIEN = 1` → `Color.ALIEN` **указывает** на тот же **самый** объект `Color.RED` (алиас).
 `Color.RED is Color.ALIEN` = `True`. Это **экономит память** и гарантирует **единственность**.
 
@@ -6617,7 +6617,7 @@ class Enum:
         return f"<{self.__class__.__name__}.{self._name_}>"
 ```
 
-**Объяснение для тупого человека:** `Color(1)` → ищет в `_member_map_` член с `value=1` → **возвращает** `Color.RED` (
+`Color(1)` → ищет в `_member_map_` член с `value=1` → **возвращает** `Color.RED` (
 существующий объект). `Color.RED` → `'Color.RED'`. **НЕ** создаёт новые экземпляры — возвращает **сигнатоны** (единичные
 объекты).
 
@@ -6641,7 +6641,7 @@ class Color(Enum):
     BLUE = auto()  # 3
 ```
 
-**Объяснение для тупого человека:** `RED = auto()` → вызывает `_generate_next_value_('RED', 1, 0, [])` → возвращает `0`.
+`RED = auto()` → вызывает `_generate_next_value_('RED', 1, 0, [])` → возвращает `0`.
 `GREEN = auto()` → `_generate_next_value_('GREEN', 1, 1, [0])` → `1`. **Глобальный счётчик** `count` (номер члена).
 Можно **переопределить**: `return 3**count` → `RED=1, GREEN=3, BLUE=9`.
 
@@ -6660,7 +6660,7 @@ def __getitem__(cls, name):
     return cls._member_map_[name]
 ```
 
-**Объяснение для тупого человека:** `list(Color)` → `[Color.RED, Color.GREEN]` **в порядке объявления**. `len(Color)` →
+`list(Color)` → `[Color.RED, Color.GREEN]` **в порядке объявления**. `len(Color)` →
 `3`. `Color['RED']` → `Color.RED`. **`_member_names_`** гарантирует **порядок** и **быстрый поиск**.
 
 ## 7. IntEnum / StrEnum наследование
@@ -6679,7 +6679,7 @@ class Color(IntEnum):
     GREEN = 2
 ```
 
-**Объяснение для тупого человека:** `Color.RED + 1` → `2` (потому что `IntEnum` наследует `int`). `Color.GREEN == '2'` →
+`Color.RED + 1` → `2` (потому что `IntEnum` наследует `int`). `Color.GREEN == '2'` →
 `False` (потому что `_value_=2`, а **НЕ** строка). `Color.RED.value` → `1` (сырое значение).
 
 ## 8. _simple_enum() - оптимизация (3.11+)
@@ -6703,7 +6703,7 @@ def _simple_enum(etype, seq, value=1):
     return cls
 ```
 
-**Объяснение для тупого человека:** `Enum('RED GREEN BLUE')` → **оптимизированный** путь без метакласса. **Быстрее** для
+`Enum('RED GREEN BLUE')` → **оптимизированный** путь без метакласса. **Быстрее** для
 простых случаев.
 
 ## 9. Flag / IntFlag - битовые флаги
@@ -6717,7 +6717,7 @@ class Perm(Flag):
     RWX = R | W | X
 ```
 
-**Объяснение для тупого человека:** `Perm.RWX` → **новый** объект с `_value_=7`. `Perm.RWX & Perm.R` → `Perm.R`.
+`Perm.RWX` → **новый** объект с `_value_=7`. `Perm.RWX & Perm.R` → `Perm.R`.
 `Perm.RWX | Perm.W` → `Perm.RWX`. **Битовые операции** работают с `_value_`.
 
 ## 10. pickle поддержка
@@ -6727,7 +6727,7 @@ def __reduce_ex__(self, proto):
     return (self.__class__, (self._value_,))
 ```
 
-**Объяснение для тупого человека:** `pickle.dumps(Color.RED)` → `(Color, (1,))` → при восстановлении `Color(1)` → **тот
+`pickle.dumps(Color.RED)` → `(Color, (1,))` → при восстановлении `Color(1)` → **тот
 же** `Color.RED` объект. **НЕ** новый экземпляр!
 
 **Enum** в CPython 3.9+ — **EnumType метакласс**, **EnumDict** (порядок + уникальность), *
@@ -6837,7 +6837,7 @@ typedef struct {
 } PyListObject;
 ```
 
-**Объяснение для тупого человека:** **ВСЯ** память объекта:
+**ВСЯ** память объекта:
 `[gc.gc_next(8)][gc.gc_prev(8)][gc.gc_refs(8)][PyObject ob_refcnt(8)][ob_type(8)][ob_size(8)][ob_item(8)]`.
 `Py_REFCNT(obj)` → `obj->gc.gc_refs` для GC-объектов. **Overhead** 16 байт на **каждый** list/dict!
 
@@ -6873,7 +6873,7 @@ void _PyObject_GC_Link(PyObject *op) {
 }
 ```
 
-**Объяснение для тупого человека:** `lst = []` → `_PyObject_GC_New(&PyList_Type)` → **malloc** → `_PyObject_GC_Link()` →
+`lst = []` → `_PyObject_GC_New(&PyList_Type)` → **malloc** → `_PyObject_GC_Link()` →
 **вставляем** `lst.gc` в **двусвязный список** поколения 0. **Все поколения** получают `count++`. **Поколение 0** — *
 *самое частое** (каждые 700 объектов).
 
@@ -6902,7 +6902,7 @@ Py_ssize_t _Py_DecRef(PyObject *op) {
 }
 ```
 
-**Объяснение для тупого человека:** `del lst` → `Py_DECREF(lst)` → `ob_refcnt--`. Если `refcnt=0` → **освобождаем**. Для
+`del lst` → `Py_DECREF(lst)` → `ob_refcnt--`. Если `refcnt=0` → **освобождаем**. Для
 GC-объектов: если `gc.gc_refs < threshold` (700) **и** `refcnt=0` → `_PyObject_GC_Unlink()` (удаляем из списка) → *
 *malloc free**.
 
@@ -6927,7 +6927,7 @@ Py_ssize_t _PyGC_CollectNoFail(void) {
 }
 ```
 
-**Объяснение для тупого человека:** **Каждое** выделение памяти → `_PyGC_CollectNoFail()`. Проверяет **сначала старшее
+**Каждое** выделение памяти → `_PyGC_CollectNoFail()`. Проверяет **сначала старшее
 поколение** (gen2), потом gen1, gen0. Если `gen0.count > 700` → **собираем gen0**. `gen1.count > 10` → собираем *
 *gen0+gen1**. **Автоматически**!
 
@@ -6966,7 +6966,7 @@ static Py_ssize_t collect_generation(GCState *gcstate, int gen) {
 }
 ```
 
-**Объяснение для тупого человека:** GC **проходит** по **двусвязному списку** поколения:
+GC **проходит** по **двусвязному списку** поколения:
 `head → obj1 → obj2 → ... → head`. Для **каждого** проверяет `gc.gc_refs`. `0` → **мусор** → `_PyObject_GC_Unlink()` +
 `free()`. **Живые** остаются.
 
@@ -6992,7 +6992,7 @@ static int _PyGC_traverse(PyObject *op) {
 }
 ```
 
-**Объяснение для тупого человека:** **Фаза 2** (циклы): для **каждого** живого объекта вызываем
+**Фаза 2** (циклы): для **каждого** живого объекта вызываем
 `tp_traverse(list_traverse)` → **рекурсивно** считаем ссылки. `list_traverse(lst)` проходит `lst->ob_item[]`, вызывает
 `_PyGC_traverse(item)`. **Нулируем** `gc.gc_refs` для unreachable.
 
@@ -7012,7 +7012,7 @@ int list_traverse(PyListObject *op, visitproc visit, void *arg) {
 }
 ```
 
-**Объяснение для тупого человека:** `list_traverse([a,b,c])` → `Py_VISIT(a)` → `Py_VISIT(b)` → `Py_VISIT(c)`.
+`list_traverse([a,b,c])` → `Py_VISIT(a)` → `Py_VISIT(b)` → `Py_VISIT(c)`.
 `Py_VISIT(obj)` → если `obj` живой → `obj->gc.gc_refs++`. **Цепочка** ссылок!
 
 ## 9. Поколения и продвижение (gcmodule.c)
@@ -7034,7 +7034,7 @@ static void move_objects_to_new_gen(GCState *gcstate, int gen0, int gen1) {
 }
 ```
 
-**Объяснение для тупого человека:** **Выжившие** из gen0 (700 объектов) **переезжают** в gen1 (собирается реже). Gen1
+**Выжившие** из gen0 (700 объектов) **переезжают** в gen1 (собирается реже). Gen1
 выжившие → gen2 (самое старшее). **Старые** проверяются **реже** — **оптимизация**!
 
 ## 10. gc.collect() C API (gcmodule.c)
@@ -7058,7 +7058,7 @@ static PyObject *gc_collect(PyObject *self, PyObject *args) {
 }
 ```
 
-**Объяснение для тупого человека:** `gc.collect()` → `_PyGC_CollectNoFail()` → собирает **самое старшее** поколение (
+`gc.collect()` → `_PyGC_CollectNoFail()` → собирает **самое старшее** поколение (
 gen2 + все младшие). Возвращает **количество** освобождённых объектов.
 
 **GC** в CPython 3.9+ — **PyGC_Head** (16 байт), **3 поколения** (700/10/10), **refcount** + **tp_traverse DFS**, *
