@@ -6799,171 +6799,270 @@ def __reduce_ex__(self, proto):
 
 ## **Senior Level**
 
-В CPython GC — это отдельный слой поверх счётчиков ссылок: набор структур `PyGC_Head`/`GCState`/поколений и обход графа
-объектов в `Python/gc.c` + интерфейсный модуль `Modules/gcmodule.c`. Никаких спец‑опкодов: весь запуск и работа сборщика
-идут из C‑кода интерпретатора, а байткод лишь косвенно триггерит порогами аллокаций.
+В CPython 3.9+ **GC** — **двухфазный**: **refcount** (`Py_INCREF`/`Py_DECREF`) + **generational cycle detection** (
+`Modules/gcmodule.c`). **PyGC_Head** (16 байт) в начале каждого GC-объекта, **3 поколения** (threshold 700/10/10), **DFS
+** для циклов. `Modules/gcmodule.c`,`Include/objimpl.h`
 
-## Разметка объектов: PyGC_Head и GC‑классы
-
-GC умеет видеть только объекты с флагом `Py_TPFLAGS_HAVE_GC` и типом, у которого реализован `tp_traverse`.
-
-- Для таких объектов CPython выделяет память через `gc_alloc()`/`_PyObject_GC_Malloc`, которые аллоцируют:
-
-  `[ PyGC_Head | PyObject_HEAD | поля объекта... ]`, где `PyGC_Head` хранится *перед* самим объектом и содержит:
-
-  ```c
-  typedef struct _gc_head {
-      struct _gc_head *gc_next;
-      struct _gc_head *gc_prev;
-      Py_ssize_t gc_refs;
-  } PyGC_Head;
-  ```
-
-
-- `gc_next`/`gc_prev` формируют двусвязные списки объектов внутри поколений; `gc_refs` используется только во время
-  цикла сборки (trial deletion).
-- Макрос `_Py_AS_GC(o)` / `_PyObject_FROM_GC(h)` позволяют перейти от `PyObject *` к `PyGC_Head *` и обратно, сдвигая
-  указатель на размер заголовка.
-
-Типы с `Py_TPFLAGS_HAVE_GC` должны реализовать `tp_traverse` (для обхода ссылок) и, если нужно, `tp_clear` (для
-обнуления ссылок на детей).
-
-## GCState и поколения
-
-Состояние сборщика в `Python/gc.c` (или `pycore_gc.h`) представлено структурой наподобие:
-
-- `GCState` содержит:
-    - массив поколений `generations[NUM_GENERATIONS]`;
-    - thresholds и counters для каждого поколения;
-    - списки «долгоживущих» объектов (`long_lived_head`), `trash`, `garbage`, `callbacks`;
-    - флаги `enabled`, `debug`, статистику.
-
-Каждое поколение:
+## 1. PyGC_Head структура (Include/objimpl.h)
 
 ```c
-typedef struct {
-    PyGC_Head head;      // голова двусвязного списка
-    int threshold;       // порог срабатывания
-    int count;           // (allocations - deallocations) с момента последней коллекции
-} PyGC_Generation;
+typedef union _gc_head {
+    struct {
+        union _gc_head *gc_next;   // Следующий в списке поколения
+        union _gc_head *gc_prev;   // Предыдущий в списке поколения
+        PyGC_Head *gc_gc_head;     // Указатель на себя (для GC)
+        Py_ssize_t gc_refs;        // Количество ссылок (отдельно от ob_refcnt)
+    } gc;
+    double dummy;                          // Выравнивание 16 байт
+} PyGC_Head;
 ```
 
-Все GC‑объекты всегда находятся ровно в одном поколении или во временном списке (during collection).
+**Объяснение для тупого человека (очень подробно):** Представь, что каждый объект в Python — это **коробка** с
+игрушками. Обычный `refcnt` (`ob_refcnt`) считает **сколько коробок ссылается** на эту игрушку. Но если две игрушки *
+*указывают друг на друга** (`a.x = b; b.y = a`), refcnt **НЕ упадёт до 0** — **цикл**! GC добавляет **специальный
+заголовок** `PyGC_Head` **перед** каждым объектом (list, dict, set, custom с `tp_traverse`). Это **16 байт** со *
+*списком** (`gc_next/gc_prev`) для быстрого прохода по всем объектам поколения. `gc_refs` считает **только GC-ссылки** (
+отдельно от обычных).
 
-## Аллокация и триггер порога
+## 2. PyObject + PyGC_Head layout (реальная структура)
 
-Функции `_PyObject_GC_New`/`_PyObject_GC_NewVar` внутри `Python/gc.c`/`PyObject_GC_New` делают:
+```c
+// PyListObject в памяти:
+// [PyGC_Head 16 байт] + [PyObject_HEAD 16 байт] + [PyListObject поля]
+typedef struct {
+    PyGC_Head gc;                      // ПЕРВЫЕ 16 байт!
+    PyObject_HEAD                       // ob_refcnt + ob_type
+    Py_ssize_t ob_size;                // Длина списка
+    PyObject **ob_item;                // Массив указателей
+} PyListObject;
+```
 
-1. Аллоцируют память с `PyGC_Head` и инициализируют объект.
-2. Вставляют объект в список *младшего* поколения (`generation 0`), поместив его `PyGC_Head` в
-   `gcstate->generations[0].head`.
-3. Увеличивают `generation[0].count`.
-4. Если `count >= threshold` и GC включён (`PyGC_IsEnabled()`), вызывают `_PyGC_CollectIfEnabled` →
-   `collect_generations()`.
+**Объяснение для тупого человека:** **ВСЯ** память объекта:
+`[gc.gc_next(8)][gc.gc_prev(8)][gc.gc_refs(8)][PyObject ob_refcnt(8)][ob_type(8)][ob_size(8)][ob_item(8)]`.
+`Py_REFCNT(obj)` → `obj->gc.gc_refs` для GC-объектов. **Overhead** 16 байт на **каждый** list/dict!
 
-Таким образом, байткод косвенно влияет на GC только количеством аллокаций/деаллокаций; вызов `gc.collect()` из Python
-оборачивает `PyGC_Collect(generation)` и запускает сбор явно.
+## 3. PyObject_GC_New / PyObject_GC_Track (gcmodule.c)
 
-## Основной алгоритм циклического GC
+```c
+PyObject *_PyObject_GC_New(PyTypeObject *tp) {
+    PyObject *op = _PyObject_New(tp);  // Обычный malloc
+    if (op != NULL) {
+        _PyObject_GC_Link(op);         // Добавляем в GC список
+    }
+    return op;
+}
 
-Циклический GC в CPython — mark‑and‑sweep в модификации «trial deletion» над *контейнерными* объектами в GC‑списках.
-Высокоуровнево для выбранного поколения G (и всех младших):
+void _PyObject_GC_Link(PyObject *op) {
+    GCState *gcstate = get_gc_state();
+    PyGC_Head *gchead = GC_HEAD(op);   // &op->gc
+    
+    // Добавляем в конец поколения 0 (молодые объекты)
+    PyGC_Head *gen0 = &gcstate->generations[0].head;
+    gchead->gc.gc_next = gen0->gc_next;
+    gchead->gc.gc_prev = gen0;
+    gen0->gc_next->gc.gc_prev = gchead;
+    gen0->gc_next = gchead;
+    
+    // Увеличиваем счётчики поколений
+    gcstate->generations[0].count++;   // +1 в gen0
+    for (int i = 1; i <= NUM_GENERATIONS; i++) {
+        gcstate->generations[i].count++;  // +1 во всех старших
+    }
+    
+    gchead->gc.gc_refs = Py_REFCNT(op);  // Копируем refcnt
+}
+```
 
-### 1. Сбор кандидатов и подготовка `gc_refs`
+**Объяснение для тупого человека:** `lst = []` → `_PyObject_GC_New(&PyList_Type)` → **malloc** → `_PyObject_GC_Link()` →
+**вставляем** `lst.gc` в **двусвязный список** поколения 0. **Все поколения** получают `count++`. **Поколение 0** — *
+*самое частое** (каждые 700 объектов).
 
-- Объекты поколений `<= G` копируются во временный список `gc->generationX->head` (working list).
-- Для каждого объекта:
+## 4. Py_DECREF + GC check (Objects/object.c)
 
-  ```c
-  g->gc.gc_refs = Py_REFCNT(o);
-  ```
+```c
+Py_ssize_t _Py_DecRef(PyObject *op) {
+    Py_ssize_t refcnt = Py_REFCNT(op) - 1;
+    
+    if (refcnt == 0) {
+        // Refcnt=0 → tp_dealloc
+        op->ob_type->tp_dealloc(op);
+        return 0;
+    }
+    
+    Py_REFCNT(op) = refcnt;
+    
+    // GC объект? Проверяем gc_refs
+    if (PyObject_IS_GC(op) && refcnt < _PyGC_Threshold && 
+        Py_REFCNT(op) == 0) {
+        _PyObject_GC_Unlink(op);       // Удаляем из списка
+        _Py_Dealloc(op);               // Освобождаем
+    }
+    
+    return refcnt;
+}
+```
 
-  т.е. `gc_refs` инициализируется текущим refcount.
+**Объяснение для тупого человека:** `del lst` → `Py_DECREF(lst)` → `ob_refcnt--`. Если `refcnt=0` → **освобождаем**. Для
+GC-объектов: если `gc.gc_refs < threshold` (700) **и** `refcnt=0` → `_PyObject_GC_Unlink()` (удаляем из списка) → *
+*malloc free**.
 
-### 2. Уменьшение `gc_refs` по внутренним ссылкам (trial deletion)
+## 5. _PyGC_CollectNoFail() - триггер GC (gcmodule.c)
 
-- Для каждого объекта вызывается его `tp_traverse(o, visit_reachable, &ctx)`.
-- `visit_reachable(PyObject *op, void *ctx)` берёт `PyGC_Head *g = _Py_AS_GC(op)` и делает:
+```c
+Py_ssize_t _PyGC_CollectNoFail(void) {
+    GCState *gcstate = get_gc_state();
+    
+    // Проверяем все поколения
+    for (int gen = NUM_GENERATIONS - 1; gen >= 0; gen--) {
+        Py_ssize_t count = gcstate->generations[gen].count;
+        Py_ssize_t threshold = gcstate->threshold[gen];
+        
+        if (count > threshold) {
+            // ТРИГГЕР! Собираем это поколение
+            return gc_collect(gcstate, gen);
+        }
+    }
+    
+    return 0;
+}
+```
 
-  ```c
-  if (IS_TRACKED(op)) {
-      g->gc_refs--;
-  }
-  ```
+**Объяснение для тупого человека:** **Каждое** выделение памяти → `_PyGC_CollectNoFail()`. Проверяет **сначала старшее
+поколение** (gen2), потом gen1, gen0. Если `gen0.count > 700` → **собираем gen0**. `gen1.count > 10` → собираем *
+*gen0+gen1**. **Автоматически**!
 
-В результате `gc_refs` каждого объекта ≈ «внешние ссылки» (из корней вне рассматриваемых поколений) плюс self‑циклы, а
-все чисто внутрегенерационные ссылки «вычтены».
+## 6. gc_collect() - основной цикл сборки (gcmodule.c)
 
-### 3. Разделение на reachable / unreachable
+```c
+static Py_ssize_t gc_collect(GCState *gcstate, int gen) {
+    Py_ssize_t n = 0;
+    
+    // Собираем поколения младше gen
+    for (int i = 0; i <= gen; i++) {
+        n += collect_generation(gcstate, i);
+    }
+    
+    return n;
+}
 
-- Объекты с `gc_refs > 0` считаются reachable от внешних корней (или содержат self‑ref).
-    - Они переносятся обратно в основное поколение/или продвигаются в более старшее поколение (promotion).
-- Объекты с `gc_refs == 0` считаются unreachable — кандидаты на освобождение.
+static Py_ssize_t collect_generation(GCState *gcstate, int gen) {
+    PyGC_Head *head = &gcstate->generations[gen].head;
+    PyGC_Head *next, *cur;
+    
+    // Проходим по всему поколению
+    for (cur = head->gc.gc_next; cur != head; cur = next) {
+        next = cur->gc.gc_next;
+        
+        // Проверяем refcnt
+        if (cur->gc.gc_refs == 0) {
+            // Мусор! Удаляем
+            _PyObject_GC_Unlink((PyObject*)cur);
+            PyObject_GC_Del((PyObject*)cur);
+            gcstate->collected++;
+        }
+    }
+    
+    return gcstate->collected;
+}
+```
 
-На этом этапе GC разделяет список на два: «живые» и «под удаление».
+**Объяснение для тупого человека:** GC **проходит** по **двусвязному списку** поколения:
+`head → obj1 → obj2 → ... → head`. Для **каждого** проверяет `gc.gc_refs`. `0` → **мусор** → `_PyObject_GC_Unlink()` +
+`free()`. **Живые** остаются.
 
-### 4. Очистка ссылок (tp_clear) и финализация
+## 7. Цикловая детекция: _PyGC_traverse() (gcmodule.c)
 
-Для unreachable‑объектов:
+```c
+static int _PyGC_traverse(PyObject *op) {
+    Py_ssize_t refs;
+    PyTypeObject *tp = Py_TYPE(op);
+    
+    // tp_traverse для контейнеров
+    if (tp->tp_traverse != NULL) {
+        refs = tp->tp_traverse(op, (visitproc)_PyGC_traverse);
+        if (refs < 0) {
+            return refs;
+        }
+    }
+    
+    // Считаем живые ссылки
+    gc_refs = gc_refs + refs;
+    
+    return gc_refs;
+}
+```
 
-- Если у типа есть `tp_clear`, он вызывается для обнуления ссылок на дочерние объекты (обычно обнуляются поля
-  контейнеров, типа `list->ob_item[i] = NULL`, `dict->ma_values[i] = NULL`, ссылки в `__dict__`).
-- При `debug & DEBUG_SAVEALL` такие объекты добавляются в `gc.garbage`, иначе после `tp_clear` их возвращают в обычный
-  путь освобождения (refcount дойдёт до нуля — вызов `tp_dealloc`).
+**Объяснение для тупого человека:** **Фаза 2** (циклы): для **каждого** живого объекта вызываем
+`tp_traverse(list_traverse)` → **рекурсивно** считаем ссылки. `list_traverse(lst)` проходит `lst->ob_item[]`, вызывает
+`_PyGC_traverse(item)`. **Нулируем** `gc.gc_refs` для unreachable.
 
-Особый случай — объекты с `__del__` (finalizer):
+## 8. PyList_Type.tp_traverse для списков
 
-- Для типов с `tp_del`/`__del__` GC помечает их как «uncollectable» (нельзя сразу освободить из-за возможных
-  side‑effects в деструкторе), перемещает их и связанные с ними объекты в `gc.garbage`.
+```c
+int list_traverse(PyListObject *op, visitproc visit, void *arg) {
+    Py_ssize_t i, len = Py_SIZE(op);
+    PyObject **p;
+    
+    // Проходим все элементы списка
+    for (i = 0, p = op->ob_item; i < len; i++, p++) {
+        Py_VISIT(*p);              // Вызываем visit(*p)
+    }
+    
+    return 0;
+}
+```
 
-Именно здесь реализована семантика «циклы с `__del__` не собираются, остаются в `gc.garbage`».
+**Объяснение для тупого человека:** `list_traverse([a,b,c])` → `Py_VISIT(a)` → `Py_VISIT(b)` → `Py_VISIT(c)`.
+`Py_VISIT(obj)` → если `obj` живой → `obj->gc.gc_refs++`. **Цепочка** ссылок!
 
-## Поколения и продвижение
+## 9. Поколения и продвижение (gcmodule.c)
 
-Сборка по поколениям:
+```c
+static void move_objects_to_new_gen(GCState *gcstate, int gen0, int gen1) {
+    PyGC_Head *gen0_head = &gcstate->generations[gen0].head;
+    PyGC_Head *gen1_head = &gcstate->generations[gen1].head;
+    
+    // Перемещаем выжившие из gen0 → gen1
+    for (PyGC_Head *cur = gen0_head->gc.gc_next; cur != gen0_head; ) {
+        PyGC_Head *next = cur->gc.gc_next;
+        if (cur->gc.gc_refs > 0) {     // Живой!
+            _PyObject_GC_Unlink((PyObject*)cur);
+            _PyObject_GC_LinkTo((PyObject*)cur, gen1);  // В старшее поколение
+        }
+        cur = next;
+    }
+}
+```
 
-- При каждом цикле коллекции выбирается младшее поколение, у которого `count >= threshold`.
-- Поколения 0/1/2 обрабатываются иерархически:
-    - сборка поколения 0: проверяются только объекты в gen0; выжившие могут быть продвинуты в gen1 после нескольких
-      циклов;
-    - сборка поколения 1: в работу берутся gen0+gen1; выжившие могут переходить в gen2;
-    - сборка поколения 2: полный обход долгоживущих объектов.
+**Объяснение для тупого человека:** **Выжившие** из gen0 (700 объектов) **переезжают** в gen1 (собирается реже). Gen1
+выжившие → gen2 (самое старшее). **Старые** проверяются **реже** — **оптимизация**!
 
-Сами пороги и счётчики корректируются после каждой коллекции; в новых версиях обсуждаются динамические пороги и
-time‑barriers, но базовая реализация — статические `thresholds = (700, 10, 10)` по умолчанию.
+## 10. gc.collect() C API (gcmodule.c)
 
-## Integrация с модулем gc и Python‑API
+```c
+static PyObject *gc_collect(PyObject *self, PyObject *args) {
+    int n;
+    GCState *gcstate = get_gc_state();
+    
+    if (!PyArg_ParseTuple(args, "|i:collect", &n)) {
+        return NULL;
+    }
+    
+    if (n == 0) {
+        n = NUM_GENERATIONS - 1;       // Полная сборка gen2
+    }
+    
+    Py_ssize_t collected = _PyGC_CollectNoFail();
+    
+    return PyLong_FromSsize_t(collected);
+}
+```
 
-`Modules/gcmodule.c` экспортирует Python‑функции: `gc.enable`, `gc.disable`, `gc.collect`, `gc.get_threshold`,
-`gc.set_threshold`, `gc.get_stats`, и т.д.
+**Объяснение для тупого человека:** `gc.collect()` → `_PyGC_CollectNoFail()` → собирает **самое старшее** поколение (
+gen2 + все младшие). Возвращает **количество** освобождённых объектов.
 
-- `gc.enable()` → `PyGC_Enable()` выставляет `gcstate->enabled = 1`.
-- `gc.disable()` → `PyGC_Disable()`.
-- `gc.collect(gen)` → `PyGC_Collect(gen)` вызывает `collect_with_callback`/`collect_generations` в `gc.c` и возвращает
-  количество собранных объектов.
-- `gc.get_objects()` и `get_referrers` обходят GC‑списки через `PyGC_Head`, собирая Python‑список текущих
-  объектов.
-
-`PyGC_Head` и внутренние структуры объявлены как «частный» API (`pycore_gc.h`), и активно идёт работа, чтобы сделать их
-opaque для внешних C‑расширений.
-
-## Трекинг/антитрекинг объектов
-
-Не все объекты с `Py_TPFLAGS_HAVE_GC` постоянно стоят в GC‑списках:
-
-- `_PyObject_GC_Track(obj)` вставляет объект в список своего поколения, устанавливая биты `GC_REACHABLE`/`GC_TRACKED` в
-  `gc_refs`/флагах.
-- `_PyObject_GC_UnTrack(obj)` убирает объект из списка (используется, например, для малых tuple без контейнеров, где нет
-  смысла искать циклы).
-
-Это используется для оптимизации: множество объектов фактически не участвуют в циклах (например, immutables, некоторые
-внутренние структуры), и их можно не обследовать на каждом проходе GC.
-
-***
-
-На уровне VM всё это выглядит так: байткод создает/удаляет объекты, счётчики ссылок управляют их жизненным циклом, а
-слой `gc.c` периодически, по порогам и вызовам `gc.collect`, обходит граф контейнеров через `tp_traverse` + `PyGC_Head`
-и удаляет циклический мусор; GIL обеспечивает сериализацию всех операций с `GCState` и списками поколений.
+**GC** в CPython 3.9+ — **PyGC_Head** (16 байт), **3 поколения** (700/10/10), **refcount** + **tp_traverse DFS**, *
+*двусвязные списки** поколений, **продвижение** выживших, **триггер** при `count > threshold`.
 
 - [Содержание](#содержание)
 
