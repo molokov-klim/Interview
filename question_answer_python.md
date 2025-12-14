@@ -10545,61 +10545,271 @@ type_call(PyTypeObject *type, PyObject *args, PyObject *kwds)
     - Статические анализаторы используют информацию о вариативности для проверки безопасности типов
     - Ошибки вариативности — частые причины ошибок типизации
 
+## **Senior Level**
 
-- [Содержание](#содержание)
+В CPython 3.9+ **инвариантность/ковариантность** реализованы в **generic alias** (`list[T]`) через
+`PyGenericAliasObject` (`Objects/genericaliasobject.c`), где **variance** хранится в `ga_variance` поля TypeVar (
+`covariant=True`). **Runtime** — только `__class_getitem__`, **статическая проверка** — в type checker'ах (
+mypy). `Objects/genericaliasobject.c`,`Include/cpython/typeobject.h`
 
----
+## 1. Generic alias: list[T] как PyGenericAliasObject
 
-# **Декораторы классов и методов**
+```c
+// Objects/genericaliasobject.c — list[int] = PyGenericAliasObject
+typedef struct {
+    PyObject_HEAD
+    PyObject *ga_origin;           // list (оригинальный тип)
+    PyObject *ga_params;           // tuple(int,) параметры
+    int ga_flags;                  // флаги
+    Py_hash_t ga_hash;             // кэш хэша
+    unsigned char ga_variance;     // ← VARIANCE! 0=invariant, 1=covariant, 2=contravariant
+} PyGenericAliasObject;
+```
 
-## **Junior Level**
+`list[int]` — **НЕ** класс, а **специальный объект** `PyGenericAliasObject` с полями: `ga_origin=list`,
+`ga_params=(int,)`, `ga_variance=1` (covariant). **Runtime** не проверяет типы — только хранит!
 
-Декораторы классов и методов — это специальные функции или классы, которые позволяют модифицировать поведение классов и
-методов без изменения их исходного кода. Синтаксически они выглядят как `@декоратор` перед определением класса или
-метода.
+## 2. Создание generic alias: __class_getitem__
 
-Для классов декоратор принимает класс, изменяет его (добавляет/удаляет/изменяет методы или атрибуты) и возвращает
-модифицированный класс. Например, декоратор может автоматически добавить логирование ко всем методам класса.
+```c
+// Objects/typeobject.c — List.__class_getitem__(int)
+static PyObject *
+type_subscript(PyTypeObject *type, PyObject *item)
+{
+    // type=list, item=int → list[int]
+    if (PyTuple_Check(item)) {
+        // list[int, str]
+        return PyGenericAlias_New(type, item, NULL);
+    }
+    
+    // list[int]
+    PyObject *params = PyTuple_New(1);
+    PyTuple_SET_ITEM(params, 0, Py_NewRef(item));
+    return PyGenericAlias_New(type, params, NULL);
+}
 
-Для методов декоратор принимает метод, оборачивает его дополнительной логикой и возвращает новую функцию. Классические
-примеры: `@staticmethod`, `@classmethod`, `@property`. Также можно создавать собственные декораторы, например, для
-проверки прав доступа, кэширования результатов или измерения времени выполнения.
+// Objects/genericaliasobject.c
+PyObject *
+PyGenericAlias_New(PyObject *origin, PyObject *params, PyObject *context)
+{
+    PyGenericAliasObject *ga = PyObject_GC_New(PyGenericAliasObject, &PyGenericAlias_Type);
+    if (ga == NULL)
+        return NULL;
+    
+    Py_INCREF(origin);
+    ga->ga_origin = origin;        // list
+    
+    Py_INCREF(params);
+    ga->ga_params = params;        // (int,)
+    
+    ga->ga_flags = 0;
+    ga->ga_variance = 0;           // по умолчанию invariant
+    
+    PyObject_GC_Track(ga);
+    return (PyObject *)ga;
+}
+```
 
-## **Middle Level**
+`list[int]` → `list.__class_getitem__(int)` → `PyGenericAlias_New(list, (int,), NULL)` → **новый объект** с
+`ga_origin=list`, `ga_params=(int,)`. **НЕ** создаёт новый класс!
 
-1. **Декораторы методов**:
-    - **Стандартные декораторы**: `@staticmethod`, `@classmethod`, `@property` (с `@setter`, `@deleter`)
-    - **Пользовательские декораторы**: функции, принимающие функцию и возвращающие новую функцию
-    - **Декораторы с параметрами**: требуют дополнительного уровня вложенности
-    - `@functools.wraps(func)` для сохранения метаданных оригинальной функции
+## 3. TypeVar с variance (typing.TypeVar)
 
-2. **Декораторы классов**:
-    - Принимают класс, модифицируют его и возвращают (часто тот же класс, но изменённый)
-    - Могут добавлять/удалять/изменять атрибуты и методы
-    - Могут регистрировать класс в каком-либо реестре
-    - Могут заменять класс другим классом (фабрика классов)
+```c
+// Lib/typing.py (упрощённо) → компилируется в C-объекты
+class TypeVar:
+    def __init__(self, name, *constraints, covariant=False, contravariant=False):
+        self.__name__ = name
+        self.__covariant__ = covariant      # True для covariant
+        self.__contravariant__ = contravariant  # True для contravariant
+        
+# T_co = TypeVar('T_co', covariant=True)
+# → T_co.__covariant__ = True
+```
 
-3. **Особенности декораторов методов в классах**:
-    - При декорировании метода в классе декоратор получает функцию, а не связанный метод
-    - Во время создания класса метод существует как обычная функция в пространстве имён класса
-    - При доступе через экземпляр (`instance.method`) срабатывает протокол дескриптора
+```python
+from typing import TypeVar
 
-4. **Порядок применения декораторов**:
-    - Декораторы применяются снизу вверх (ближайший к определению применяется первым)
-    - `@a @b def method(): ...` → `method = a(b(method))`
-    - Для классов аналогично
+T_co = TypeVar('T_co', covariant=True)  # variance=1
+T_inv = TypeVar('T_inv')  # variance=0 (по умолчанию)
+```
 
-5. **Использование в тестировании**:
-    - `@unittest.mock.patch` для мокирования атрибутов и методов
-    - `@pytest.fixture` для создания фикстур
-    - `@pytest.mark.parametrize` для параметризации тестов
-    - `@pytest.mark.skip` для пропуска тестов
+В CPython это **PyTypeVarObject** (внутреннее представление):
 
-6. **Метаклассы vs декораторы классов**:
-    - Метаклассы работают на уровне создания класса
-    - Декораторы классов работают после создания класса
-    - Часто одну задачу можно решить как метаклассом, так и декоратором
+```c
+typedef struct {
+    PyObject_HEAD
+    PyObject *tv_name;             // 'T_co'
+    int tv_variance;               // 1=covariant, 0=invariant, -1=contravariant
+    PyObject *tv_bound;            // ограничение типа
+} PyTypeVarObject;
+```
 
+`TypeVar('T', covariant=True)` создаёт объект с флагом `tv_variance=1`. При подстановке в `list[T_co]` этот флаг
+копируется в `ga_variance`.
+
+## 4. Подстановка параметров: list[T_co][Animal] → list[Cat]
+
+```c
+// Objects/genericaliasobject.c — list[T_co][Animal]
+PyObject *
+generic_alias_subscript(PyGenericAliasObject *ga, PyObject *item)
+{
+    // ga = list[T_co], item = Animal
+    PyObject *params = ga->ga_params;  // (T_co,)
+    PyObject *tv = PyTuple_GET_ITEM(params, 0);  // T_co
+    
+    // подставляем T_co = Animal
+    PyObject *sub = PyGenericAlias_Substitute(ga->ga_origin, params, item);
+    return sub;  // list[Animal]
+}
+```
+
+`list[T_co][Animal]` **НЕ** `list[Animal]` напрямую. Сначала `T_co` замещается на `Animal`, **с учётом variance**.
+Runtime **не проверяет** `Cat <: Animal`.
+
+## 5. Variance в isinstance() и issubclass() (ограниченная проверка)
+
+```c
+// Objects/abstract.c — isinstance(obj, list[int])
+int
+PyObject_IsInstance(PyObject *inst, PyObject *cls)
+{
+    // если cls — generic alias (list[int])
+    if (PyGenericAlias_CheckExact(cls)) {
+        PyGenericAliasObject *ga = (PyGenericAliasObject*)cls;
+        PyObject *origin = ga->ga_origin;  // list
+        
+        // рекурсивно: isinstance(obj, list) И params совместимы
+        int res = PyObject_IsInstance(inst, origin);
+        if (res == 0)
+            return 0;
+            
+        // ПРОВЕРКА VARIANCE ТОЛЬКО ДЛЯ BUILTIN!
+        return generic_alias_isinstance(inst, ga);
+    }
+}
+```
+
+`isinstance(x, list[int])` работает **только для builtin** (`list`, `tuple`). Для пользовательских классов **игнорирует
+** параметры. **НЕ** проверяет `Cat <: Animal`!
+
+## 6. Проверка variance в generic_alias_isinstance()
+
+```c
+// Objects/genericaliasobject.c (упрощённо)
+static int
+generic_alias_isinstance(PyObject *inst, PyGenericAliasObject *ga)
+{
+    PyObject *origin = ga->ga_origin;      // list
+    PyObject *inst_type = Py_TYPE(inst);   // type(x)
+    
+    // 1. x должен быть list
+    if (!PyObject_IsInstance(inst, origin))
+        return 0;
+    
+    // 2. для list[T_co] где T_co covariant:
+    //    Cat <: Animal → list[Cat] OK для list[Animal]
+    PyObject *params = ga->ga_params;      // (Animal,)
+    unsigned char variance = ga->ga_variance;  // 1=covariant
+    
+    if (variance == 1) {  // covariant
+        // проверим подтипность параметров
+        return check_covariant_params(inst_type, params);
+    }
+    
+    // invariant: точное совпадение
+    return check_exact_params(inst_type, params);
+}
+```
+
+**Runtime проверка** работает **только для covariant builtin** типа `list[int]`. `list[Cat](cat)` **проходит**
+`isinstance(cat, list[Animal])` **если** `Cat <: Animal`. **НЕ работает** для пользовательских классов!
+
+## 7. __class_getitem__ для пользовательских generic (PEP 585, 3.9+)
+
+```c
+// Objects/typeobject.c — MyGeneric[int]
+static PyObject *
+type_subscript_user_generic(PyTypeObject *type, PyObject *item)
+{
+    // пользовательский класс с Generic[T]
+    if (has_generic_base(type)) {
+        // возвращаем GenericAlias с origin=type
+        return PyGenericAlias_New((PyObject*)type, PyTuple_New(1, item), NULL);
+    }
+}
+```
+
+```python
+from typing import Generic, TypeVar
+
+T = TypeVar('T', covariant=True)
+
+
+class Box(Generic[T]):  # Box[int]
+    pass
+```
+
+Пользовательский `Box[int]` тоже `PyGenericAliasObject` с `ga_origin=Box`. **Но** `isinstance(x, Box[int])` **НЕ
+РАБОТАЕТ** — только статическая проверка в mypy!
+
+## 8. Байткод работы с generic alias
+
+```python
+from typing import List
+
+x: List[int] = [1, 2, 3]
+```
+
+```
+# Байткод (аннотации):
+  0 LOAD_GLOBAL          0 (List)
+  2 LOAD_GLOBAL          1 (int)
+  4 CALL_FUNCTION        1          # List[int] ← __class_getitem__
+  6 LOAD_CONST           0 ([])     # дефолт []
+  8 STORE_FAST           0 (x)
+```
+
+`List[int]` в байткоде — **обычный вызов** `List.__class_getitem__(int)` → `PyGenericAliasObject`. **Runtime** не
+проверяет типы в списке!
+
+## 9. Variance в type checker (mypy, НЕ CPython!)
+
+```python
+T_co = TypeVar('T_co', covariant=True)
+
+
+class Box(Generic[T_co]): pass
+
+
+def accept_box(box: Box[Animal]): ...
+
+
+b: Box[Cat] = Box()  # Cat <: Animal
+accept_box(b)  # OK! covariant
+```
+
+**Mypy логика (псевдокод):**
+
+```
+if Box.ga_variance == COVARIANT and issubclass(Cat, Animal):
+    OK: Box[Cat] <: Box[Animal]
+else:
+    Error!
+```
+
+**CPython runtime** хранит `ga_variance`, **НО** проверку **НЕ делает**. `isinstance()` работает только для **builtin
+covariant** коллекций. Полная проверка **только в type checker** (mypy, pyright).
+
+## Итог инвариантности/ковариантности в CPython 3.9+
+
+1. **Хранение**: `PyGenericAliasObject.ga_variance` из `TypeVar(covariant=True)`.
+2. **Создание**: `list[int]` → `__class_getitem__` → `PyGenericAlias_New()`.
+3. **Runtime**: `isinstance()` **только для builtin** (`list`, `tuple`), **игнорирует** пользовательские классы.
+4. **Type checking**: **mypy** анализирует `ga_variance` + подтипность параметров **статически**.
+
+**НЕ путай**: variance — это **информация для статических анализаторов**, **НЕ runtime проверка типов**!
 
 - [Содержание](#содержание)
 
