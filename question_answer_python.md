@@ -4820,91 +4820,289 @@ ASYNC_COMPREHENSION_GENERATOR 1
 
 ## copy.copy(): выбор стратегии
 
-`copy.copy(x)` — это фронт для функции `_copy(x)`. Алгоритм `_copy` по шагам:
+В CPython 3.9+ **copy.copy()** использует **tp_traverse** + `__copy__()` + **shallow copy** (`PyObject_Malloc`), *
+*copy.deepcopy()** — **рекурсивный _deepcopy_dispatch** с **memo dict** (id→copy), `_reconstruct()` для классов, защита
+от циклов. `Lib/copy.py`,`Objects/object.c`
 
-1. Берётся тип `t = type(x)`.
-2. Проверяется, есть ли `t` в глобальном маппинге `copy._copy_dispatch` (dict `type -> function`).
-    - Для встроенных mutable‑типов (`list`, `dict`, `set`, `bytearray` и т.п.) туда заранее зарегистрированы оптимальные
-      реализации, которые вызывают конструктор/метод копирования напрямую (`list(x)`, `dict(x)`, `x.copy()` и
-      т.д.).
-3. Если тип не найден в `_copy_dispatch`, вызывается `_copy_immutable(x)`, которая проходит по нескольким эвристикам:
-    - Проверяет наличие `__reduce_ex__`/`__reduce__` у объекта и может использовать их для копирования.
-    - Для известных неизменяемых типов (числа, строки, `tuple` из иммутабельных и т.п.) просто возвращает `x`, не
-      создавая новый объект.
-4. До обращения к типовым функциям `_copy` сначала ищет метод `__copy__` у самого объекта: если он есть, вызывается **он
-   ** и результат возвращается как shallow‑копия.
+## 1. copy.copy() - Lib/copy.py (Python C API)
 
-Типовые функции в `_copy_dispatch` реализованы как `_copy_list`, `_copy_dict`, `_copy_bytes` и т.п.:
+```python
+def copy(x):
+    """Shallow copy operation on arbitrary Python objects."""
+    cls = type(x)
 
-- `_copy_list(x)` создаёт новый список через `x.copy()` или `list(x)` и не трогает элементы (шallow‑копия).
-- `_copy_dict(x)` вызывает `x.copy()` (новый dict, те же ссылки на значения/ключи).
-- Для слотовых/кастомных объектов по умолчанию используется `_copy_inst`, которая создаёт **пустой** объект
-  соответствующего класса (`__new__`) и поверх копирует атрибуты (обычно через `__dict__`).
+    # 1. __copy__() метод класса
+    copier = _copy_dispatch.get(cls)
+    if copier is not None:
+        return copier(x)
 
-На уровне байткода `copy.copy` — это просто цепочка обычных `LOAD_ATTR`/`CALL_FUNCTION`/`LOAD_GLOBAL` без каких‑то
-спец‑опкодов: оптимизации идут за счёт таблицы типов и прямых вызовов, а не VM.
+    try:
+        # 2. Пробуем __copy__()
+        cpy = x.__copy__()
+        if hasattr(cpy, '__dict__'):
+            cpy.__dict__.update(x.__dict__)
+        return cpy
+    except AttributeError:
+        pass
 
-## copy.deepcopy(): рекурсия + memo
+    # 3. Встроенные типы
+    if isinstance(x, dict):
+        return dict(x)
+    if isinstance(x, list):
+        return list(x)
+    if isinstance(x, set):
+        return set(x)
+    # ...
 
-`copy.deepcopy(x, memo=None)` вызывает `_deepcopy(x, memo)`; `memo` — dict `id(original) -> copy`. Внутренняя схема
-`_deepcopy`:
+    # 4. Fallback: PyObject_CallMethod("__getnewargs__")
+    newargs = _copy_call_getnewargs(x)
+    return _reconstruct(x, len(newargs), newargs, ())
+```
 
-1. Если `memo` не передан — создаётся новый dict и кладётся туда запись для некоторых «спец‑объектов» (`id(x): x` для
-   типов, модулей и т.п., которые не копируются).
-2. Проверяется `id(x)` в `memo`:
-    - Если уже есть — немедленно вернуть сохранённую копию (защита от циклов и переиспользование).
-3. Далее почти та же диспетчеризация:
-    - Если у объекта реализован `__deepcopy__(self, memo)` — вызывается он, передаётся текущий `memo`, результат
-      сохраняется в `memo[id(x)]` и возвращается.
-    - Иначе проверяется маппинг `_deepcopy_dispatch` по типу `type(x)` (аналогично `_copy_dispatch`, но функции
-      рекурсивно вызывают `deepcopy` для вложенных элементов).
-    - Если и там нет — используется общий путь `_deepcopy_inst`, который:
-        - создаёт новый пустой объект через `__new__`;
-        - кладёт его в `memo[id(x)]`;
-        - рекурсивно deepcopy’ит его атрибуты (`__dict__`, slots) через `deepcopy(v, memo)`.
+**Объяснение для людей:** `copy(lst)` → `list(lst)` (shallow), `copy(obj)` → `obj.__copy__()` или
+`type(obj)(*obj.__getnewargs__())`. **Не рекурсивно** — копирует только верхний уровень.
 
-Типовые функции в `_deepcopy_dispatch` (упрощённо):
+## 2. copy.deepcopy() - рекурсивный dispatch (Lib/copy.py)
 
-- `_deepcopy_list(x, memo)` — создаёт новый список (`y = []`), регистрирует `memo[id(x)] = y` и итерируется по элементам
-  `x`, добавляя `deepcopy(item, memo)`;
-- `_deepcopy_dict(x, memo)` — аналогично, но по key/value, с отдельным копированием ключа и значения;
-- `_deepcopy_tuple(x, memo)` — делает tuple из `deepcopy` каждого элемента; при обнаружении, что все элементы были
-  иммутабельные/неизменённые, может вернуть `x` как есть (оптимизация).
+```python
+def deepcopy(x, memo=None):
+    """Deep copy operation on arbitrary Python objects."""
+    if memo is None:
+        memo = {}
 
-Важно: `memo` заполняется **до** рекурсивного обхода содержимого (созданный пустой объект сразу кладётся в `memo`),
-чтобы обработать циклические ссылки (self‑references) без бесконечной рекурсии.
+    d = id(x)
+    y = memo.get(d, None)  # Уже копировали?
+    if y is not None:
+        return y  # Цикл! Возвращаем копию
 
-## Спецметоды `__copy__` / `__deepcopy__` и порядок вызова
+    cls = type(x)
 
-Под капотом оба API работают через одинаковый протокол:
+    # 1. __deepcopy__()
+    copier = _deepcopy_dispatch.get(cls)
+    if copier is not None:
+        y = copier(x, memo)
 
-- `copy.copy(x)`:
-    1. Пытается вызвать `x.__copy__()`;
-    2. Если нет — идёт по `_copy_dispatch[type(x)]`;
-    3. Если нет — fallback через `__reduce_ex__`/`__reduce__` или `_copy_immutable`.
+    # 2. Встроенные типы
+    elif cls in _deepcopy_dispatch:
+        y = _deepcopy_dispatch[cls](x, memo)
 
-- `copy.deepcopy(x, memo)`:
-    1. Сначала проверяет `id(x)` в `memo`;
-    2. Если нет — ищет и вызывает `x.__deepcopy__(memo)`;
-    3. Иначе — `_deepcopy_dispatch[type(x)]`;
-    4. Иначе — общий `_deepcopy_inst`/`_deepcopy_atomic`.
+    # 3. Классы с __reduce__
+    elif hasattr(x, '__reduce_ex__'):
+        args = x.__reduce_ex__(2)[1]
+        y = _reconstruct(x, 0, args, (), None, None, memo)
 
-То есть кастомные классы могут полностью перехватить поведение, просто реализовав эти dunder’ы; `copy`‑модуль использует
-обычный `getattr`/`CALL_FUNCTION`.
+    else:
+        # 4. Fallback: __getnewargs__ + __dict__ + __slots__
+        reductor = getattr(x, "__reduce_ex__", None)
+        if reductor is not None:
+            args = reductor(4)[1]
+        else:
+            args = _copy_call_getnewargs(x)
+        y = _reconstruct(x, len(args), args, (), None, None, memo)
 
-## Особенности для встроенных типов и оптимизации
+    memo[d] = y  # Записываем в memo
+    return y
+```
 
-Некоторые детали конкретных реализаций в `Lib/copy.py`:
+**Объяснение для людей:** `deepcopy(obj)` рекурсивно копирует **все вложенные объекты**. `memo[id(obj)]=copy`
+предотвращает **бесконечный цикл** при `l.append(l)`.
 
-- Для immutable‑типов `_copy_immutable` и `_deepcopy_atomic` просто возвращают исходный объект (в обоих случаях).
-- Для `list`, `dict`, `set`, `bytearray`/`array` есть прямые пути через соответствующие конструкторы/методы без
-  отражения по `__reduce__`.
-- Для объектов с `__slots__` (без `__dict__`) используются функции `_slotnames`/обход слотов; атрибуты в slots
-  deep‑копируются так же, как содержимое `__dict__`, с использованием `memo`.
+## 3. _deepcopy_dispatch таблица (Lib/copy.py)
 
-С точки зрения байткода и VM никаких спец‑инструкций `COPY`/`DEEPCOPY` нет: всё реализовано на уровне Python‑кода модуля
-`copy`, а оптимизация достигается исключительно за счёт таблицы диспетчеризации и предотвращения обхода через
-`__reduce__` там, где это не нужно.
+```python
+_deepcopy_dispatch = d = {}
+d[dict] = _deepcopy_dict
+d[list] = _deepcopy_list
+d[set] = _deepcopy_set
+d[tuple] = _deepcopy_tuple
+d[frozenset] = _deepcopy_frozenset
+
+
+def _deepcopy_dict(x, memo):
+    y = {}
+    memo[id(x)] = y
+    for key, value in x.items():
+        y[deepcopy(key, memo)] = deepcopy(value, memo)  # Рекурсия!
+    return y
+
+
+def _deepcopy_list(x, memo):
+    y = []
+    memo[id(x)] = y
+    append = y.append  # Быстрый append
+    for item in x:
+        append(deepcopy(item, memo))  # Рекурсия!
+    return y
+```
+
+**Объяснение для людей:** `_deepcopy_dict({a: [1]})` → `{copy(a): copy([1])}` → рекурсивно копирует **каждый**
+ключ/значение. `memo` сохраняет уже сделанные копии.
+
+## 4. PyList_Type.tp_richcompare для list.copy()
+
+```c
+static PyObject *list_copy(PyListObject *self) {
+    Py_ssize_t len = Py_SIZE(self);
+    PyObject **src = self->ob_item;
+    PyObject **dest;
+    
+    // Создаём новый список той же ёмкости
+    PyListObject *newlist = _PyList_New(len);  # Выделяем ob_item[len+overalloc]
+    if (newlist == NULL)
+        return NULL;
+    
+    dest = newlist->ob_item;
+    
+    // Копируем указатели (shallow!)
+    for (Py_ssize_t i = 0; i < len; i++) {
+        PyObject *v = src[i];
+        Py_INCREF(v);              // +refcnt на каждый элемент
+        dest[i] = v;
+    }
+    
+    return (PyObject *)newlist;
+}
+```
+
+**Объяснение для людей:** `lst.copy()` → `_PyList_New(len)` → копирует **указатели** `ob_item[]` с `Py_INCREF()`. *
+*Shallow** — вложенные списки **не копируются**.
+
+## 5. _PyDict_NewPresized() для dict.copy() (3.9+)
+
+```c
+PyObject *_PyDict_NewPresized(Py_ssize_t expected_size) {
+    PyDictObject *mp;
+    Py_ssize_t table_size = _PyDict_NewPresizedTableSize(expected_size);
+    
+    mp = PyObject_GC_New(PyDictObject, &PyDict_Type);
+    if (mp == NULL)
+        return NULL;
+    
+    mp->ma_used = 0;
+    mp->ma_version_tag = DICT_NEXT_VERSION();
+    mp->ma_table = PyMem_Calloc(table_size, sizeof(PyDictUnicodeEntry));
+    mp->ma_keys = NULL;  // Создадим позже
+    mp->ma_values = NULL;
+    
+    // Выделяем ma_keys той же ёмкости
+    if (dictkeys_new(mp, table_size) < 0) {
+        PyDictObject_Clear(mp);
+        Py_DECREF(mp);
+        return NULL;
+    }
+    
+    _PyObject_GC_TRACK(mp);
+    return (PyObject *)mp;
+}
+```
+
+**Объяснение для людей:** `dict.copy()` → новый PyDictObject с **пустой** `ma_keys` + `ma_values`, затем
+`dict_update(new, old)` копирует все пары **shallow**.
+
+## 6. _reconstruct() для пользовательских классов
+
+```python
+def _reconstruct(x, len_args, args, state, listitems, dictitems, memo):
+    # 1. Создаём новый экземпляр
+    cls = type(x)
+    newobj = object.__new__(cls)
+
+    # 2. Восстанавливаем состояние
+    if state is not None:
+        state = deepcopy(state, memo)
+        newobj.__dict__ = state
+    elif hasattr(newobj, '__slots__'):
+        # __slots__ копируем вручную
+        for key, value in state.items():
+            setattr(newobj, key, deepcopy(value, memo))
+
+    # 3. Восстанавливаем mutable атрибуты
+    if len_args > 0:
+        newobj.__init__(*deepcopy(args, memo))
+
+    return newobj
+```
+
+**Объяснение для людей:** `deepcopy(MyClass())` → `MyClass.__new__()` → `deepcopy(state)` → `__dict__` →
+`__init__(*args)`. **Полная копия состояния**.
+
+## 7. Защита от рекурсии: memo[id(obj)]
+
+```python
+l = [1, 2]
+l.append(l)  # Цикл!
+deep_l = deepcopy(l, memo={})
+
+# Первый вызов: memo={} пустой
+y = _deepcopy_list(l, memo)
+memo[id(l)] = y  # Записали!
+
+# Рекурсивный вызов l[3] = l:
+item = deepcopy(l[3], memo)  # l[3] == l
+d = id(l[3])  # == id(l)
+y = memo.get(d)  # НАЙДЕН! Возвращаем копию
+```
+
+**Объяснение для людей:** `memo[id(original)]=copy` **предотвращает** копирование уже обработанных объектов.
+`[1, [1, [1, ...]]]` копируется **один раз**.
+
+## 8. C-level: PyObject_Malloc для shallow copy
+
+```c
+static PyObject *generic_copy(PyObject *self) {
+    PyObject *newobj;
+    
+    // 1. Выделяем память той же структуры
+    newobj = PyType_GenericAlloc(Py_TYPE(self), 1);
+    if (newobj == NULL)
+        return NULL;
+    
+    // 2. Копируем PyObject_HEAD
+    Py_INCREF(Py_TYPE(self));
+    newobj->ob_refcnt = 1;
+    newobj->ob_type = Py_TYPE(self);
+    
+    // 3. Копируем __dict__ shallow
+    if (Py_TYPE(self)->tp_dictoffset != 0) {
+        PyObject **dictptr = _PyObject_GetDictPtr(self);
+        if (dictptr != NULL && *dictptr != NULL) {
+            PyObject *dict = PyDict_Copy(*dictptr);  # Shallow dict
+            if (dict == NULL) {
+                Py_DECREF(newobj);
+                return NULL;
+            }
+            _PyObject_SetDict(newobj, dict);
+        }
+    }
+    
+    return newobj;
+}
+```
+
+**Объяснение для людей:** `__copy__()` → `PyType_GenericAlloc()` → копирует `ob_type` + `__dict__.copy()` (shallow). *
+*Не трогает атрибуты**.
+
+## 9. Не копируемые типы (deepcopy игнорирует)
+
+```python
+# Модули, функции, файлы, сокеты НЕ копируются
+def _deepcopy_func(x, memo):
+    return x  # Возвращаем оригинал!
+
+
+def _deepcopy_module(x, memo):
+    return x
+
+
+_deepcopy_dispatch[type(open('file.txt'))] = _deepcopy_file_like
+```
+
+**Объяснение для людей:** `deepcopy(open())` → **оригинал** (нельзя клонировать дескриптор). Функции/классы — **shallow
+** (refcnt++).
+
+**copy.copy()/deepcopy()** в CPython 3.9+ — **Lib/copy.py** с `_deepcopy_dispatch`, **memo[id→copy]** против циклов,
+`PyList_New()`/`PyDict_NewPresized()` + `Py_INCREF()` (shallow), `_reconstruct()` для классов, `__copy__()`/
+`__deepcopy__()` хуки.
 
 - [Содержание](#содержание)
 
@@ -4981,128 +5179,287 @@ ASYNC_COMPREHENSION_GENERATOR 1
 
 ## **Senior Level**
 
-В CPython `async`/`await` — это специальные флаги в `PyCodeObject`, отдельные типы объектов (`PyCoroObject`,
-`PyAsyncGenObject`) и несколько опкодов (`GET_AWAITABLE`, `YIELD_FROM`, `RETURN_GENERATOR`/`ASYNC_GEN_WRAP` и др.), плюс
-протокол `__await__`/`am_await` в `PyTypeObject`. Ниже только подкапотная реализация.
+В CPython 3.9+ **асинхронность** — **PyCoroObject**/**PyAsyncGenObject** (`CO_COROUTINE`/`CO_ASYNC_GENERATOR` флаги),
+байткоды `GET_AWAITABLE`/`GET_AITER`/`GET_ANEXT`, **event loop** в `Modules/_asynciomodule.c` с **TaskObj** + **Future
+**. `Objects/genobject.c`,`Python/ceval.c`,`Modules/_asynciomodule.c`
 
-## async def: флаги кода и RETURN_GENERATOR
+## 1. PyCoroObject структура (Objects/genobject.c)
 
-При компиляции `async def` создаётся `PyCodeObject` с флагом `CO_COROUTINE` (и без `CO_GENERATOR`). В CPython 3.11+ в
-конец тела такой функции компилятор вставляет спец‑опкод `RETURN_GENERATOR` вместо классического
-`RETURN_VALUE`.
+```c
+typedef struct {
+    PyGenObject_HEAD              // Наследует от PyGenObject
+    PyObject *cr_origin;          // "<async def coro>" строка происхождения
+    int cr_frame_origin_depth;    // Глубина фрейма для отладки
+} PyCoroObject;
 
-- При первом вызове `async def`‑функции выполняется её пролог до `RETURN_GENERATOR`.
-- `RETURN_GENERATOR` не возвращает обычное значение: он создаёт `PyCoroObject` через
-  `_Py_MakeCoro(PyFunctionObject *func)` (в `genobject.c`), инициализируя внутренний `_PyInterpreterFrame` копией
-  текущего фрейма и помечая флагами `CO_COROUTINE/CO_ASYNC_GENERATOR`.
-- Текущий фрейм функции выкидывается со стека, вызывающему коду возвращается объект‑корутина, у которого `cr_frame`
-  содержит приостановленный байткод с `f_lasti` до первой инструкции тела (или после уже выполненного пролога).
-
-Таким образом, `async def` не запускает тело сразу: байткод тела будет исполняться только при `coro.send(None)`/
-`__await__()`/драйвером event‑loop’а.
-
-## Объект корутины (PyCoroObject) и __await__
-
-`PyCoroObject` реализован в `genobject.c` и по структуре очень близок к `PyGenObject`. Основные поля:
-
-- `cr_weakreflist`, `cr_frame` (`_PyInterpreterFrame *`), `cr_code` (`PyCodeObject *`).
-- `cr_origin`/`cr_origin_depth` (для трейсинга места создания).
-- Флаги в `cr_code->co_flags` (`CO_COROUTINE`, `CO_ASYNC_GENERATOR`).
-
-Метод `__await__` у nativе‑корутин реализован так, что возвращает итератор, по которому `await` будет делать
-`YIELD_FROM`. В CPython:
-
-- Для `PyCoroObject` `__await__` обычно возвращает сам объект или специальный wrapper‑итератор (исторически был
-  `coro_wrapper`), который реализует `tp_iternext` через `cr_send`.
-- В C‑API это маппится на `tp_as_async.am_await` в `PyTypeObject`; для произвольного типа реализация может вернуть любой
-  итератор, который будет использоваться как источник значений для `YIELD_FROM` в `await`.
-
-## await: GET_AWAITABLE + YIELD_FROM
-
-Выражение `await EXPR` компилируется почти как `yield from`, но с явной проверкой «awaitability»:
-
-Типичный байткод:
-
-- вычисление `EXPR` → на стеке объект `obj`;
-- `GET_AWAITABLE` — берёт `obj` и проверяет:
-    - если `obj` — native coroutine (`PyCoroObject`) или generator‑based coroutine (флаг `CO_ITERABLE_COROUTINE`),
-      использовать его напрямую;
-    - иначе пытается вызвать `obj.__await__()` (через `am_await`), получить итератор;
-    - если не получилось — бросает `TypeError`.
-- затем `YIELD_FROM` — тот же опкод, что и для `yield from`, реализующий протокол PEP 380:
-    - выполняет `send()`/`throw()` в под‑итератор до его завершения;
-    - при каждом `YIELD_VALUE` из под‑итератора текущий coroutine «отдаёт управление наружу», сохраняя свой `cr_frame`
-      внутри `PyCoroObject`;
-    - при финальном `StopIteration` извлекает `value` и пушит его на стек как результат `await`.
-
-Фактически, `await` — это «`GET_AWAITABLE` + `YIELD_FROM` с ограничением на типы».
-
-## async for / async with: специальные опкоды
-
-### async for
-
-Конструкция:
-
-```python
-async for x in aiter:
-    body
+typedef struct {
+    PyGenObject_HEAD
+    PyObject *ag_frame;           // Async generator frame
+    PyObject *ag_running;         // Lock
+    PyObject *ag_finalizer;       // aclose() финализатор
+} PyAsyncGenObject;
 ```
 
-компилируется в паттерн:
+**Объяснение для людей:** `async def` → **PyCoroObject** (замороженный фрейм с `await`), `async def gen(): yield` → *
+*PyAsyncGenObject**. `cr_origin` для traceback.
 
-- получить асинхронный итератор: вызвать `aiter.__aiter__()`;
-- в цикле: вызывать `await aiter.__anext__()`; ловить `StopAsyncIteration`.
+## 2. Байткод async/await (Python 3.9+)
 
-В байткоде это реализовано через опкоды:
+```python
+async def coro():
+    await asyncio.sleep(1)  # GET_AWAITABLE
+    return 42
+```
 
-- `GET_AITER` — вызывает `__aiter__` и проверяет, что результат awaitable/корутина, возвращающая async‑итератор.
-- внутри цикла используется `GET_ANEXT` и `YIELD_FROM`/`GET_AWAITABLE`: фактически «`await aiter.__anext__()`» размотан
-  на уровне VM.
-- при получении `StopAsyncIteration` VM завершает цикл (аналог обычного `FOR_ITER` и `StopIteration`).
+```
+# Байткод:
+  0 GET_AWAITABLE         0    # sleep_obj.__await__()
+  2 LOAD_CONST            0 (None)
+  4 YIELD_FROM                  # Вызываем awaitable.send(None)
+  6 POP_TOP                       # Результат sleep
+  8 LOAD_CONST            1 (42)
+ 10 RETURN_VALUE
+```
 
-Детали реализации `GET_AITER`/`GET_ANEXT` описаны в PEP 492 и реализованы в `ceval.c` как специальные ветви для
-async‑итераторов.
+**Объяснение для людей:** `await obj` → `GET_AWAITABLE` (obj.__await__() → iterator) → `YIELD_FROM` (iterator.send(
+None) → приостанавливаем корутину).
 
-### async with
+## 3. GET_AWAITABLE байткод (ceval.c)
 
-`async with cm:` аналогичен контекстным менеджерам, но использует `__aenter__`/`__aexit__` и `await` вокруг них.
+```c
+case GET_AWAITABLE: {
+    PyObject *iter = TOP();            // obj (sleep())
+    
+    // 1. Уже корутина? Возвращаем как есть
+    if (PyCoro_CheckExact(iter) || 
+        (PyGen_CheckExact(iter) && 
+         ((PyCodeObject*)PyGen_GET_CODE(iter))->co_flags & CO_ITERABLE_COROUTINE)) {
+        Py_INCREF(iter);
+        DISPATCH();
+    }
+    
+    // 2. Ищем __await__()
+    PyObject *awaitable = PyObject_CallMethodObjArgs(
+        iter, &_Py_ID(__await__), NULL);
+    
+    if (awaitable == NULL) {
+        goto error;
+    }
+    
+    // 3. __await__ должен вернуть iterator
+    if (!PyIter_Check(awaitable)) {
+        PyErr_Format(PyExc_TypeError,
+            "'%.200s.__await__()' must return an iterator",
+            Py_TYPE(iter)->tp_name);
+        Py_DECREF(awaitable);
+        goto error;
+    }
+    
+    Py_DECREF(iter);                   // Заменяем obj → awaitable iterator
+    PEEK(0) = awaitable;
+    DISPATCH();
+}
+```
 
-Под капотом:
+**Объяснение для людей:** `GET_AWAITABLE sleep()` → `sleep.__await__()` → **iterator** на стек. `YIELD_FROM` вызывает
+`iterator.send(None)` → **приостанавливает** корутину.
 
-- при входе: вызывается `GET_AWAITABLE`/`YIELD_FROM` вокруг `cm.__aenter__()`, через отдельный опкод
-  `BEFORE_ASYNC_WITH`/`SETUP_ASYNC_WITH` (в разных версиях).
-- при выходе (нормальном/через исключение) компилятор генерирует cleanup‑код, который делает
-  `await cm.__aexit__(exc_type, exc_val, exc_tb)` с использованием тех же `GET_AWAITABLE` + `YIELD_FROM`.
+## 4. YIELD_FROM для await (ceval.c)
 
-Всё это завязано на тот же протокол coroutine/awaitable и поддержку в `ceval.c`, что и обычные `await`.
+```c
+case YIELD_FROM: {
+    PyObject *iter = TOP();            // __await__() iterator
+    PyObject *sub_iter = NULL;
+    
+    // Получаем send arg (None для первого await)
+    PyObject *send_arg = PEEK(1);
+    
+    // Вызываем iterator.send(None)
+    PyObject *result = PyIter_Send(iter, send_arg, &sub_iter);
+    Py_DECREF(send_arg);
+    
+    if (result == NULL) {
+        // StopIteration(result.value) → возобновляем корутину
+        PyObject *exc = PyErr_Occurred();
+        if (PyExceptionInstance_Check(exc) && 
+            PyExceptionInstance_Class(exc) == (PyObject*)&PyExc_StopIteration) {
+            PyObject *value = PyObject_GetAttr(exc, &_Py_ID(value));
+            Py_DECREF(exc);
+            if (value == NULL) {
+                goto error;
+            }
+            Py_DECREF(iter);
+            PEEK(0) = value;           // Результат await на стек
+            DISPATCH();
+        }
+        goto error;
+    }
+    
+    // Возвращаем управление event loop
+    Py_DECREF(result);
+    Py_DECREF(iter);
+    goto yield_from_suspend;           // Корутина приостанавливается
+}
+```
 
-## async generators: CO_ASYNC_GENERATOR и ASYNC_GEN_WRAP
+**Объяснение людей:** `YIELD_FROM` → `awaitable.send(None)` → **StopIteration(result)** → **возобновляем** корутину с
+результатом. Event loop берёт управление.
 
-`async def` с `yield` даёт async‑генератор.
+## 5. _Py_MakeCoro() - создание корутины (genobject.c)
 
-- `co_flags` содержит `CO_ASYNC_GENERATOR`.
-- Вместо `PyCoroObject` создаётся `PyAsyncGenObject` через `ASYNC_GEN_WRAP` (новый опкод, появившийся к 3.11) или
-  эквивалентную логику в старых версиях.
-- Тело использует `YIELD_VALUE`/`YIELD_FROM`, но протокол ожидания/закрытия другой (`__anext__`, `aclose`, `athrow`),
-  реализованный в `genobject.c` в ветках async‑генераторов.
+```c
+PyObject *_Py_MakeCoro(PyFunctionObject *func) {
+    PyCodeObject *code = (PyCodeObject*)func->func_code;
+    int coro_flags = code->co_flags;
+    
+    assert(coro_flags & (CO_COROUTINE | CO_ASYNC_GENERATOR));
+    
+    if (coro_flags == CO_COROUTINE) {
+        PyCoroObject *coro = (PyCoroObject*)make_gen(&PyCoro_Type, func);
+        if (coro == NULL) return NULL;
+        
+        // Заполняем cr_origin для traceback
+        coro->cr_origin = compute_cr_origin(0, NULL);
+        return (PyObject*)coro;
+    }
+    
+    if (coro_flags == CO_ASYNC_GENERATOR) {
+        PyAsyncGenObject *asyncgen = (PyAsyncGenObject*)make_gen(&PyAsyncGen_Type, func);
+        // ...
+        return (PyObject*)asyncgen;
+    }
+}
+```
 
-`async for` поверх async‑генератора использует `GET_AITER`/`GET_ANEXT`, как описано выше.
+**Объяснение для людей:** `async def f():` → `PyFunctionObject` с `CO_COROUTINE` → `f()` → `_Py_MakeCoro()` → *
+*PyCoroObject** с `gi_frame`.
 
-## Event loop / asyncio: взаимодействие с VM
+## 6. asyncio TaskObj (Modules/_asynciomodule.c)
 
-`asyncio` сам по себе — чистый Python (с небольшими C‑вставками), который выступает **драйвером** для корутин:
+```c
+typedef struct {
+    PyObject_HEAD
+    PyObject *task_future;         // Связанный Future
+    PyObject *task_coro;           // Корутина
+    PyObject *task_context;        // Task context
+    PyObject *task_loop;           // Event loop
+    PyObject *task_handle;         // Callback в loop
+    int task_must_cancel;          // Отмена?
+    int task_log_destroy_pending;  // Лог?
+    int task_canceled;             // Отменена
+    int task_state;                // TASK_PENDING/TASK_FINISHED
+} TaskObj;
+```
 
-- Планировщик (`loop.run_until_complete`, `loop._run_once`) хранит очередь задач (`Task`), каждая из которых оборачивает
-  корутину (`PyCoroObject`).
-- Для запуска/продолжения задачи `Task` делает `coro.send(None)` или `coro.throw(exc)` — это зовёт `gen_send_ex`/
-  `coro_send` в `genobject.c`, которые передают управление в `_PyEval_EvalFrameDefault` для соответствующего
-  `cr_frame`.
-- Когда внутри корутины выполняется `await`, `YIELD_FROM` возвращает управление обратно в event loop, передавая
-  «awaited» объект (фьючер/Task/IO‑обёртку), по завершении которого loop снова дернёт `send()` на корутине.
+**Объяснение для людей:** `asyncio.create_task(coro())` → **TaskObj** с `task_coro=PyCoroObject`, `task_future=Future`.
+Event loop вызывает `task_coro.send()`.
 
-Для байткода и `ceval.c` `asyncio` — просто обычный пользовательский код, который активно использует `PyCoroObject`,
-`PyGenObject` и протокол awaitable/iterator; никаких специальных VM‑опкодов под event loop нет, всё основано на
-описанных выше примитивах async/await.
+## 7. task_step() - выполнение Task (asynciomodule.c)
+
+```c
+static PyObject *task_step(TaskObj *task) {
+    PyObject *res;
+    PyObject *coro = task->task_coro;
+    
+    // Выполняем корутину до следующего await
+    res = PyCoro_Send(coro, Py_None);  // coro.send(None)
+    
+    if (res == NULL) {
+        PyObject *exc = PyErr_Occurred();
+        if (PyErr_GivenExceptionMatches(exc, PyExc_StopIteration)) {
+            // Корутина завершилась
+            PyErr_Clear();
+            task->task_state = TASK_FINISHED;
+            return task_set_result(task, Py_None);
+        }
+        // Ошибка → set_exception
+        return task_set_exception(task, exc);
+    }
+    
+    // Получили awaitable → планируем следующий шаг
+    task->task_handle = create_future_callback(task_loop, task_wakeup, task);
+    Py_INCREF(res);
+    return res;  // Вернём управление event loop
+}
+```
+
+**Объяснение для людей:** Event loop → `task_step()` → `coro.send(None)` → **awaitable** → **callback** `task_wakeup` в
+loop. **Корутина приостанавливается**.
+
+## 8. Async for/await (GET_AITER/GET_ANEXT)
+
+```python
+async for x in agen():  # agen.__aiter__()
+```
+
+```
+# Байткод:
+GET_AITER                 # aiter(agen)
+SETUP_ASYNC_WITH          # Сохраняем aiter
+GET_ANEXT                 # anext(awaitable)
+GET_AWAITABLE             # anext.__await__()
+YIELD_FROM                # await anext()
+END_ASYNC_FOR             # Обработка StopAsyncIteration
+```
+
+**Объяснение для людей:** `async for` → `GET_AITER` (`agen.__aiter__()`) → `GET_ANEXT` (`aiter.__anext__()`) → `await` →
+`x = result`.
+
+## 9. Event loop: BaseEventLoop (Lib/asyncio/events.py)
+
+```python
+class BaseEventLoop:
+    def _run_once(self):
+        """Run one full iteration of the event loop."""
+        # 1. Выполняем scheduled callbacks
+        self._run_ready_callbacks()
+
+        # 2. Poll I/O selectors (epoll/select)
+        timeout = self._calculate_timeout()
+        event_list = self._selector.select(timeout)
+
+        # 3. Выполняем I/O callbacks
+        for key, mask in event_list:
+            self._process_events(key, mask)
+
+        # 4. Обновляем timeouts
+        self._update_timers()
+```
+
+**Объяснение для людей:** Event loop **круг**: callbacks → I/O poll (epoll/kqueue) → I/O callbacks → timers. *
+*Однопоточный**, **кооперативный**.
+
+## 10. coro.send(None) - возобновление (genobject.c)
+
+```c
+PyObject *PyCoro_Send(PyObject *coro, PyObject *arg) {
+    PyCoroObject *co = (PyCoroObject*)coro;
+    PyFrameObject *f = co->gi_frame;
+    
+    if (f == NULL || f->frame_flags == FRAME_CLOSED) {
+        PyErr_SetNone(PyExc_StopIteration);
+        return NULL;
+    }
+    
+    // Кладём arg на стек фрейма
+    *f->f_stacktop++ = Py_NewRef(arg ? arg : Py_None);
+    
+    // Запускаем до следующего yield/await
+    PyObject *retval = _PyEval_EvalFrame(f);
+    
+    if (retval == (PyObject*)co) {
+        retval = NULL;  // Возвращаемся event loop
+    }
+    
+    return retval;
+}
+```
+
+**Объяснение для людей:** `awaitable.send(None)` → `f_stacktop[0]=None` → выполнение до `YIELD_FROM` → **возврат
+корутины** event loop'у.
+
+**Асинхронность** в CPython 3.9+ — **PyCoroObject** (`CO_COROUTINE`), `GET_AWAITABLE`/`YIELD_FROM`, **TaskObj** в
+`_asynciomodule.c`, **event loop** (epoll + callbacks), **кооперативное** переключение на `await`.
 
 - [Содержание](#содержание)
 
