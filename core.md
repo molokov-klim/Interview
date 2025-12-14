@@ -40,7 +40,8 @@
 ## **Senior Level**
 
 В CPython **все типы данных** наследуют от базовой структуры `PyObject`, которая содержит refcount и указатель на тип.
-Каждый тип описывается массивом **слотов** в `PyTypeObject`. [Include/object.h][Include/cpython/object.h]
+Каждый тип описывается массивом **слотов** в `PyTypeObject`. 
+`Include/object.h`, `Include/cpython/object.h`
 
 ## 1. Базовая структура PyObject
 
@@ -52,7 +53,7 @@ typedef struct _object {
 } PyObject;
 ```
 
-**Объяснение для людей:** Каждый объект в памяти начинается с 16-24 байт заголовка. `ob_refcnt` считает, сколько ссылок
+Каждый объект в памяти начинается с 16-24 байт заголовка. `ob_refcnt` считает, сколько ссылок
 на объект существует. Когда он доходит до 0, объект уничтожается. `ob_type` говорит, какого он типа (int/list/dict).
 
 ## 2. PyVarObject для контейнеров
@@ -64,7 +65,7 @@ typedef struct {
 } PyVarObject;
 ```
 
-**Объяснение для людей:** Контейнеры (списки, строки, словари) имеют дополнительное поле `ob_size` сразу после заголовка
+Контейнеры (списки, строки, словари) имеют дополнительное поле `ob_size` сразу после заголовка
 PyObject. Это длина коллекции.
 
 ## 3. PyTypeObject - "паспорт" каждого типа
@@ -110,7 +111,7 @@ typedef struct _typeobject {
 } PyTypeObject;
 ```
 
-**Объяснение для людей:** PyTypeObject - это как "техпаспорт" типа. Он говорит интерпретатору размер объекта, как его
+PyTypeObject - это как "техпаспорт" типа. Он говорит интерпретатору размер объекта, как его
 уничтожать, как складывать/умножать, как брать по индексу `lst[0]`, как искать атрибуты `obj.attr`. Без этого паспорта
 интерпретатор не знает, что делать с объектом.
 
@@ -125,7 +126,7 @@ typedef struct _longobject {
 } PyLongObject;
 ```
 
-**Объяснение для людей:** Целые числа хранятся как массив 30-битных "цифр". Маленькие числа (-5..256) кешируются как
+Целые числа хранятся как массив 30-битных "цифр". Маленькие числа (-5..256) кешируются как
 singletons для экономии памяти.
 
 **Создание PyLongObject:**
@@ -152,7 +153,7 @@ PyObject *_PyLong_New(Py_ssize_t size) {
 }
 ```
 
-**Объяснение для людей:** Выделяем ровно столько памяти, сколько нужно под заголовок + нужное количество 30-битных цифр.
+Выделяем ровно столько памяти, сколько нужно под заголовок + нужное количество 30-битных цифр.
 Например, число 1e18 требует ~6 цифр (6*30=180 бит).
 
 ## 5. PyListObject со слотами протоколов
@@ -165,7 +166,7 @@ typedef struct {
 } PyListObject;
 ```
 
-**Объяснение для людей:** Список - это массив указателей на PyObject*. `allocated` больше `ob_size` для оптимизации (
+Список - это массив указателей на PyObject*. `allocated` больше `ob_size` для оптимизации (
 over-allocation ~1.125x).
 
 **Слоты PyList_Type:**
@@ -191,7 +192,7 @@ PyTypeObject PyList_Type = {
 };
 ```
 
-**Объяснение для людей:** `tp_as_sequence` указывает на таблицу со слотами `sq_item` (lst), `sq_slice` (lst[1:3]),
+`tp_as_sequence` указывает на таблицу со слотами `sq_item` (lst), `sq_slice` (lst[1:3]),
 `sq_ass_slice` (lst[1:3]=[]).
 
 **list_as_sequence.sq_item (lst[i]):**
@@ -207,7 +208,7 @@ static PyObject *list_item(PyListObject *self, Py_ssize_t i) {
 }
 ```
 
-**Объяснение для людей:** Проверяем индекс, увеличиваем refcnt элемента (теперь владелец отвечает за его жизнь),
+Проверяем индекс, увеличиваем refcnt элемента (теперь владелец отвечает за его жизнь),
 возвращаем указатель.
 
 ## 6. PyDictObject с split table (с 3.6)
@@ -221,7 +222,7 @@ typedef struct {
 } PyDictObject;
 ```
 
-**Объяснение для людей:** С 3.6 словари компактные: ключи вынесены в отдельную `PyDictKeysObject`, значения в массиве.
+С 3.6 словари компактные: ключи вынесены в отдельную `PyDictKeysObject`, значения в массиве.
 `ma_used` считает реальные пары, а не слоты.
 
 **PyDictKeysObject:**
@@ -238,7 +239,7 @@ struct _dictkeysobject {
 };
 ```
 
-**Объяснение для людей:** Ключи компактно хранятся в `PyDictKeysObject`, который может быть **shared** между словарями (
+Ключи компактно хранятся в `PyDictKeysObject`, который может быть **shared** между словарями (
 экономия памяти).
 
 ## 7. GC-интеграция для контейнеров
@@ -266,7 +267,7 @@ static int list_clear(PyListObject *o) {
 }
 ```
 
-**Объяснение для людей:** GC вызывает `tp_traverse` для обхода ссылок внутри объекта (чтобы найти живые объекты).
+GC вызывает `tp_traverse` для обхода ссылок внутри объекта (чтобы найти живые объекты).
 `tp_clear` обнуляет ссылки перед удалением, разрывая циклы.
 
 ## 8. Байткод-интеграция: LIST_APPEND
@@ -291,7 +292,7 @@ case LIST_APPEND: {
 }
 ```
 
-**Объяснение для людей:** В listcomp `[x for x in lst]` список берётся не с вершины стека (чтобы не мешать вычислениям),
+В listcomp `[x for x in lst]` список берётся не с вершины стека (чтобы не мешать вычислениям),
 а из фиксированного слота localsplus. Это экономит push/pop операции.
 
 ## 9. Инициализация типов: PyType_Ready
@@ -329,7 +330,7 @@ int PyType_Ready(PyTypeObject *type) {
 }
 ```
 
-**Объяснение для людей:** Перед первым использованием типа вызывается PyType_Ready. Оно наследует слоты от родителей,
+Перед первым использованием типа вызывается PyType_Ready. Оно наследует слоты от родителей,
 вычисляет MRO, создаёт `__dict__` класса. Без этого тип не готов к работе.
 
 Типы данных в CPython — это **PyTypeObject** с 100+ слотами протоколов, живущие в памяти как обычные объекты, с
@@ -513,7 +514,7 @@ typedef struct {
 } PySliceObject;
 ```
 
-**Объяснение для людей:** Срез `lst[1:3:2]` в памяти — это структура из 4 полей: 24-байт заголовок PyObject + 3
+Срез `lst[1:3:2]` в памяти — это структура из 4 полей: 24-байт заголовок PyObject + 3
 указателя (start=1, stop=3, step=2). `Py_None` означает "используй значение по умолчанию".
 
 ## 2. Создание среза: BUILD_SLICE байткод
@@ -561,7 +562,7 @@ case BUILD_SLICE: {
 }
 ```
 
-**Объяснение для людей:** Интерпретатор снимает 2/3 значения со стека, вызывает PySlice_New (создаёт PySliceObject),
+Интерпретатор снимает 2/3 значения со стека, вызывает PySlice_New (создаёт PySliceObject),
 кладёт результат обратно на стек. Всё за 1 инструкцию.
 
 ## 3. PySlice_New - фабрика срезов
@@ -597,7 +598,7 @@ PyObject *PySlice_New(PyObject *start, PyObject *stop, PyObject *step) {
 }
 ```
 
-**Объяснение для людей:** PySlice_New создаёт объект из 24 байт заголовка + 3 указателя. Каждый аргумент получает +1 к
+PySlice_New создаёт объект из 24 байт заголовка + 3 указателя. Каждый аргумент получает +1 к
 refcnt. Объект регистрируется в GC для поиска циклов.
 
 ## 4. Нормализация индексов: PySlice_GetIndicesEx
@@ -651,7 +652,7 @@ int PySlice_GetIndicesEx(
 }
 ```
 
-**Объяснение для людей:** Эта функция превращает `slice(-2:, None, 2)` в конкретные числа: для списка длины 10 даёт
+Эта функция превращает `slice(-2:, None, 2)` в конкретные числа: для списка длины 10 даёт
 start=8, stop=10, step=2. Вычисляет, сколько элементов будет в результате (2 элемента).
 
 ## 5. PySlice_AdjustIndices - обработка отрицательных индексов
@@ -694,7 +695,7 @@ void PySlice_AdjustIndices(
 }
 ```
 
-**Объяснение для людей:** `-1` всегда означает "последний элемент", `-2` — предпоследний. Функция переводит
+`-1` всегда означает "последний элемент", `-2` — предпоследний. Функция переводит
 отрицательные индексы в абсолютные, обрезая по границам массива.
 
 ## 6. List срез: list_slice()
@@ -729,7 +730,7 @@ static PyObject *list_slice(PyListObject *self, Py_ssize_t ilow, Py_ssize_t ihig
 }
 ```
 
-**Объяснение для людей:** Создаём новый список нужной длины, увеличиваем refcnt каждого элемента оригинала (+1), кладём
+Создаём новый список нужной длины, увеличиваем refcnt каждого элемента оригинала (+1), кладём
 указатели в новый список. Эффективно благодаря PyList_New (over-allocation).
 
 ## 7. Срезовое присваивание: list_ass_slice()
@@ -771,7 +772,7 @@ static int list_ass_slice(PyListObject *self, Py_ssize_t low, Py_ssize_t high, P
 }
 ```
 
-**Объяснение для людей:** `lst[1:3] = [10,20]` удаляет 2 элемента, добавляет 2 новых, сдвигает хвост.
+`lst[1:3] = [10,20]` удаляет 2 элемента, добавляет 2 новых, сдвигает хвост.
 `PyList_Resize_Shrink` оптимизирует память (over-allocation).
 
 ## 8. Слоты PyList_Type для поддержки срезов
@@ -801,7 +802,7 @@ static PySequenceMethods list_as_sequence = {
 };
 ```
 
-**Объяснение для людей:** Все типы регистрируют таблицу `PySequenceMethods` со слотами. BINARY_SUBSCR выбирает
+Все типы регистрируют таблицу `PySequenceMethods` со слотами. BINARY_SUBSCR выбирает
 `sq_slice`/`mp_subscript` в зависимости от типа.
 
 Срезы в CPython — это **PySliceObject** (3 указателя) + **PySlice_GetIndicesEx** (нормализация) + **тип-специфичные**
@@ -881,7 +882,7 @@ typedef struct _PyCodeObject {
 } PyCodeObject;
 ```
 
-**Объяснение для людей:** `def f(a, *args, b=1, **kwargs):` → `co_argcount=1` (a), `CO_VARARGS=1`, `CO_VARKEYWORDS=1`.
+`def f(a, *args, b=1, **kwargs):` → `co_argcount=1` (a), `CO_VARARGS=1`, `CO_VARKEYWORDS=1`.
 `co_varnames=["a", "args", "b", "kwargs"]`.
 
 **Флаги CO_* в co_flags:**
@@ -934,7 +935,7 @@ case CALL_FUNCTION: {
 }
 ```
 
-**Объяснение для людей:** Интерпретатор снимает N аргументов со стека, кладёт их в массив `args[]`, вызывает
+Интерпретатор снимает N аргументов со стека, кладёт их в массив `args[]`, вызывает
 `_PyObject_Vectorcall(func, args, N, NULL)`. Массив освобождается после вызова.
 
 ## 3. _PyObject_Vectorcall: универсальный вызов
@@ -969,7 +970,7 @@ _PyObject_Vectorcall(PyObject *callable, PyObject *const *args,
 }
 ```
 
-**Объяснение для людей:** Новые функции используют **vectorcall** (C API с массивом аргументов). Старые — через
+Новые функции используют **vectorcall** (C API с массивом аргументов). Старые — через
 `PyTuple_FromArray` (медленнее).
 
 ## 4. Функция с *args/**kwargs: распаковка в MAKE_FUNCTION
@@ -1023,7 +1024,7 @@ case MAKE_FUNCTION: {
 }
 ```
 
-**Объяснение для людей:** При создании функции интерпретатор читает флаги CO_VARARGS/CO_VARKEYWORDS и находит имена
+При создании функции интерпретатор читает флаги CO_VARARGS/CO_VARKEYWORDS и находит имена
 `*args`/`**kwargs` в `co_varnames`.
 
 ## 5. Распаковка *args/**kwargs в фрейме выполнения
@@ -1063,7 +1064,7 @@ static PyObject *fast_function(PyFunctionObject *func, PyObject ***pp_stack,
 }
 ```
 
-**Объяснение для людей:** При входе в `def f(a, *args, **kwargs):` интерпретатор кладёт `a=args[0]`,
+При входе в `def f(a, *args, **kwargs):` интерпретатор кладёт `a=args[0]`,
 `*args=tuple(args[1:])`, `**kwargs=dict(kw)` в локальные переменные фрейма.
 
 ## 6. PyFrameObject: хранение args/kwargs
@@ -1081,7 +1082,7 @@ typedef struct _PyFrameObject {
 } PyFrameObject;
 ```
 
-**Объяснение для людей:** `f_localsplus[]` — массив всех локальных переменных. `f_localsplus[0]="a"`,
+`f_localsplus[]` — массив всех локальных переменных. `f_localsplus[0]="a"`,
 `f_localsplus[1]="args"`, `f_localsplus[2]="b"`, `f_localsplus[3]="kwargs"`.
 
 ## 7. Вызов с распаковкой: f(*args, **kwargs)
@@ -1121,7 +1122,7 @@ case CALL_FUNCTION_KW: {
 }
 ```
 
-**Объяснение для людей:** `*lst` распаковывается в позиционные аргументы, `**dct` → кортеж имен (
+`*lst` распаковывается в позиционные аргументы, `**dct` → кортеж имен (
 `kwnames=("key1", "key2")`) + значения. Передаются в vectorcall.
 
 `*args`/**kwargs** в CPython — это флаги `CO_VARARGS`/`CO_VARKEYWORDS` в `PyCodeObject`, распаковка в `f_localsplus[]`
@@ -1184,7 +1185,7 @@ typedef struct {
 } PyDictObject;
 ```
 
-**Объяснение для людей:** Словарь = счетчик занятых слотов + версия + общие ключи + массив значений. `ma_used` считает
+Словарь = счетчик занятых слотов + версия + общие ключи + массив значений. `ma_used` считает
 пары, а не слоты хеш-таблицы.
 
 ## 2. PyDictKeysObject - shared keys
@@ -1204,7 +1205,7 @@ typedef struct _dictkeysobject {
 } PyDictKeysObject;
 ```
 
-**Объяснение для людей:** `PyDictKeysObject` содержит хеш-таблицу индексов + сами ключи. Может быть **общим** для многих
+`PyDictKeysObject` содержит хеш-таблицу индексов + сами ключи. Может быть **общим** для многих
 словарей одной структуры (экономия памяти на классах).
 
 ## 3. Индексы в хеш-таблице (dk_indices)
@@ -1217,7 +1218,7 @@ typedef struct _dictkeysobject {
 // 0xFFFF       - не используется
 ```
 
-**Объяснение для людей:** Каждый слот хеш-таблицы — это **8-битный индекс** (int8_t): 0=пусто, 255=удалено,
+Каждый слот хеш-таблицы — это **8-битный индекс** (int8_t): 0=пусто, 255=удалено,
 1-254=указатель на запись с ключом.
 
 ## 4. lookdict_unicode - основной поиск (unicode ключи)
@@ -1271,7 +1272,7 @@ static PyDictKeyEntry *lookdict_unicode(PyDictKeysObject *keys,
 }
 ```
 
-**Объяснение для людей:** Вычисляем `hash(key) % размер`. Если слот пустой — останавливаемся. Если занят — проверяем
+Вычисляем `hash(key) % размер`. Если слот пустой — останавливаемся. Если занят — проверяем
 ключ. Если не наш — делаем **робин-худ шаг** `(i*5 + 1 + perturb) % size`, пока не найдём или не упрёмся в пустой слот.
 
 ## 5. Вставка: insertdict()
@@ -1325,7 +1326,7 @@ static int insertdict(PyDictObject *mp, PyObject *key, Py_ssize_t hash,
 }
 ```
 
-**Объяснение для людей:** Ищем место через lookdict. Если ключ есть — меняем значение. Если таблица заполнена на 2/3 —
+Ищем место через lookdict. Если ключ есть — меняем значение. Если таблица заполнена на 2/3 —
 удваиваем размер. Копируем ключ/значение (+refcnt).
 
 ## 6. Resize: make_keys_object()
@@ -1364,7 +1365,7 @@ static int make_keys_object(PyDictObject *mp, Py_ssize_t newsize) {
 }
 ```
 
-**Объяснение для людей:** При 2/3 заполнении создаём новую таблицу вдвое больше, перехешируем **все** элементы заново,
+При 2/3 заполнении создаём новую таблицу вдвое больше, перехешируем **все** элементы заново,
 атомарно меняем указатель `ma_keys`.
 
 ## 7. Атомарные операции (Python 3.9+)
@@ -1386,7 +1387,7 @@ static inline void split_keys_entry_added(PyDictKeysObject *keys) {
 }
 ```
 
-**Объяснение для людей:** В многопоточной среде (GIL released) индексы `dk_indices[]` обновляются атомарно. `release`
+В многопоточной среде (GIL released) индексы `dk_indices[]` обновляются атомарно. `release`
 гарантирует видимость изменений.
 
 ## 8. Shared keys для классов (экономия памяти)
@@ -1404,7 +1405,7 @@ PyObject *PyDict_FromKeys(PyObject *keys, PyObject *values) {
 }
 ```
 
-**Объяснение для людей:** Все экземпляры класса `class C:` делят один `PyDictKeysObject` с одинаковыми именами
+Все экземпляры класса `class C:` делят один `PyDictKeysObject` с одинаковыми именами
 атрибутов. Значения хранятся отдельно в `ma_values[]`.
 
 ## 9. Байткод: DICT_MERGE (PEP 584, 3.9+)
@@ -1427,7 +1428,7 @@ case DICT_MERGE: {
 }
 ```
 
-**Объяснение для людей:** `d1 |= d2` вызывает `_PyDict_MergeEx` (атомарное объединение с приоритетом правого словаря).
+`d1 |= d2` вызывает `_PyDict_MergeEx` (атомарное объединение с приоритетом правого словаря).
 
 **Хеш-таблица** в CPython 3.9+ — **split table** (`PyDictKeysObject` + `ma_values[]`), **робин-худ хеширование**, *
 *атомарные индексы**, **shared keys** для классов, resize при 2/3 load factor, vectorcall поддержка.
@@ -1594,7 +1595,7 @@ typedef struct {
 } PyCFunctionObject;
 ```
 
-**Объяснение для людей:** Встроенная функция `len()` в памяти — это 64-байт структура: заголовок + указатель на
+Встроенная функция `len()` в памяти — это 64-байт структура: заголовок + указатель на
 C-функцию `len_func` + `__module__="builtins"`. `vectorcall` — быстрый путь вызова без tuple.
 
 ## 2. PyMethodDef - таблица встроенных функций
@@ -1672,7 +1673,7 @@ static PyMethodDef builtin_functions[] = {
 };
 ```
 
-**Объяснение для людей:** Это **таблица методов** — массив структур `{имя, C_функция, флаги, docstring}`. `builtin_len`
+Это **таблица методов** — массив структур `{имя, C_функция, флаги, docstring}`. `builtin_len`
 принимает METH_O (1 аргумент). Регистрируется в `__builtins__`.
 
 ## 3. Регистрация в bltinmodule.c: builtinmodule_exec
@@ -1731,7 +1732,7 @@ static int builtin_add_funcs(PyObject *mod_dict, PyMethodDef *functions) {
 }
 ```
 
-**Объяснение для людей:** `PyInit_builtins()` создаёт модуль `builtins`, проходит по таблице `builtin_functions[]`,
+`PyInit_builtins()` создаёт модуль `builtins`, проходит по таблице `builtin_functions[]`,
 вызывает `PyCFunction_NewEx` (создаёт PyCFunctionObject для каждой функции), кладёт в `__dict__` модуля как `len`,
 `print`, `abs`.
 
@@ -1793,7 +1794,7 @@ static PyObject *cfunction_vectorcall_FASTCALL(
 }
 ```
 
-**Объяснение для людей:** `len(obj)` → `cfunction_vectorcall_FASTCALL` → `builtin_len(NULL, obj)` → C-функция получает
+`len(obj)` → `cfunction_vectorcall_FASTCALL` → `builtin_len(NULL, obj)` → C-функция получает
 `self=NULL`, `arg=obj`. Без создания tuple/list — **максимальная скорость**.
 
 ## 6. builtin_len - реализация len()
@@ -1840,7 +1841,7 @@ Py_ssize_t PyObject_Length(PyObject *o) {
 }
 ```
 
-**Объяснение для людей:** `len(lst)` → `PyObject_Length(lst)` → `PyList_Type.tp_as_sequence->sq_length(lst)` →
+`len(lst)` → `PyObject_Length(lst)` → `PyList_Type.tp_as_sequence->sq_length(lst)` →
 `list_length()` возвращает `self->ob_size`. Если нет `sq_length` — пробует `__len__()`.
 
 ## 7. list_length - sq_length для PyListObject
@@ -1851,7 +1852,7 @@ static Py_ssize_t list_length(PyListObject *self) {
 }
 ```
 
-**Объяснение для людей:** `len([1,2,3])` возвращает `ob_size=3` из заголовка PyVarObject. **Мгновенно** — поле в самом
+`len([1,2,3])` возвращает `ob_size=3` из заголовка PyVarObject. **Мгновенно** — поле в самом
 объекте.
 
 ## 8. Байткод: LOAD_GLOBAL -> builtins.len
@@ -1894,7 +1895,7 @@ case LOAD_GLOBAL: {
 }
 ```
 
-**Объяснение для людей:** `LOAD_GLOBAL len` ищет имя `"len"` сначала в `globals()`, потом в `builtins`. Находит
+`LOAD_GLOBAL len` ищет имя `"len"` сначала в `globals()`, потом в `builtins`. Находит
 PyCFunctionObject, увеличивает refcnt, кладёт на стек.
 
 ## 9. Vectorcall диспетчеризация (3.9+)
@@ -1919,7 +1920,7 @@ PyObject *_PyObject_Vectorcall(PyObject *callable,
 }
 ```
 
-**Объяснение для людей:** `CALL 1` → `_PyObject_Vectorcall(len_obj, [lst], 1, NULL)` → `_PyCFunction_Vectorcall` →
+`CALL 1` → `_PyObject_Vectorcall(len_obj, [lst], 1, NULL)` → `_PyCFunction_Vectorcall` →
 `builtin_len(NULL, lst)`. **Без tuple создания**.
 
 **Встроенные функции** в CPython 3.9+ — **PyCFunctionObject** из `bltinmodule.c`, **vectorcall** (METH_FASTCALL) для
@@ -2067,7 +2068,7 @@ with open('a.txt') as f1, open('b.txt', 'w') as f2:
  24 RETURN_VALUE
 ```
 
-**Объяснение для людей:** `BEFORE_WITH` вызывает `__enter__`, `STORE_FAST` сохраняет результат в `var`.
+`BEFORE_WITH` вызывает `__enter__`, `STORE_FAST` сохраняет результат в `var`.
 `WITH_EXCEPT_START` вызывает `__exit__(exc_type, exc_val, tb)` при выходе/исключении.
 
 ## 2. BEFORE_WITH байткод (ceval.c)
@@ -2102,7 +2103,7 @@ case BEFORE_WITH: {
 }
 ```
 
-**Объяснение для людей:** `BEFORE_WITH` ищет `ctx.__enter__()` через `_PyObject_LookupSpecial` (быстрый поиск по MRO),
+`BEFORE_WITH` ищет `ctx.__enter__()` через `_PyObject_LookupSpecial` (быстрый поиск по MRO),
 вызывает без аргументов, кладёт результат на стек вместо `ctx`.
 
 ## 3. WITH_EXCEPT_START - вызов __exit__
@@ -2138,7 +2139,7 @@ case WITH_EXCEPT_START: {
 }
 ```
 
-**Объяснение для людей:** При исключении/выходе из `with` берём сохранённое `(exc_type, exc_val, tb)`, вызываем
+При исключении/выходе из `with` берём сохранённое `(exc_type, exc_val, tb)`, вызываем
 `__exit__(exc_info)`, если возвращает `True` — **подавляем** исключение.
 
 ## 4. SETUP_WITH (SETUP_FINALLY + PUSH_EXC_INFO)
@@ -2173,7 +2174,7 @@ case SETUP_WITH: {
 }
 ```
 
-**Объяснение для людей:** Создаёт пустой tuple `(None,None,None)` для будущего исключения, ищет `__exit__`, кладёт оба
+Создаёт пустой tuple `(None,None,None)` для будущего исключения, ищет `__exit__`, кладёт оба
 на стек. `oparg` указывает offset до `PUSH_EXC_INFO`.
 
 ## 5. PUSH_EXC_INFO - захват исключения
@@ -2221,7 +2222,7 @@ _PyObject_LookupSpecial(PyObject *obj, struct _Py_Identifier *id) {
 }
 ```
 
-**Объяснение для людей:** Ищет `__enter__`/`__exit__` **только в типе**, не в `__dict__` экземпляра (быстрее).
+Ищет `__enter__`/`__exit__` **только в типе**, не в `__dict__` экземпляра (быстрее).
 Использует MRO + дескрипторный протокол.
 
 ## 7. contextlib.contextmanager (генераторный декоратор)
@@ -2256,7 +2257,7 @@ class _GeneratorContextManager:
         self.gen.close()  # Генераторный cleanup
 ```
 
-**Объяснение для людей:** `@contextmanager` оборачивает генератор в класс с `__enter__` (next(gen)) и `__exit__` (
+`@contextmanager` оборачивает генератор в класс с `__enter__` (next(gen)) и `__exit__` (
 gen.close()). `yield f` становится значением `as var`.
 
 ## 8. file.__enter__/__exit__ (пример)
@@ -2287,7 +2288,7 @@ io_FileIO___exit__(PyFileIOObject *self, PyObject *args) {
 }
 ```
 
-**Объяснение для людей:** `open('file.txt')` возвращает PyFileIOObject. `__enter__` просто +refcnt, `__exit__` вызывает
+`open('file.txt')` возвращает PyFileIOObject. `__enter__` просто +refcnt, `__exit__` вызывает
 `f.close()`.
 
 **Контекстные менеджеры** в CPython 3.9+ — байткоды `BEFORE_WITH` (вызов `__enter__`), `WITH_EXCEPT_START` (вызов
@@ -2437,7 +2438,7 @@ typedef struct {
 } PyGenObject;
 ```
 
-**Объяснение для людей:** Генератор — это **замороженный фрейм** выполнения. `gi_frame` указывает, где остановились (
+Генератор — это **замороженный фрейм** выполнения. `gi_frame` указывает, где остановились (
 после `yield`). `gi_running` — мьютекс, чтобы не запускать параллельно.
 
 ## 2. Создание генератора: MAKE_FUNCTION + CALL_FUNCTION
@@ -2462,7 +2463,7 @@ g = gen()  # Создаётся PyGenObject
  14 RETURN_GENERATOR         # Завершаем генератор
 ```
 
-**Объяснение для людей:** `CALL_FUNCTION gen()` создаёт PyGenObject с `FRAME_CREATED`. Первый `next(g)` → `RESUME 0`
+`CALL_FUNCTION gen()` создаёт PyGenObject с `FRAME_CREATED`. Первый `next(g)` → `RESUME 0`
 запускает до первого `YIELD_VALUE`.
 
 ## 3. YIELD_VALUE байткод (ceval.c)
@@ -2493,7 +2494,7 @@ case YIELD_VALUE: {
 }
 ```
 
-**Объяснение для людей:** `YIELD_VALUE 1` берёт `1` со стека, сохраняет в фрейме, возвращает **сам генератор**
+`YIELD_VALUE 1` берёт `1` со стека, сохраняет в фрейме, возвращает **сам генератор**
 вызывающему. Устанавливает **внутреннее** StopIteration с значением `1`.
 
 ## 4. next(gen) → gen_send(NULL) → RESUME
@@ -2554,7 +2555,7 @@ static PyObject *gen_send_ex(PyGenObject *gen, PyObject *arg, int exc) {
 }
 ```
 
-**Объяснение для людей:** `next(g)` → `gen_send_ex(g, Py_None, 0)`: берёт фрейм из `gi_frame`, кладёт `Py_None` на
+`next(g)` → `gen_send_ex(g, Py_None, 0)`: берёт фрейм из `gi_frame`, кладёт `Py_None` на
 стек (как "результат предыдущего yield"), запускает `_PyEvaluator_RunFrame` до следующего `YIELD_VALUE`.
 
 ## 5. _PyInterpreterFrame состояния (3.11+)
@@ -2574,7 +2575,7 @@ enum _PyFrame_Status {
     ((f)->frame_flags = FRAME_READY)
 ```
 
-**Объяснение для людей:** Фрейм имеет **4 состояния**. После `yield` → `FRAME_SUSPENDED`. `RESUME oparg` восстанавливает
+Фрейм имеет **4 состояния**. После `yield` → `FRAME_SUSPENDED`. `RESUME oparg` восстанавливает
 выполнение с правильного PC (program counter).
 
 ## 6. RESUME байткод - восстановление генератора
@@ -2612,7 +2613,7 @@ case RESUME: {
 }
 ```
 
-**Объяснение для людей:** `RESUME 0` — первый запуск (до первого yield). `RESUME 1` — возобновление после yield.
+`RESUME 0` — первый запуск (до первого yield). `RESUME 1` — возобновление после yield.
 Проверяет `gi_running != Py_None` (защита от race condition).
 
 ## 7. Итераторы: tp_iter/tp_iternext протокол
@@ -2641,7 +2642,7 @@ static PyObject *list_iter_next(PyListIterObject *it) {
 }
 ```
 
-**Объяснение для людей:** `for x in lst:` → `lst.__iter__()` → PyListIterObject с `it_index=0`. Каждый `tp_iternext`
+`for x in lst:` → `lst.__iter__()` → PyListIterObject с `it_index=0`. Каждый `tp_iternext`
 возвращает `lst.ob_item[it_index++]` до конца.
 
 ## 8. PyObject_GetIter - универсальный итератор
@@ -2682,7 +2683,7 @@ PyObject *PyObject_GetIter(PyObject *obj) {
 }
 ```
 
-**Объяснение для людей:** `iter(lst)` → `PyList_Type.tp_iter(lst)` → PyListIterObject. Если нет `tp_iter` — вызывает
+`iter(lst)` → `PyList_Type.tp_iter(lst)` → PyListIterObject. Если нет `tp_iter` — вызывает
 `obj.__iter__()`.
 
 **Генераторы/итераторы** в CPython 3.9+ — **PyGenObject** с **замороженным _PyInterpreterFrame**, состояния
@@ -2775,7 +2776,7 @@ typedef struct {
 } PyFunctionObject;
 ```
 
-**Объяснение для людей:** Функция с замыканием содержит `func_closure` — массив **ячеек** (PyCellObject), ссылающихся на
+Функция с замыканием содержит `func_closure` — массив **ячеек** (PyCellObject), ссылающихся на
 переменные внешней функции. `func_nfreevars` говорит, сколько их.
 
 ## 2. PyCellObject - "ячейка" замыкания
@@ -2787,7 +2788,7 @@ typedef struct {
 } PyCellObject;
 ```
 
-**Объяснение для людей:** **Ячейка** — это обёртка над PyObject*. Внешняя функция пишет `x=42` →
+**Ячейка** — это обёртка над PyObject*. Внешняя функция пишет `x=42` →
 `PyCell_SET(cell, PyLong(42))`. Внутренняя читает `PyCell_GET(cell)`.
 
 ## 3. PyCodeObject: cellvars/freevars (компиляция)
@@ -2801,7 +2802,7 @@ typedef struct _PyCodeObject {
 } PyCodeObject;
 ```
 
-**Объяснение для людей:** Компилятор помечает переменные: `co_cellvars` — в **внешней** функции (нужны для вложенных),
+Компилятор помечает переменные: `co_cellvars` — в **внешней** функции (нужны для вложенных),
 `co_freevars` — в **внутренней** (ссылается на внешние).
 
 **Пример компиляции:**
@@ -2845,7 +2846,7 @@ inner.__closure__              # (<cell at 0x...: int object at 0x...>,)
   2 RETURN_VALUE                    # return x
 ```
 
-**Объяснение для людей:** `STORE_DEREF 0` пишет в ячейку #0. `LOAD_CLOSURE 0` берёт **саму ячейку**,
+`STORE_DEREF 0` пишет в ячейку #0. `LOAD_CLOSURE 0` берёт **саму ячейку**,
 `BUILD_TUPLE/MAKE_CLOSURE` создаёт функцию с `func_closure=(cell0,)`. `LOAD_DEREF 0` внутри читает из той же ячейки.
 
 ## 5. LOAD_CLOSURE байткод (ceval.c)
@@ -2864,7 +2865,7 @@ case LOAD_CLOSURE: {
 }
 ```
 
-**Объяснение для людей:** `LOAD_CLOSURE 0` берёт ячейку из массива замыкания функции (`func_closure[0]`), кладёт *
+`LOAD_CLOSURE 0` берёт ячейку из массива замыкания функции (`func_closure[0]`), кладёт *
 *ячейку** на стек (не значение!).
 
 ## 6. STORE_DEREF / LOAD_DEREF (ceval.c)
@@ -2899,7 +2900,7 @@ case LOAD_DEREF: {
 }
 ```
 
-**Объяснение для людей:** `STORE_DEREF` берёт значение со стека → `PyCell_SET(cell, value)` (меняет `cell->ob_ref`).
+`STORE_DEREF` берёт значение со стека → `PyCell_SET(cell, value)` (меняет `cell->ob_ref`).
 `LOAD_DEREF` берёт `PyCell_GET(cell)` → значение на стек.
 
 ## 7. MAKE_CLOSURE байткод (ceval.c)
@@ -2929,7 +2930,7 @@ case MAKE_CLOSURE: {
 }
 ```
 
-**Объяснение для людей:** `MAKE_CLOSURE 1` берёт `(cell0,)`, PyCodeObject → создаёт PyFunctionObject →
+`MAKE_CLOSURE 1` берёт `(cell0,)`, PyCodeObject → создаёт PyFunctionObject →
 `func_closure=(cell0,)`, `func_nfreevars=1`.
 
 ## 8. PyCellObject операции
@@ -2960,7 +2961,7 @@ PyObject *PyCell_Get(PyObject *cell) {
 }
 ```
 
-**Объяснение для людей:** `PyCell_Set(cell, 42)` → `cell->ob_ref = PyLong(42)`. `PyCell_Get(cell)` → возвращает
+`PyCell_Set(cell, 42)` → `cell->ob_ref = PyLong(42)`. `PyCell_Get(cell)` → возвращает
 `cell->ob_ref` или UnboundLocalError.
 
 ## 9. Компиляция декоратора (compile.c)
@@ -2981,7 +2982,7 @@ if (name in enclosing_cellvars) {
 }
 ```
 
-**Объяснение для людей:** Компилятор сканирует AST: если `inner()` читает `x` из `outer()` → `x` становится **cellvar**
+Компилятор сканирует AST: если `inner()` читает `x` из `outer()` → `x` становится **cellvar**
 во внешней, **freevar** во внутренней.
 
 ## 10. Декоратор: @decorator(f)
@@ -3015,7 +3016,7 @@ CALL_FUNCTION     1
 STORE_NAME        f
 ```
 
-**Объяснение для людей:** Декоратор — это **функция**, возвращающая **другую функцию** с замыканием на оригинальную
+Декоратор — это **функция**, возвращающая **другую функцию** с замыканием на оригинальную
 `func`. `@decorator` → `decorator(f)` во время выполнения модуля.
 
 **Декораторы/замыкания** в CPython 3.9+ — **PyCellObject** (`ob_ref`), `co_cellvars`/`co_freevars`, байткоды
@@ -3114,7 +3115,7 @@ struct _gil_runtime_state {
 };
 ```
 
-**Объяснение для людей:** GIL — это **один глобальный мьютекс** + **счётчик рекурсии** (один поток может захватить много
+GIL — это **один глобальный мьютекс** + **счётчик рекурсии** (один поток может захватить много
 раз). `owner` — ID потока, который держит GIL.
 
 ## 2. PyEval_AcquireLock / take_gil() — захват GIL
@@ -3153,7 +3154,7 @@ static void take_gil(PyThreadState *tstate) {
 }
 ```
 
-**Объяснение для людей:** Поток проверяет `gil->locked` атомарно. Если 1 — **ждёт** на condition variable. Захватывает →
+Поток проверяет `gil->locked` атомарно. Если 1 — **ждёт** на condition variable. Захватывает →
 `locked=1`, `owner=мой_ID`, `tstate->holds_gil=1`.
 
 ## 3. PyEval_ReleaseLock / drop_gil() — освобождение GIL
@@ -3196,7 +3197,7 @@ static void drop_gil(PyInterpreterState *interp, PyThreadState *tstate, int fina
 }
 ```
 
-**Объяснение для людей:** `--recursion_count`. Если >0 — остаёмся владельцем. Иначе `holds_gil=0`, `locked=0`, **будим
+`--recursion_count`. Если >0 — остаёмся владельцем. Иначе `holds_gil=0`, `locked=0`, **будим
 ВСЕ** ждущие потоки (`broadcast`).
 
 ## 4. Автоматический drop_gil в ceval.c (каждые N инструкций)
@@ -3220,7 +3221,7 @@ frame_insn_counter(PyThreadState *tstate, _PyInterpreterFrame *frame) {
 }
 ```
 
-**Объяснение для людей:** Каждые ~1000 инструкций байткода проверяется `gilstate_counter`. Если 0 — **drop_gil() +
+Каждые ~1000 инструкций байткода проверяется `gilstate_counter`. Если 0 — **drop_gil() +
 take_gil()** (шанс другому потоку).
 
 ## 5. PyGILState_Ensure/Release — C API
@@ -3263,7 +3264,7 @@ void PyGILState_Release(PyGILState_STATE oldstate) {
 }
 ```
 
-**Объяснение для людей:** C-расширения вызывают `PyGILState_Ensure()` → атомарно `++gilstate_counter`. Если был -1 →
+C-расширения вызывают `PyGILState_Ensure()` → атомарно `++gilstate_counter`. Если был -1 →
 захват GIL. `Release()` → `--counter`, если 0 → drop_gil.
 
 ## 6. Per-interpreter GIL (PEP 684, 3.12+)
@@ -3283,7 +3284,7 @@ PyInterpreterState *PyInterpreterState_New(void) {
 }
 ```
 
-**Объяснение для людей:** **PEP 684**: каждый subinterpreter имеет **свой GIL**. `Py_NewInterpreter()` создаёт отдельный
+**PEP 684**: каждый subinterpreter имеет **свой GIL**. `Py_NewInterpreter()` создаёт отдельный
 `interp->ceval.gil`.
 
 ## 7. Free-threaded CPython (PEP 703, 3.13+)
@@ -3301,7 +3302,7 @@ static inline void take_gil(PyThreadState *tstate) {
 #endif
 ```
 
-**Объяснение для людей:** `--disable-gil` компиляция: `gil->enabled=0`. Захват/освобождение — **no-op**. Потоки работают
+`--disable-gil` компиляция: `gil->enabled=0`. Захват/освобождение — **no-op**. Потоки работают
 **параллельно**.
 
 ## 8. Eval breaker integration
@@ -3317,7 +3318,7 @@ void _PyEval_SignalAsyncioEventLoop(PyThreadState *tstate) {
 }
 ```
 
-**Объяснение для людей:** `asyncio`/`signal` сигнализируют через `eval_breaker`. Если держим GIL — бит
+`asyncio`/`signal` сигнализируют через `eval_breaker`. Если держим GIL — бит
 `_PY_EVAL_BREAKER_DROP_GIL` → следующий `drop_gil()` прерывается.
 
 ## 9. Байткод без GIL (3.13 free-threaded)
@@ -3338,7 +3339,7 @@ case LOAD_GLOBAL: {
 }
 ```
 
-**Объяснение для людей:** Free-threaded использует **атомарные** `PyDict_LookupWithCache`. GIL версия — обычный поиск.
+Free-threaded использует **атомарные** `PyDict_LookupWithCache`. GIL версия — обычный поиск.
 
 **GIL** в CPython 3.9+ — **_gil_runtime_state** (`mutex + recursion_count`), **take_gil/drop_gil**, **PyGILState_Ensure
 ** (C API), **per-interp GIL** (3.12), **free-threaded** (`Py_GIL_DISABLED`, 3.13).
@@ -3405,7 +3406,7 @@ typedef struct {
 } PyListIterObject;
 ```
 
-**Объяснение для людей:** Итератор списка копирует `list->ob_version` при создании. Каждый `next()` проверяет версии —
+Итератор списка копирует `list->ob_version` при создании. Каждый `next()` проверяет версии —
 если список изменился → **RuntimeError**.
 
 ## 2. list_iter_next() - проверка версии
@@ -3432,7 +3433,7 @@ static PyObject *list_iter_next(PyListIterObject *it) {
 }
 ```
 
-**Объяснение для людей:** Перед чтением элемента сравниваем `it_version` (копия при создании) с `list->ob_version` (
+Перед чтением элемента сравниваем `it_version` (копия при создании) с `list->ob_version` (
 текущее). Изменился → **мгновенный RuntimeError**.
 
 ## 3. list_ob_version - счётчик изменений PyListObject
@@ -3462,7 +3463,7 @@ static int list_append(PyListObject *self, PyObject *v) {
 }
 ```
 
-**Объяснение для людей:** **Любое** изменение списка (`append`, `pop`, `del lst[i]`, `lst[i]=x`) → `self->ob_version++`.
+**Любое** изменение списка (`append`, `pop`, `del lst[i]`, `lst[i]=x`) → `self->ob_version++`.
 Итератор видит несоответствие → **RuntimeError**.
 
 ## 4. PyDictObject ma_version_tag (3.9+ split table)
@@ -3476,7 +3477,7 @@ typedef struct {
 } PyDictObject;
 ```
 
-**Объяснение для людей:** Словарь имеет **64-битный атомарный** `ma_version_tag`. Изменение (set/del) →
+Словарь имеет **64-битный атомарный** `ma_version_tag`. Изменение (set/del) →
 `DICT_NEXT_VERSION()` (вероятно `++`).
 
 ## 5. dict_iter_next() - проверка версии словаря
@@ -3503,7 +3504,7 @@ static PyObject *dict_iter_next(PyDictIterObject *iter) {
 }
 ```
 
-**Объяснение для людей:** `for k in d:` создаёт PyDictIterObject с копией `d->ma_version_tag`. Каждый `next()` проверяет
+`for k in d:` создаёт PyDictIterObject с копией `d->ma_version_tag`. Каждый `next()` проверяет
 версии → **"dictionary changed size"**.
 
 ## 6. DICT_NEXT_VERSION() - обновление версии
@@ -3523,7 +3524,7 @@ static int insertdict(PyDictObject *mp, PyObject *key, Py_ssize_t hash, PyObject
 }
 ```
 
-**Объяснение для людей:** **Любое** изменение словаря (`d[k]=v`, `del d[k]`, `d.clear()`) → атомарное
+**Любое** изменение словаря (`d[k]=v`, `del d[k]`, `d.clear()`) → атомарное
 `ma_version_tag = global_dict_version++`. Итератор видит → **RuntimeError**.
 
 ## 7. PySetObject версия (аналогично dict)
@@ -3547,7 +3548,7 @@ static PyObject *set_iter_next(PySetIterObject *setiter) {
 }
 ```
 
-**Объяснение для людей:** Множества работают **идентично** словарям: `version_tag`, проверка в итераторе → **"set
+Множества работают **идентично** словарям: `version_tag`, проверка в итераторе → **"set
 changed size during iteration"**.
 
 ## 8. Tuple/String итераторы (без проверок)
@@ -3571,7 +3572,7 @@ static PyObject *tupleiter_next(PyTupleIterObject *it) {
 }
 ```
 
-**Объяснение для людей:** **Неизменяемые** типы (tuple, str, bytes) **НЕ** проверяют версию — они **физически** не могут
+**Неизменяемые** типы (tuple, str, bytes) **НЕ** проверяют версию — они **физически** не могут
 измениться.
 
 ## 9. Создание итератора: PyObject_GetIter()
@@ -3601,7 +3602,7 @@ PyObject *PyObject_GetIter(PyObject *obj) {
 }
 ```
 
-**Объяснение для людей:** `iter(lst)` → PyListIterObject → `it_version = lst->ob_version`. **Любое** изменение списка →
+`iter(lst)` → PyListIterObject → `it_version = lst->ob_version`. **Любое** изменение списка →
 `lst->ob_version++` → итератор **ломается**.
 
 ## 10. Байткод: GET_ITER → FOR_ITER
@@ -3645,7 +3646,7 @@ case FOR_ITER: {
 }
 ```
 
-**Объяснение для людей:** `FOR_ITER` вызывает `it->tp_iternext()` → проверка версии → RuntimeError или значение.
+`FOR_ITER` вызывает `it->tp_iternext()` → проверка версии → RuntimeError или значение.
 StopIteration → **нормальный** конец цикла.
 
 ## 11. Пользовательский итератор с __iter__/__next__
@@ -3661,7 +3662,7 @@ static PyObject *myiter_next(MyIterObject *self) {
 }
 ```
 
-**Объяснение для людей:** Пользовательские классы **могут** проверять версии в `__next__()`.
+Пользовательские классы **могут** проверять версии в `__next__()`.
 
 **Изменение коллекции** в CPython 3.9+ детектируется **version tag** (`ob_version`/`ma_version_tag`) в
 PyListObject/PyDictObject + проверкой в `tp_iternext()` итераторов → **RuntimeError** при несоответствии.
@@ -3761,7 +3762,7 @@ long symtable_lookup(struct symtable *st, PyObject *name) {
 }
 ```
 
-**Объяснение для людей:** Компилятор создаёт таблицу символов для каждой функции/класса/модуля. Для каждого имени `x`
+Компилятор создаёт таблицу символов для каждой функции/класса/модуля. Для каждого имени `x`
 вычисляет флаги: LOCAL (в `f_localsplus`), GLOBAL, FREE (замыкание), GLOBAL_IMPLICIT (глобал по умолчанию).
 
 ## 2. compiler_symbol_table() - генерация флагов (compile.c)
@@ -3796,7 +3797,7 @@ compiler_symbol_table(struct compiler *c, stmt_ty s) {
 }
 ```
 
-**Объяснение для людей:** Компилятор проходит по AST, собирает все `x=1`, `for x in y`, `def f(x):`. Затем
+Компилятор проходит по AST, собирает все `x=1`, `for x in y`, `def f(x):`. Затем
 `symtable_analyze()` решает: LOCAL (в locals), FREE (замыкание), GLOBAL.
 
 ## 3. LOAD_FAST - самый быстрый (ceval.c)
@@ -3818,7 +3819,7 @@ case LOAD_FAST: {
 }
 ```
 
-**Объяснение для людей:** `LOAD_FAST 3` = `f_localsplus[3]` (массив указателей в фрейме). **Мгновенно** — без
+`LOAD_FAST 3` = `f_localsplus[3]` (массив указателей в фрейме). **Мгновенно** — без
 хеш-таблиц/поиска/MRO. Только проверка NULL.
 
 ## 4. LOAD_NAME - локал/глобал/встроенный (ceval.c)
@@ -3873,7 +3874,7 @@ case LOAD_NAME: {
 }
 ```
 
-**Объяснение для людей:** `LOAD_NAME "x"` → **3 поиска**: locals dict → globals dict → builtins dict. **Кеш** `co_namei`
+`LOAD_NAME "x"` → **3 поиска**: locals dict → globals dict → builtins dict. **Кеш** `co_namei`
 ускоряет (опарг → индекс в `co_varnames`).
 
 ## 5. LOAD_GLOBAL - только глобал/встроенный (ceval.c)
@@ -3923,7 +3924,7 @@ case LOAD_GLOBAL: {
 }
 ```
 
-**Объяснение для людей:** `LOAD_GLOBAL "print"` → **только** globals + builtins (НЕ locals). **Двойной кеш** (16 бит): 8
+`LOAD_GLOBAL "print"` → **только** globals + builtins (НЕ locals). **Двойной кеш** (16 бит): 8
 бит глобал + 8 бит builtin индекс.
 
 ## 6. LOAD_DEREF - замыкание/ nonlocal (ceval.c)
@@ -3960,7 +3961,7 @@ case STORE_DEREF: {
 }
 ```
 
-**Объяснение для людей:** `LOAD_DEREF 0` → `func_closure[0]->ob_ref` (значение ячейки). `STORE_DEREF 0` →
+`LOAD_DEREF 0` → `func_closure[0]->ob_ref` (значение ячейки). `STORE_DEREF 0` →
 `func_closure[0]->ob_ref = value`.
 
 ## 7. compiler_lookup_name() - выбор опкода (compile.c)
@@ -4009,7 +4010,7 @@ compiler_lookup_name(struct compiler *c, location loc, identifier name,
 }
 ```
 
-**Объяснение для людей:** Компилятор по флагам символа генерирует **правильный** опкод: LOCAL→FAST, FREE→DEREF,
+Компилятор по флагам символа генерирует **правильный** опкод: LOCAL→FAST, FREE→DEREF,
 GLOBAL→GLOBAL, остальное→NAME.
 
 ## 8. f_localsplus - универсальный массив (3.11+)
@@ -4026,7 +4027,7 @@ struct _PyInterpreterFrame {
 #define GETCLOSURE(i) (frame->localsplus[frame->f_lasti + (i)])
 ```
 
-**Объяснение для людей:** **Единый массив** `localsplus[]`: сначала параметры/локальные (`co_varnames`), потом ячейки (
+**Единый массив** `localsplus[]`: сначала параметры/локальные (`co_varnames`), потом ячейки (
 `co_cellvars`), потом свободные (`co_freevars`). `LOAD_FAST 0` = `localsplus[0]`.
 
 ## 9. Кеш LOAD_NAME/LOAD_GLOBAL (co_opcache)
@@ -4039,7 +4040,7 @@ typedef struct _PyCodeObject {
 } PyCodeObject;
 ```
 
-**Объяснение для людей:** `co_opcache[oparg]` хранит **индекс** в `co_varnames` или хеш для globals/builtins. Промах →
+`co_opcache[oparg]` хранит **индекс** в `co_varnames` или хеш для globals/builtins. Промах →
 полный поиск.
 
 **Области видимости** в CPython 3.9+ — **symtable** (флаги DEF_*), компилятор → `LOAD_FAST`/`LOAD_NAME`/`LOAD_GLOBAL`/
@@ -4142,7 +4143,7 @@ error:
 }
 ```
 
-**Объяснение для людей:** `lambda x: x+1` → компилятор создаёт **отдельный scope** с именем `<lambda>`, компилирует тело
+`lambda x: x+1` → компилятор создаёт **отдельный scope** с именем `<lambda>`, компилирует тело
 `x+1` в PyCodeObject, генерирует `MAKE_FUNCTION 0 + LOAD_CONST(code)`.
 
 ## 2. Байткод lambda x: x + 1
@@ -4174,7 +4175,7 @@ result = lambda_func(42)
  10 CALL                 1          # lambda_func(42)
 ```
 
-**Объяснение для людей:** Lambda — **обычная функция** с **автогенерированным** PyCodeObject `<lambda>`.
+Lambda — **обычная функция** с **автогенерированным** PyCodeObject `<lambda>`.
 `MAKE_FUNCTION 0` = без параметров/замыканий.
 
 ## 3. MAKE_FUNCTION 0 байткод (ceval.c)
@@ -4210,7 +4211,7 @@ case MAKE_FUNCTION: {
 }
 ```
 
-**Объяснение для людей:** `MAKE_FUNCTION 0` берёт PyCodeObject → создаёт PyFunctionObject → `func_name="<lambda>"`,
+`MAKE_FUNCTION 0` берёт PyCodeObject → создаёт PyFunctionObject → `func_name="<lambda>"`,
 `func_code=code`. Без closure/defaults (flags=0).
 
 ## 4. PyFunction_New - создание PyFunctionObject
@@ -4255,7 +4256,7 @@ PyObject *PyFunction_New(PyCodeObject *code, PyObject *globals) {
 }
 ```
 
-**Объяснение для людей:** Lambda = PyFunctionObject с `func_code=<lambda bytecode>`, `func_globals=текущие globals`,
+Lambda = PyFunctionObject с `func_code=<lambda bytecode>`, `func_globals=текущие globals`,
 `func_builtins=builtins`. Остальное NULL.
 
 ## 5. Вызов lambda: CALL_FUNCTION (ceval.c)
@@ -4289,7 +4290,7 @@ case CALL_FUNCTION: {
 }
 ```
 
-**Объяснение для людей:** `lambda_func(42)` → `CALL_FUNCTION 1` → `_PyObject_Vectorcall(lambda, [42], 1, NULL)` →
+`lambda_func(42)` → `CALL_FUNCTION 1` → `_PyObject_Vectorcall(lambda, [42], 1, NULL)` →
 выполнение lambda bytecode.
 
 ## 6. Выполнение lambda bytecode: _PyEval_EvalFrameDefault
@@ -4336,7 +4337,7 @@ PyObject *_PyEval_EvalFrameDefault(PyThreadState *tstate, PyFrameObject *f) {
 }
 ```
 
-**Объяснение для людей:** Lambda выполняется в **новом фрейме** с `f_localsplus[0]=x=42`. `LOAD_FAST 0` → `42`,
+Lambda выполняется в **новом фрейме** с `f_localsplus[0]=x=42`. `LOAD_FAST 0` → `42`,
 `LOAD_CONST 1 1` → `1`, `BINARY_ADD` → `43`, `RETURN_VALUE 43`.
 
 ## 7. Lambda с замыканием
@@ -4361,7 +4362,7 @@ def outer(y):
   6 RETURN_VALUE
 ```
 
-**Объяснение для людей:** `lambda x: x + y` захватывает `y` в **ячейку**. `outer(10)` → lambda с
+`lambda x: x + y` захватывает `y` в **ячейку**. `outer(10)` → lambda с
 `func_closure=(cell_y=10)`. Вызов → `LOAD_DEREF 0` читает `cell_y->ob_ref=10`.
 
 ## 8. Различия lambda vs def (компилятор)
@@ -4374,7 +4375,7 @@ COMPILER_SCOPE_FUNCTION  // co_flags |= CO_NEWLOCALS
 COMPILER_SCOPE_LAMBDA    // co_flags без CO_NEWLOCALS (использует globals)
 ```
 
-**Объяснение для людей:** **def** создаёт **локальные** переменные (`f_localsplus`). **lambda** — **выражение**,
+**def** создаёт **локальные** переменные (`f_localsplus`). **lambda** — **выражение**,
 использует **globals** внешней функции (без CO_NEWLOCALS).
 
 **Lambda** в CPython 3.9+ — **PyCodeObject** из `compiler_lambda()`, `MAKE_FUNCTION 0`, **отдельный PyFrameObject** при
@@ -4468,7 +4469,7 @@ lst = [x ** 2 for x in range(10)]
 >>18 RETURN_VALUE               # return lst
 ```
 
-**Объяснение для людей:** `[x**2 for x in range(10)]` → **отдельная функция** `<listcomp>` с **своим фреймом**.
+`[x**2 for x in range(10)]` → **отдельная функция** `<listcomp>` с **своим фреймом**.
 `LIST_APPEND 2` добавляет в список **фиксированной позиции** (`.0` на стеке).
 
 ## 2. PEP 709 Inline comprehensions (Python 3.12+)
@@ -4497,7 +4498,7 @@ lst = [x ** 2 for x in range(10)]
  38 RETURN_VALUE
 ```
 
-**Объяснение для людей:** **3.12**: comprehension **встроен** в байткод. `LOAD_FAST_AND_CLEAR 1 (.0)` сохраняет
+**3.12**: comprehension **встроен** в байткод. `LOAD_FAST_AND_CLEAR 1 (.0)` сохраняет
 `iter(range)` в слот `.0`. `FOR_ITER` использует его напрямую. **Быстрее** — без function call overhead.
 
 ## 3. compiler_listcomp() - компиляция (compile.c)
@@ -4525,7 +4526,7 @@ compiler_listcomp(struct compiler *c, location loc, expr_ty e) {
 }
 ```
 
-**Объяснение для людей:** Компилятор создаёт **scope COMPILER_SCOPE_COMPREHENSION** (без CO_NEWLOCALS), компилирует
+Компилятор создаёт **scope COMPILER_SCOPE_COMPREHENSION** (без CO_NEWLOCALS), компилирует
 `x**2` + `for x in ...`, генерирует `BUILD_LIST 0` или `LIST_COMP 1`.
 
 ## 4. LIST_APPEND байткод (ceval.c) - сердце comprehension
@@ -4560,7 +4561,7 @@ case LIST_APPEND: {
 }
 ```
 
-**Объяснение для людей:** `LIST_APPEND 2` берёт **список из слота .0** (не со стека!), значение `x**2`, вызывает
+`LIST_APPEND 2` берёт **список из слота .0** (не со стека!), значение `x**2`, вызывает
 `list.append(x**2)`. **Экономит стек** — список в фиксированном слоте.
 
 ## 5. Генераторное выражение: (x**2 for x in range(10))
@@ -4588,7 +4589,7 @@ case LIST_APPEND: {
  16 RETURN_GENERATOR           # yield x**2
 ```
 
-**Объяснение для людей:** Генераторное выражение — **функция-генератор** с `yield x**2`. `LOAD_GENEXPR` создаёт
+Генераторное выражение — **функция-генератор** с `yield x**2`. `LOAD_GENEXPR` создаёт
 PyGenObject.
 
 ## 6. compiler_genexp() - компиляция genexp
@@ -4617,7 +4618,7 @@ compiler_genexp(struct compiler *c, location loc, expr_ty e) {
 }
 ```
 
-**Объяснение для людей:** Генераторное выражение компилируется как **функция с CO_GENERATOR** флагом + `yield`.
+Генераторное выражение компилируется как **функция с CO_GENERATOR** флагом + `yield`.
 `LOAD_GENEXPR` создаёт PyGenObject.
 
 ## 7. Inline dict/set comprehensions (PEP 709, 3.12+)
@@ -4644,7 +4645,7 @@ MAP_ADD          3      # dict[key] = value
 JUMP_BACKWARD
 ```
 
-**Объяснение для людей:** `MAP_ADD 3` добавляет `key=value` в словарь **фиксированной позиции** (аналог LIST_APPEND).
+`MAP_ADD 3` добавляет `key=value` в словарь **фиксированной позиции** (аналог LIST_APPEND).
 
 ## 8. LIST_APPEND оптимизация (ceval.c)
 
@@ -4673,7 +4674,7 @@ case LIST_APPEND: {
 }
 ```
 
-**Объяснение для людей:** Comprehension использует **over-allocation** списка (allocated > ob_size). `LIST_APPEND` → *
+Comprehension использует **over-allocation** списка (allocated > ob_size). `LIST_APPEND` → *
 *прямое** присваивание `ob_item[n++]` **без realloc**.
 
 ## 9. Async comprehensions (3.5+, улучшено в 3.9+)
@@ -4689,7 +4690,7 @@ LOAD_CONST             (<asyncgen>)
 ASYNC_COMPREHENSION_GENERATOR 1
 ```
 
-**Объяснение для людей:** Async genexp → **async generator** с `async for`/`await` в байткоде.
+Async genexp → **async generator** с `async for`/`await` в байткоде.
 
 **Comprehensions** в CPython 3.9+ — **отдельные PyCodeObject** (`COMPILER_SCOPE_COMPREHENSION`), **LIST_APPEND**/*
 *MAP_ADD** с фиксированным списком/словарём в `.0`, **PEP 709 inline** (3.12+ без function call), **over-allocation**
@@ -4790,7 +4791,7 @@ def copy(x):
     return _reconstruct(x, len(newargs), newargs, ())
 ```
 
-**Объяснение для людей:** `copy(lst)` → `list(lst)` (shallow), `copy(obj)` → `obj.__copy__()` или
+`copy(lst)` → `list(lst)` (shallow), `copy(obj)` → `obj.__copy__()` или
 `type(obj)(*obj.__getnewargs__())`. **Не рекурсивно** — копирует только верхний уровень.
 
 ## 2. copy.deepcopy() - рекурсивный dispatch (Lib/copy.py)
@@ -4835,7 +4836,7 @@ def deepcopy(x, memo=None):
     return y
 ```
 
-**Объяснение для людей:** `deepcopy(obj)` рекурсивно копирует **все вложенные объекты**. `memo[id(obj)]=copy`
+`deepcopy(obj)` рекурсивно копирует **все вложенные объекты**. `memo[id(obj)]=copy`
 предотвращает **бесконечный цикл** при `l.append(l)`.
 
 ## 3. _deepcopy_dispatch таблица (Lib/copy.py)
@@ -4866,7 +4867,7 @@ def _deepcopy_list(x, memo):
     return y
 ```
 
-**Объяснение для людей:** `_deepcopy_dict({a: [1]})` → `{copy(a): copy([1])}` → рекурсивно копирует **каждый**
+`_deepcopy_dict({a: [1]})` → `{copy(a): copy([1])}` → рекурсивно копирует **каждый**
 ключ/значение. `memo` сохраняет уже сделанные копии.
 
 ## 4. PyList_Type.tp_richcompare для list.copy()
@@ -4895,7 +4896,7 @@ static PyObject *list_copy(PyListObject *self) {
 }
 ```
 
-**Объяснение для людей:** `lst.copy()` → `_PyList_New(len)` → копирует **указатели** `ob_item[]` с `Py_INCREF()`. *
+`lst.copy()` → `_PyList_New(len)` → копирует **указатели** `ob_item[]` с `Py_INCREF()`. *
 *Shallow** — вложенные списки **не копируются**.
 
 ## 5. _PyDict_NewPresized() для dict.copy() (3.9+)
@@ -4927,7 +4928,7 @@ PyObject *_PyDict_NewPresized(Py_ssize_t expected_size) {
 }
 ```
 
-**Объяснение для людей:** `dict.copy()` → новый PyDictObject с **пустой** `ma_keys` + `ma_values`, затем
+`dict.copy()` → новый PyDictObject с **пустой** `ma_keys` + `ma_values`, затем
 `dict_update(new, old)` копирует все пары **shallow**.
 
 ## 6. _reconstruct() для пользовательских классов
@@ -4954,7 +4955,7 @@ def _reconstruct(x, len_args, args, state, listitems, dictitems, memo):
     return newobj
 ```
 
-**Объяснение для людей:** `deepcopy(MyClass())` → `MyClass.__new__()` → `deepcopy(state)` → `__dict__` →
+`deepcopy(MyClass())` → `MyClass.__new__()` → `deepcopy(state)` → `__dict__` →
 `__init__(*args)`. **Полная копия состояния**.
 
 ## 7. Защита от рекурсии: memo[id(obj)]
@@ -4974,7 +4975,7 @@ d = id(l[3])  # == id(l)
 y = memo.get(d)  # НАЙДЕН! Возвращаем копию
 ```
 
-**Объяснение для людей:** `memo[id(original)]=copy` **предотвращает** копирование уже обработанных объектов.
+`memo[id(original)]=copy` **предотвращает** копирование уже обработанных объектов.
 `[1, [1, [1, ...]]]` копируется **один раз**.
 
 ## 8. C-level: PyObject_Malloc для shallow copy
@@ -5010,7 +5011,7 @@ static PyObject *generic_copy(PyObject *self) {
 }
 ```
 
-**Объяснение для людей:** `__copy__()` → `PyType_GenericAlloc()` → копирует `ob_type` + `__dict__.copy()` (shallow). *
+`__copy__()` → `PyType_GenericAlloc()` → копирует `ob_type` + `__dict__.copy()` (shallow). *
 *Не трогает атрибуты**.
 
 ## 9. Не копируемые типы (deepcopy игнорирует)
@@ -5028,7 +5029,7 @@ def _deepcopy_module(x, memo):
 _deepcopy_dispatch[type(open('file.txt'))] = _deepcopy_file_like
 ```
 
-**Объяснение для людей:** `deepcopy(open())` → **оригинал** (нельзя клонировать дескриптор). Функции/классы — **shallow
+`deepcopy(open())` → **оригинал** (нельзя клонировать дескриптор). Функции/классы — **shallow
 ** (refcnt++).
 
 **copy.copy()/deepcopy()** в CPython 3.9+ — **Lib/copy.py** с `_deepcopy_dispatch`, **memo[id→copy]** против циклов,
@@ -5131,7 +5132,7 @@ typedef struct {
 } PyAsyncGenObject;
 ```
 
-**Объяснение для людей:** `async def` → **PyCoroObject** (замороженный фрейм с `await`), `async def gen(): yield` → *
+`async def` → **PyCoroObject** (замороженный фрейм с `await`), `async def gen(): yield` → *
 *PyAsyncGenObject**. `cr_origin` для traceback.
 
 ## 2. Байткод async/await (Python 3.9+)
@@ -5152,7 +5153,7 @@ async def coro():
  10 RETURN_VALUE
 ```
 
-**Объяснение для людей:** `await obj` → `GET_AWAITABLE` (obj.__await__() → iterator) → `YIELD_FROM` (iterator.send(
+`await obj` → `GET_AWAITABLE` (obj.__await__() → iterator) → `YIELD_FROM` (iterator.send(
 None) → приостанавливаем корутину).
 
 ## 3. GET_AWAITABLE байткод (ceval.c)
@@ -5192,7 +5193,7 @@ case GET_AWAITABLE: {
 }
 ```
 
-**Объяснение для людей:** `GET_AWAITABLE sleep()` → `sleep.__await__()` → **iterator** на стек. `YIELD_FROM` вызывает
+`GET_AWAITABLE sleep()` → `sleep.__await__()` → **iterator** на стек. `YIELD_FROM` вызывает
 `iterator.send(None)` → **приостанавливает** корутину.
 
 ## 4. YIELD_FROM для await (ceval.c)
@@ -5262,7 +5263,7 @@ PyObject *_Py_MakeCoro(PyFunctionObject *func) {
 }
 ```
 
-**Объяснение для людей:** `async def f():` → `PyFunctionObject` с `CO_COROUTINE` → `f()` → `_Py_MakeCoro()` → *
+`async def f():` → `PyFunctionObject` с `CO_COROUTINE` → `f()` → `_Py_MakeCoro()` → *
 *PyCoroObject** с `gi_frame`.
 
 ## 6. asyncio TaskObj (Modules/_asynciomodule.c)
@@ -5282,7 +5283,7 @@ typedef struct {
 } TaskObj;
 ```
 
-**Объяснение для людей:** `asyncio.create_task(coro())` → **TaskObj** с `task_coro=PyCoroObject`, `task_future=Future`.
+`asyncio.create_task(coro())` → **TaskObj** с `task_coro=PyCoroObject`, `task_future=Future`.
 Event loop вызывает `task_coro.send()`.
 
 ## 7. task_step() - выполнение Task (asynciomodule.c)
@@ -5314,7 +5315,7 @@ static PyObject *task_step(TaskObj *task) {
 }
 ```
 
-**Объяснение для людей:** Event loop → `task_step()` → `coro.send(None)` → **awaitable** → **callback** `task_wakeup` в
+Event loop → `task_step()` → `coro.send(None)` → **awaitable** → **callback** `task_wakeup` в
 loop. **Корутина приостанавливается**.
 
 ## 8. Async for/await (GET_AITER/GET_ANEXT)
@@ -5333,7 +5334,7 @@ YIELD_FROM                # await anext()
 END_ASYNC_FOR             # Обработка StopAsyncIteration
 ```
 
-**Объяснение для людей:** `async for` → `GET_AITER` (`agen.__aiter__()`) → `GET_ANEXT` (`aiter.__anext__()`) → `await` →
+`async for` → `GET_AITER` (`agen.__aiter__()`) → `GET_ANEXT` (`aiter.__anext__()`) → `await` →
 `x = result`.
 
 ## 9. Event loop: BaseEventLoop (Lib/asyncio/events.py)
@@ -5357,7 +5358,7 @@ class BaseEventLoop:
         self._update_timers()
 ```
 
-**Объяснение для людей:** Event loop **круг**: callbacks → I/O poll (epoll/kqueue) → I/O callbacks → timers. *
+Event loop **круг**: callbacks → I/O poll (epoll/kqueue) → I/O callbacks → timers. *
 *Однопоточный**, **кооперативный**.
 
 ## 10. coro.send(None) - возобновление (genobject.c)
@@ -5386,7 +5387,7 @@ PyObject *PyCoro_Send(PyObject *coro, PyObject *arg) {
 }
 ```
 
-**Объяснение для людей:** `awaitable.send(None)` → `f_stacktop[0]=None` → выполнение до `YIELD_FROM` → **возврат
+`awaitable.send(None)` → `f_stacktop[0]=None` → выполнение до `YIELD_FROM` → **возврат
 корутины** event loop'у.
 
 **Асинхронность** в CPython 3.9+ — **PyCoroObject** (`CO_COROUTINE`), `GET_AWAITABLE`/`YIELD_FROM`, **TaskObj** в
@@ -5480,7 +5481,7 @@ typedef struct _ts {
 } PyThreadState;
 ```
 
-**Объяснение для людей:** Каждый поток имеет **свой** PyThreadState с `thread_id`, `holds_gil`, `frame`. **GIL**
+Каждый поток имеет **свой** PyThreadState с `thread_id`, `holds_gil`, `frame`. **GIL**
 принадлежит **только одному** tstate.
 
 ## 2. Py_NewInterpreter() / PyThreadState_New (pylifecycle.c)
@@ -5512,7 +5513,7 @@ PyThreadState *PyThreadState_New(PyInterpreterState *interp) {
 }
 ```
 
-**Объяснение для людей:** Новый поток → `PyThreadState_New(main_interp)` → `tstate->thread_id=my_tid` → добавляем в
+Новый поток → `PyThreadState_New(main_interp)` → `tstate->thread_id=my_tid` → добавляем в
 `interp->tstate_head` список.
 
 ## 3. PyThread_start_new_thread() - запуск потока
@@ -5548,7 +5549,7 @@ long PyThread_start_new_thread(PyThread_start_func_t func, void *arg) {
 }
 ```
 
-**Объяснение для людей:** `threading.Thread().start()` → `PyThread_start_new_thread()` →
+`threading.Thread().start()` → `PyThread_start_new_thread()` →
 `pthread_create(pythread_run, arg)` → **новый C-поток**.
 
 ## 4. pythread_run() - входная точка потока
@@ -5579,7 +5580,7 @@ static void *pythread_run(void *arg_) {
 }
 ```
 
-**Объяснение для людей:** C-поток → `PyThreadState_Swap(tstate)` → **GIL захват** → `target_func()` → **GIL освобождение
+C-поток → `PyThreadState_Swap(tstate)` → **GIL захват** → `target_func()` → **GIL освобождение
 ** → `PyThreadState_Clear()`.
 
 ## 5. PyThreadState_Swap() - переключение контекста
@@ -5611,7 +5612,7 @@ PyThreadState *PyThreadState_Swap(PyThreadState *new_tstate) {
 }
 ```
 
-**Объяснение для людей:** **TLS** (Thread Local Storage) хранит **активный** PyThreadState. `Swap(NULL)` → деактивируем
+**TLS** (Thread Local Storage) хранит **активный** PyThreadState. `Swap(NULL)` → деактивируем
 Python. `Swap(tstate)` → активируем поток.
 
 ## 6. threading.Thread C API (Lib/threading.py → Modules/_threadmodule.c)
@@ -5636,7 +5637,7 @@ static PyObject *thread_PyThread_start_new_thread(PyObject *self, PyObject *args
 }
 ```
 
-**Объяснение для людей:** `Thread(target=f).start()` → `_thread.start_new_thread(f, ())` →
+`Thread(target=f).start()` → `_thread.start_new_thread(f, ())` →
 `PyThread_start_new_thread(pythread_wrapper, f)`.
 
 ## 7. Per-interpreter потоки (PEP 684, 3.12+)
@@ -5658,7 +5659,7 @@ PyStatus PyInterpreterState_New(PyThreadState *tstate) {
 }
 ```
 
-**Объяснение для людей:** **3.12+**: `subinterp = Py_NewInterpreter()` → **отдельный** список `tstate_head`. Потоки **не
+**3.12+**: `subinterp = Py_NewInterpreter()` → **отдельный** список `tstate_head`. Потоки **не
 делят** tstate между интерпретаторами.
 
 ## 8. _PyRuntime.threads - глобальный реестр (3.13+)
@@ -5682,7 +5683,7 @@ void _PyRuntime_ThreadsList_Append(PyThreadState *tstate) {
 }
 ```
 
-**Объяснение для людей:** **Глобальный** список **всех** PyThreadState. `sys._current_frames()` перебирает
+**Глобальный** список **всех** PyThreadState. `sys._current_frames()` перебирает
 `threads.head`.
 
 ## 9. GIL + многопоточность взаимодействие
@@ -5703,7 +5704,7 @@ if (--tstate->gilstate_counter <= 0) {
 }
 ```
 
-**Объяснение для людей:** **Все** байткоды требуют `tstate->holds_gil=1`. Каждые ~1000 инструкций — **шанс** другому
+**Все** байткоды требуют `tstate->holds_gil=1`. Каждые ~1000 инструкций — **шанс** другому
 потоку.
 
 ## 10. Free-threaded (PEP 703, 3.13+ --disable-gil)
@@ -5725,7 +5726,7 @@ case LOAD_GLOBAL: {
 #endif
 ```
 
-**Объяснение для людей:** **3.13 free-threaded**: **атомарные** операции словарей/списков. **Настоящий** параллелизм
+**3.13 free-threaded**: **атомарные** операции словарей/списков. **Настоящий** параллелизм
 байткода.
 
 **Многопоточность** в CPython 3.9+ — **PyThreadState/thread_id**, `PyThreadState_Swap()` + **TLS**,
