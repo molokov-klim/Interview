@@ -4,7 +4,7 @@
 
 ## Core
 
-- [Типы данных](core.md#типы-данных)
+- [Типы данных](core/datatypes/datatypes.md#типы-данных)
 - [Срезы](core.md#срезы)
 - [*args и **kwargs](core.md#args-и-kwargs)
 - [Хеш-таблица](core.md#хеш-таблица)
