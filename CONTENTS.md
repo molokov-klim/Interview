@@ -1,8 +1,8 @@
 # Interview Python AQA
 
-# Содержание
+## Содержание
 
-## Core
+### [CORE](core/CORE_CONTENTS.md#core-contents)
 
 - [Типы данных](core/datatypes/datatypes.md#типы-данных)
 - [Срезы](core.md#срезы)
