@@ -413,6 +413,194 @@ PyObject *_PyLong_New(Py_ssize_t size) {
 
 ---
 
+## PyFloatObject (float)
+
+```c
+typedef struct {
+    PyObject ob_base;      // PyObject (refcnt + type)
+    double ob_fval;        // IEEE 754 double-precision значение
+} PyFloatObject;
+```
+
+### Общее
+
+`PyFloatObject` — это внутренняя структура CPython, представляющая **числа с плавающей запятой (`float`)**.  
+Любое число вроде `3.14` или `math.pi` в памяти хранится именно так.  
+Простая структура — всего **одно поле со значением** в формате IEEE 754 double.
+
+### Описание
+
+- `PyObject ob_base` — стандартный заголовок:  
+  - `ob_refcnt` — счётчик ссылок для управления памятью.  
+  - `ob_type` — указатель на `PyFloat_Type` (тип `float`).
+
+- `double ob_fval` — **реальное значение** числа в формате double (64 бита, ~15 значащих цифр).  
+  Это стандарт IEEE 754, который используется во всех современных языках программирования.
+
+### Уточнения
+
+- **Фиксированный размер** — всегда 24 байта на 64-битной системе (PyObject + double).  
+- **Кэш маленьких float** отсутствует (в отличие от `int`), каждый `3.14` создаёт новый объект.  
+- **NaN, Inf, -Inf** поддерживаются стандартно через IEEE 754 (`float('nan')`, `float('inf')`).  
+- Арифметика (`+`, `-`, `*`, `/`) реализована через `tp_as_number` в `PyFloat_Type`.
+
+---
+
+## Создание PyFloatObject
+
+```c
+PyObject *PyFloat_FromDouble(double fval) {
+    PyFloatObject *op = _PyFloat_New();  // Выделяем PyFloatObject
+    if (!op)
+        return NULL;
+    op->ob_fval = fval;                  // Записываем значение
+    return (PyObject *)op;
+}
+
+static PyObject *_PyFloat_New(void) {
+    PyFloatObject *op = (PyFloatObject*)PyObject_MALLOC(sizeof(PyFloatObject));
+    if (!op) {
+        return PyErr_NoMemory();
+    }
+    PyObject_INIT(op, &PyFloat_Type);    // Инициализируем как float
+    return (PyObject *)op;
+}
+```
+
+### Общее
+
+`PyFloat_FromDouble` — основная функция CPython для **создания объекта `float` из C double**.  
+Вызывается интерпретатором при литералах `3.14`, вызовах `float()`, математических операциях.  
+Создаёт готовый Python-объект с заданным значением.
+
+### Описание
+
+- `PyFloatObject *op = _PyFloat_New();` — вызывает внутреннюю функцию выделения памяти под `PyFloatObject`.  
+- `_PyFloat_New()` — выделяет память через `PyObject_MALLOC` и инициализирует:  
+  - `PyObject_INIT(op, &PyFloat_Type)` — устанавливает `ob_refcnt=1`, `ob_type=&PyFloat_Type`.  
+- `op->ob_fval = fval;` — записывает **значение double** в поле объекта.  
+- `return (PyObject *)op;` — возвращает как универсальный `PyObject *`.
+
+### Уточнения
+
+- **Нет кэша** для float (в отличие от малых int) — каждый `3.14` создаёт новый объект.  
+- `PyObject_MALLOC` — специальный аллокатор Python для отслеживания GC.  
+- Функция **thread-safe** благодаря GIL (Python 3.9+).  
+- Используется в байткоде (`BINARY_OP` для `+`, `-`, `*`, `/` с float).
+
+---
+
+## PyDecimalObject (decimal)
+
+```c
+// decimal.Decimal - пользовательский класс Python, НЕ встроенный тип CPython
+// Реализован в Objects/decimalmodule.c как PyTypeObject с C-ускорением
+
+typedef struct {
+    PyObject ob_base;           // Стандартный заголовок
+    PyObject *digits;           // Массив цифр (список int)
+    PyObject *exp;              // Показатель степени 10 (int)
+    PyObject *prec;             // Точность (int)
+    PyObject *rounding;         // Режим округления
+    PyObject *context;          // Контекст вычислений
+} PyDecimalObject;
+```
+
+### Общее
+
+`decimal.Decimal` — **НЕ встроенный тип CPython**, а **модульный класс** из `decimal` с C-реализацией.  
+Предоставляет **десятичную арифметику фиксированной точности** (банковские расчёты, финансы).  
+В отличие от `float`, хранит числа как массив цифр + показатель степени.
+
+### Описание
+
+- `PyObject ob_base` — стандартный заголовок (`refcnt`, `type=PyDecimal_Type`).  
+- `PyObject *digits` — **массив цифр** в десятичной системе (список `int`).  
+- `PyObject *exp` — **показатель степени** (например, `123E-2` = 1.23).  
+- `PyObject *prec` — **точность** (максимум цифр для операций).  
+- `PyObject *rounding` — режим округления (`ROUND_HALF_UP` и др.).  
+- `PyObject *context` — глобальный контекст вычислений (`getcontext()`).
+
+### Уточнения
+
+- **Полностью управляемый** через `decimal.getcontext()` — точность, округление, исключения.  
+- Арифметика **десятичная**, не двоичная (никаких ошибок округления как в `float`).  
+- В CPython ускорен **C-кодом** (`Objects/decimalmodule.c`), но это всё равно Python-класс.  
+- Используется для **финансовых расчётов** (`0.1 + 0.2 == 0.3` работает правильно).
+
+---
+
+## Создание PyDecimalObject
+
+```c
+PyObject *PyDecimal_FromString(PyObject *s) {
+    PyDecimalObject *result = (PyDecimalObject *)PyObject_MALLOC(sizeof(PyDecimalObject));
+    if (!result)
+        return PyErr_NoMemory();
+    
+    PyObject_INIT(result, &PyDecimal_Type);
+    
+    // Парсим строку в цифры + экспоненту
+    result->digits = parse_decimal_digits(s);
+    result->exp = parse_exponent(s);
+    result->prec = getcontext_prec();
+    result->rounding = getcontext_rounding();
+    result->context = getcontext_ref();
+    
+    return (PyObject *)result;
+}
+```
+
+### Общее
+
+Создание `PyDecimalObject` происходит через **функции модуля `decimal`** (например, `decimal.Decimal('1.23')`).  
+Парсит строку в **десятичное представление** (цифры + экспонента) и связывает с глобальным контекстом точности.  
+НЕ использует стандартный `_PyXXX_New()` — это модульная логика.
+
+### Описание
+
+- `PyObject_MALLOC(sizeof(PyDecimalObject))` — выделяет память под структуру.  
+- `PyObject_INIT(result, &PyDecimal_Type)` — инициализирует как `decimal.Decimal`.  
+- `result->digits = parse_decimal_digits(s)` — **разбирает цифры** из строки (`['1', '2', '3']`).  
+- `result->exp = parse_exponent(s)` — извлекает **экспоненту** (например, `E-2`).  
+- `result->prec = getcontext_prec()` — берёт **точность** из `decimal.getcontext()`.  
+- `result->rounding/context` — копирует настройки контекста округления и вычислений.
+
+### Уточнения
+
+- **Парсинг строковый** — `Decimal('1.23')` разбирается посимвольно, без потери точности.  
+- **Глобальный контекст** (`getcontext()`) определяет поведение всех операций.  
+- Создание **медленнее float/int** из-за парсинга и инициализации Python-объектов (`digits`, `exp`).  
+- В CPython 3.9+ **ускорено C-парсингом**, но остаётся модульным (не встроенный тип).
+
+---
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+########################################################################################
+
+---
+
 ## PyListObject со слотами протоколов
 
 ```c
