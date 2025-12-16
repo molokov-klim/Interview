@@ -575,7 +575,42 @@ PyObject *PyDecimal_FromString(PyObject *s) {
 
 ---
 
+## PyUnicodeObject (str)
 
+```c
+typedef struct {
+    PyObject_VAR_HEAD       // PyObject + ob_size (длина в символах)
+    Py_UCS4 *ob_sval;       // Массив Unicode символов (UCS-4)
+    // Или Py_UCS2 *ob_sval для компактных строк
+    // Или char *ob_sval для latin-1 строк
+} PyUnicodeObject;
+```
+
+### Общее
+
+`PyUnicodeObject` — внутренняя структура CPython для **строк (`str`)**.  
+Любая строка `s = "hello"` или `s = "привет"` хранится именно так.  
+Поддерживает **три формата** хранения (compact, 1-byte, 2-byte, 4-byte) для экономии памяти.
+
+### Описание
+
+- `PyObject_VAR_HEAD` — стандартный заголовок:  
+  - `ob_refcnt` — счётчик ссылок.  
+  - `ob_type` — `&PyUnicode_Type`.  
+  - `ob_size` — **длина строки** в символах (не байтах).
+
+- `Py_UCS4 *ob_sval` — **массив символов Unicode**:  
+  - `Py_UCS4` (32-bit) — полный Unicode (эмодзи, редкие символы).  
+  - `Py_UCS2` (16-bit) — BMP символы (большинство текста).  
+  - `char` (8-bit) — только ASCII/Latin-1.  
+  Формат выбирается автоматически по содержимому.
+
+### Уточнения
+
+- **Автоматическая компрессия** — короткие ASCII строки занимают минимум памяти.  
+- **Interning** — одинаковые строки (`"hello"`) кэшируются как синглтоны (`sys.intern()`).  
+- **Immutable** — строки неизменяемы, операции `+`, `replace()` создают новые объекты.  
+- В Python 3.9+ улучшена **кодировка** (PEEPHOLER оптимизирует конкатенацию строк).
 
 
 
