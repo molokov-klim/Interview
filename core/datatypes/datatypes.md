@@ -1153,13 +1153,110 @@ C-совместимости.
 
 # bytearray (...)
 
-...
+```c
+// Файл: Objects/bytearrayobject.c (CPython 3.9+)
+// PyByteArrayObject - структура bytearray (изменяемый bytes)
+typedef struct {
+    PyObject_VAR_HEAD
+    Py_ssize_t ob_alloc;  // выделенная ёмкость (capacity)
+    char *ob_bytes;       // указатель на изменяемый буфер байтов
+} PyByteArrayObject;
+```
+
+### **Общее**
+
+- Эта структура описывает внутреннее устройство объекта `bytearray` в CPython (конкретно — его реализацию на языке C в
+  исходном коде интерпретатора).
+- `bytearray` — это изменяемая последовательность байтов, аналогично `bytes`, но с возможностью изменения содержимого
+  без пересоздания объекта.
+- Структура используется внутри интерпретатора Python для управления памятью и хранением байтовых данных.
+
+### **Описание**
+
+- `typedef struct { ... } PyByteArrayObject;` — объявление типа структуры в C для представления Python-объекта
+  `bytearray`.
+- `PyObject_VAR_HEAD` — макрос, который добавляет стандартные служебные поля, общие для всех переменных объектов
+  Python (в том числе счётчик ссылок и указатель на тип). Он также хранит текущее количество элементов (`ob_size`).
+- `Py_ssize_t ob_alloc;` — размер выделенной под байты памяти (в байтах). Он может быть больше фактической длины
+  `bytearray`, чтобы избежать частого перевыделения памяти при росте.
+- `char *ob_bytes;` — указатель на область памяти, где физически хранятся байты. Это изменяемый буфер, на который
+  ссылается объект `bytearray`.
+
+### **Уточнения**
+
+- `Py_ssize_t` — это знаковый тип, используемый в CPython для хранения размеров и индексов (безопасно заменяет обычный
+  `int` при работе с большими объектами).
+- `PyObject_VAR_HEAD` обеспечивает совместимость `bytearray` с механизмами Python-объектов — например, с подсчётом
+  ссылок и системой типов.
+- В отличие от `bytes`, где данные хранятся в неизменяемом массиве, `bytearray` использует `ob_bytes` как изменяемый
+  буфер, что позволяет функции вроде `bytearray.append()` работать без пересоздания объекта.
 
 ---
 
-# Создание bytearray (...)
+# Создание bytearray (PyByteArrayObject)
 
-...
+```c
+// Файл: Objects/bytearrayobject.c (CPython 3.9+)
+// Основной конструктор bytearray(string) или bytearray(length)
+PyObject *
+PyByteArray_FromStringAndSize(const char *string, Py_ssize_t len)
+{
+    PyByteArrayObject *result;
+    
+    if (len < 0) {
+        PyErr_SetString(PyExc_ValueError, "negative count");
+        return NULL;
+    }
+    
+    /* Выделяем структуру PyByteArrayObject */
+    result = (PyByteArrayObject *)PyObject_MALLOC(sizeof(PyByteArrayObject));
+    if (unlikely(result == NULL))
+        return PyErr_NoMemory();
+    
+    /* Инициализируем: refcnt=1, type=PyByteArray_Type, obsize=len */
+    PyObject_INIT_VAR(result, &PyByteArray_Type, len);
+    
+    /* Выделяем отдельный буфер для изменяемых байтов */
+    result->ob_alloc = len;
+    result->ob_bytes = (char *)PyObject_MALLOC(len ? len : 1);
+    if (unlikely(result->ob_bytes == NULL)) {
+        PyObject_DEL(result);
+        return PyErr_NoMemory();
+    }
+    
+    if (string != NULL)
+        memcpy(result->ob_bytes, string, (size_t)len);
+    
+    return (PyObject *)result;
+}
+
+// bytearray() - пустой bytearray
+PyObject *
+PyByteArray_Dup(PyByteArrayObject *ba)
+{
+    return PyByteArray_FromStringAndSize(ba->ob_bytes, Py_SIZE(ba));
+}
+```
+
+### Общее
+
+Создание `PyByteArrayObject` — это выделение структуры плюс отдельного изменяемого буфера байтов. В отличие от `bytes`,
+где данные встраиваются в объект, `bytearray` держит `ob_bytes` как указатель на внешнюю память, что позволяет легко
+менять размер и содержимое.
+
+### Описание
+
+`PyByteArray_FromStringAndSize()` сначала проверяет len ≥ 0. Выделяет фиксированную структуру `PyByteArrayObject` (24+
+байта), инициализирует через `PyObject_INIT_VAR`. Отдельно выделяет буфер `ob_bytes` (минимум 1 байт даже для пустого).
+`ob_alloc = len` фиксирует ёмкость, байты копируются, возвращается PyObject*.
+
+### Уточнения
+
+- Два отдельных `PyObject_MALLOC`: структура + данные (независимая жизнь).
+- `ob_alloc` отслеживает выделенную ёмкость, `ob_size` — текущую длину (может расти).
+- Пустой `bytearray()`: `ob_bytes` указывает на 1 байт, `ob_size=0`, `ob_alloc=0`.
+- Python 3.9+: при `append()` проверяется `ob_size < ob_alloc`, иначе realloc большего буфера.
+- Очистка: `bytearrayobject_dealloc()` освобождает оба `PyObject_FREE`.
 
 ---
 
