@@ -1379,15 +1379,118 @@ CPython использует GC-объект, чтобы set мог участв
 
 ---
 
-# frozenset (...)
+# frozenset (PySetObject)
 
-...
+```c
+// Файл: Objects/setobject.c (CPython 3.9+)
+// PySetObject используется для обоих set и frozenset
+typedef struct {
+    PyObject_HEAD
+    Py_hash_t used;         // количество элементов
+    Py_ssize_t fill;        // заполненные слоты  
+    Py_ssize_t mask;        // размер хэш-таблицы - 1 (2^n - 1)
+    PyDictKeysObject *dk;   // общие ключи с dict
+} PySetObject;
+```
+
+**Общее**
+
+- Эта структура описывает внутреннее устройство объектов `set` и `frozenset` в CPython — оба типа реализованы на одной
+  базе.
+- Оба представляют собой хэш-таблицу, где хранятся только уникальные элементы, но `set` изменяем, а `frozenset` — нет.
+- Цель этой структуры — управлять размещением элементов, их хэшами и оптимизацией доступа (например, при проверке
+  «элемент есть в множестве»).
+
+**Описание**
+
+- `PyObject_HEAD` — стандартная часть каждой структуры объекта Python, содержит служебные поля: указатель на тип и
+  счётчик ссылок.
+- `Py_hash_t used` — текущее количество элементов в множестве (активных записей).
+- `Py_ssize_t fill` — количество занятых ячеек в хэш-таблице, включая удалённые и активные элементы; помогает определить
+  степень заполнения.
+- `Py_ssize_t mask` — используется для вычисления индекса в таблице (`hash & mask`), где `mask = size - 1`, а размер
+  всегда равен степени двойки.
+- `PyDictKeysObject *dk` — ссылка на общую структуру ключей, используемую и в `dict`; фактически хранит хэш-таблицу, в
+  которой лежат ключи (элементы множества).
+
+**Уточнения**
+
+- Хотя `PySetObject` используется и для `set`, и для `frozenset`, разница в поведении достигается флагами и логикой на
+  уровне Python API, а не структурой данных.
+- `used` и `fill` позволяют определять, когда нужно увеличить или реструктурировать таблицу для поддержания
+  производительности.
+- Переиспользование `PyDictKeysObject` обеспечивает эффективность и уменьшает дублирование кода между реализациями
+  `dict` и `set`.
+- Для операций вроде поиска элемента Python использует значение хэша и поле `mask`, что делает доступ к элементам
+  множества очень быстрым (амортизированное O(1)).
 
 ---
 
-# Создание frozenset (...)
+# Создание frozenset (PySetObject)
 
-...
+```c
+// Файл: Objects/setobject.c (CPython 3.9+)
+// frozenset([iterable]) - конструктор неизменяемого множества
+PyObject *
+PyFrozenSet_New(PyObject *iterable)
+{
+    PySetObject *result;
+    Py_ssize_t estimate;
+    
+    /* Оцениваем начальный размер хэш-таблицы */
+    if (iterable == NULL)
+        estimate = 0;
+    else {
+        estimate = PyObject_Length(iterable);
+        if (estimate < 0)
+            return NULL;
+    }
+    
+    /* Выделяем GC-объект с типом frozenset */
+    result = PyObject_GC_New(PySetObject, &PyFrozenSet_Type);
+    if (result == NULL)
+        return NULL;
+    
+    result->used = 0;    // элементов пока нет
+    result->dk = NULL;   // ключи не созданы
+    
+    if (estimate > 0) {
+        /* Создаём хэш-таблицу подходящего размера */
+        if (set_table_resize(result, estimate) < 0) {
+            Py_DECREF(result);
+            return NULL;
+        }
+        /* Заполняем уникальными элементами */
+        if (_PySet_Update(result, iterable) < 0) {
+            Py_DECREF(result);
+            return NULL;
+        }
+    }
+    
+    PyObject_GC_Track(result);
+    return (PyObject *)result;
+}
+```
+
+### Общее
+
+Создание `frozenset` — это построение неизменяемой хэш-таблицы с теми же механизмами, что у `set`, но с типом
+`PyFrozenSet_Type`. CPython использует одну структуру `PySetObject` для экономии, блокируя мутации на уровне
+`tp_as_sequence` и `tp_as_mapping`.
+
+### Описание
+
+`PyFrozenSet_New()` оценивает размер через `PyObject_Length()`. Выделяет `PySetObject` с GC и типом `PyFrozenSet_Type`.
+`set_table_resize()` создаёт хэш-таблицу степени двойки. `_PySet_Update()` добавляет элементы из iterable, автоматически
+удаляя дубликаты и проверяя хэшируемость. Объект помечается для GC-отслеживания.
+
+### Уточнения
+
+- `PyFrozenSet_Type` имеет `sq_ass_item = NULL`, `mp_ass_subscript = NULL` — мутации запрещены.
+- Хэш вычисляется при создании и кэшируется в `PyDictKeysObject` для использования как dict-ключ.
+- Python 3.9+: compact mode для малых frozenset (до 5 элементов без отдельной таблицы).
+- Пустой `frozenset()`: все счётчики 0, идеален для дефолтных значений в dict.
+- `TypeError` на не-хэшируемых элементах (list, set, dict).
 
 ---
 
