@@ -1055,9 +1055,73 @@ static PyObject *list_item(PyListObject *self, Py_ssize_t i) {
 
 ---
 
-# bytes (...)
+# bytes (PyBytesObject)
 
-...
+```c
+// Файл: Objects/bytesobject.c (CPython 3.9+)
+// PyBytesObject - структура bytes
+typedef struct {
+    PyObject_VAR_HEAD
+    char ob_sval[1];  // гибкий массив байтов (об_sval[length])
+} PyBytesObject;
+
+// bytes(string) или bytes(length) - конструктор
+PyObject *
+PyBytes_FromStringAndSize(const char *str, Py_ssize_t size)
+{
+    PyBytesObject *op;
+    Py_ssize_t alloc_size;
+    
+    if (size < 0) {
+        PyErr_SetString(PyExc_ValueError, "negative size");
+        return NULL;
+    }
+    alloc_size = PyBytesObject_SIZE + size;
+    op = (PyBytesObject *)PyObject_MALLOC(alloc_size);
+    if (unlikely(op == NULL))
+        return PyErr_NoMemory();
+    
+    PyObject_INIT_VAR(op, &PyBytes_Type, size);
+    if (str != NULL)
+        memcpy(op->ob_sval, str, size);
+    op->ob_sval[size] = '\0';  // null-terminated для C-строк
+    return (PyObject *) op;
+}
+
+// bytes() без аргументов
+PyObject *
+PyBytes_FromObject(PyObject *x)
+{
+    PyObject *res;
+    if (PyBytes_CheckExact(x)) {
+        Py_INCREF(x);
+        return x;
+    }
+    res = PyObject_Bytes(x);  // универсальный вызов __bytes__
+    return res;
+}
+```
+
+### Общее
+
+`bytes(...)` создаёт неизменяемый объект с последовательностью байтов (0-255). Это как строка, но для сырых данных — ни
+unicode, ни текста. В CPython bytes живёт в `PyBytesObject`, наследует `PyVarObject` и хранит данные компактно прямо
+после заголовка.
+
+### Описание
+
+Конструктор `PyBytes_FromStringAndSize()` выделяет память под `PyBytesObject` нужного размера через `PyObject_MALLOC`.
+Инициализирует через `PyObject_INIT_VAR` (refcnt=1, type=&PyBytes_Type, obsize=длина). Копирует байты в `ob_sval[]` и
+добавляет нулевой терминатор для совместимости с C-строками. `PyBytes_FromObject()` проверяет, уже ли это bytes, или
+вызывает `__bytes__` у объекта.
+
+### Уточнения
+
+- `PyObject_VAR_HEAD` даёт refcnt, type, obsize (длина в байтах).
+- Память не отслеживается GC, только refcnt — быстро и предсказуемо.
+- `ob_sval[1]` — это трюк: компилятор видит минимум 1 байт, но `PyObject_MALLOC` даёт столько, сколько нужно.
+- Python 3.9+: bytes неизменяемы, как str, но для бинарных данных (сети, файлы).
+- Ошибка `ValueError` при size < 0, `MemoryError` при нехватке памяти.
 
 ---
 
