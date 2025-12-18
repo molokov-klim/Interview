@@ -1595,9 +1595,100 @@ void _PyBool_Init(void)
 
 ---
 
-# NoneType (...)
+# NoneType (PyNoneObject)
 
-...
+```c
+// Файл: Objects/noneobject.c (CPython 3.9+)
+// PyNoneObject - единственный объект None
+typedef struct {
+    PyObject_HEAD
+} PyNoneObject;
+```
+
+**Общее**
+
+- Эта структура описывает объект `None` в CPython — единственный экземпляр специального значения, обозначающего «ничего»
+  или «отсутствие значения».
+- `None` существует в единственном экземпляре в программе (singleton), и любая ссылка на `None` указывает на один и тот
+  же объект.
+- Сам объект не хранит дополнительных данных — он используется только как специальный маркер.
+
+**Описание**
+
+- `typedef struct { ... } PyNoneObject;` — объявление структуры для объекта `None`.
+- `PyObject_HEAD` — стандартная часть любой Python-структуры, содержащая служебную информацию: указатель на тип (
+  `PyTypeObject *ob_type`) и счётчик ссылок (`Py_ssize_t ob_refcnt`).
+- Внутри `PyNoneObject` нет других полей, потому что `None` не содержит данных и не нуждается в дополнительном
+  состоянии.
+
+**Уточнения**
+
+- В CPython есть только одна глобальная переменная `Py_None`, представляющая этот объект. Все операции с `None`
+  используют именно её.
+- `None` имеет собственный тип `NoneType`, который создан один раз и не может порождать новые экземпляры.
+- Такое устройство делает проверки вроде `x is None` максимально быстрыми, так как сравниваются указатели, а не
+  содержимое.
+- Поскольку `None` не хранит значение, а только сам факт «пустоты», структура остаётся минимальной и содержит только
+  базовые поля объекта Python.
+
+---
+
+## Создание NoneType (PyNoneObject)
+
+```c
+// Файл: Objects/noneobject.c + Python/pythonrun.c (CPython 3.9+)
+// Создание единственного None - происходит ОДИН раз при запуске
+void
+_PyNone_Init(void)
+{
+    PyNoneObject *none;
+    
+    none = (PyNoneObject *)PyObject_MALLOC(sizeof(PyNoneObject));
+    if (none == NULL)
+        Py_FatalError("can't initialize Py_None");
+    
+    /* Инициализация: refcnt=1, type=PyNone_Type */
+    PyObject_INIT(none, &PyNone_Type);
+    
+    /* Глобальная переменная для всех None */
+    Py_None = (PyObject *)none;
+}
+
+// Получение ссылки на None (НЕ создание!)
+PyObject *
+Py_NewReference(Py_None)
+{
+    Py_INCREF(Py_None);
+    return Py_None;
+}
+
+// PyNone_Type (Objects/noneobject.c)
+PyTypeObject PyNone_Type = {
+    PyVarObject_HEAD_INIT(&PyType_Type, 0)
+    .tp_name = "NoneType",
+    .tp_basicsize = sizeof(PyNoneObject),  // всего PyObject_HEAD
+    .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_IMMUTABLETYPE,
+};
+```
+
+### Общее
+
+`NoneType` не создаётся конструктором — существует ровно один глобальный объект `Py_None`, выделенный при старте
+интерпретатора. Все `None` в Python — это ссылка на него через `Py_INCREF(Py_None)`.
+
+### Описание
+
+`_PyNone_Init()` вызывается при инициализации CPython: выделяется минимальная `PyNoneObject` через `PyObject_MALLOC`,
+инициализируется `PyObject_INIT` (refcnt=1, type=PyNone_Type), присваивается глобальной `Py_None`. Доступ через
+`Py_NewReference(Py_None)` только увеличивает refcnt без выделения памяти.
+
+### Уточнения
+
+- Создание происходит ОДИН раз в `_Py_InitializeEx()`.
+- `sizeof(PyNoneObject) == sizeof(PyObject)` — только refcnt + type.
+- Python 3.9+: `Py_TPFLAGS_IMMUTABLETYPE` блокирует подклассы None.
+- `Py_RETURN_NONE` макрос: `Py_INCREF(Py_None); return Py_None;`.
+- Бессмертный синглтон: интерпретатор держит refcnt > 0 вечно.
 
 ---
 
