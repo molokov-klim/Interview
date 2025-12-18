@@ -1055,6 +1055,111 @@ static PyObject *list_item(PyListObject *self, Py_ssize_t i) {
 
 ---
 
+# tuple (PyTupleObject)
+
+```c
+// Файл: Objects/tupleobject.c (CPython 3.9+)
+// PyTupleObject - структура неизменяемого tuple
+typedef struct {
+    PyObject_VAR_HEAD
+    PyObject *ob_item[1];  // гибкий массив указателей на элементы
+} PyTupleObject;
+```
+
+**Общее**
+
+- Эта структура описывает внутреннее устройство объекта `tuple` (кортежа) в CPython.
+- Кортеж — это неизменяемая (immutable) последовательность объектов, где каждый элемент хранится по указателю.
+- Структура оптимизирована для компактного хранения и быстрого доступа к элементам по индексу.
+
+**Описание**
+
+- `PyObject_VAR_HEAD` — стандартный макрос для переменных по длине Python-объектов. Добавляет поля:
+    - счётчик ссылок,
+    - указатель на тип (`PyTypeObject *ob_type`),
+    - длину последовательности (`Py_ssize_t ob_size`).
+- `PyObject *ob_item[1];` — гибкий массив указателей на элементы кортежа. На самом деле размер этого массива равен длине
+  кортежа (`ob_size`), просто объявление использует «1» как технический шаблон.
+- Каждый элемент `ob_item[i]` — это указатель на объект Python, который содержится в кортеже.
+
+**Уточнения**
+
+- Кортежи создаются один раз, и их размер не меняется — после инициализации количество элементов фиксировано.
+- Реальный размер памяти под `ob_item` выделяется динамически при создании кортежа, исходя из значения `ob_size`.
+- Поскольку кортежы неизменяемы, добавление, удаление или замена элементов невозможны — при таких операциях создаётся
+  новый объект.
+- Гибкое объявление массива делает структуру эффективной: она хранит все элементы подряд в памяти, что ускоряет доступ
+  по индексу (`O(1)`).
+
+---
+
+# Создание tuple (PyTupleObject)
+
+```c
+// Файл: Objects/tupleobject.c (CPython 3.9+)
+// tuple([iterable]) - основной конструктор
+PyObject *
+PyTuple_New(Py_ssize_t size)
+{
+    PyTupleObject *op;
+    
+    if (size < 0) {
+        PyErr_SetString(PyExc_ValueError, "negative tuple size");
+        return NULL;
+    }
+    
+    /* Выделяем заголовок + size указателей PyObject* */
+    op = PyObject_MALLOC(size * sizeof(PyObject *) + sizeof(PyTupleObject) - sizeof(PyObject *));
+    if (unlikely(op == NULL))
+        return PyErr_NoMemory();
+    
+    /* Инициализируем: refcnt=1, PyTuple_Type, obsize=size */
+    PyObject_INIT_VAR(op, &PyTuple_Type, size);
+    
+    /* Все слоты ob_item[] = NULL */
+    memset(op->ob_item, 0, size * sizeof(PyObject *));
+    
+    return (PyObject *)op;
+}
+
+// Заполнение (крадёт ссылку на item)
+int
+PyTuple_SetItem(PyTupleObject *tuple, Py_ssize_t index, PyObject *item)
+{
+    if (index < 0 || index >= PyTuple_GET_SIZE(tuple)) {
+        Py_XDECREF(item);
+        PyErr_SetString(PyExc_IndexError, "tuple assignment index out of range");
+        return -1;
+    }
+    PyObject **p = tuple->ob_item + index;
+    Py_XINCREF(item);
+    Py_XDECREF(*p);
+    *p = item;
+    return 0;
+}
+```
+
+### Общее
+
+Создание `tuple` — выделение компактного блока памяти под заголовок плюс массив указателей на элементы. CPython
+использует формулу `sizeof(PyTupleObject)-sizeof(PyObject*)+size*sizeof(PyObject*)` для точного размера без перерасхода.
+
+### Описание
+
+`PyTuple_New(size)` проверяет size ≥ 0, выделяет память одной порцией `PyObject_MALLOC`. `PyObject_INIT_VAR`
+устанавливает refcnt=1, тип `PyTuple_Type`, obsize=size. `memset` обнуляет `ob_item[]`. `PyTuple_SetItem()` только при
+создании заменяет NULL на элемент, крадя ссылку (Py_XINCREF + Py_XDECREF).
+
+### Уточнения
+
+- `PyTupleObject_SIZE(n) = sizeof(PyTupleObject)-sizeof(PyObject*)+n*sizeof(PyObject*)`.
+- Не GC: чистый refcnt, tuple не содержит ссылок на GC-объекты.
+- `PyTuple_GET_ITEM(t, i)` — прямой доступ без проверок: `t->ob_item[i]`.
+- Python 3.9+: после создания `sq_ass_item=NULL`, `t[0]=1` → TypeError.
+- Пустой `tuple()`: 24 байта (только PyVarObject_HEAD).
+
+---
+
 # bytes (PyBytesObject)
 
 ```c
