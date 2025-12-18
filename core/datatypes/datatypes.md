@@ -1064,70 +1064,90 @@ typedef struct {
     PyObject_VAR_HEAD
     char ob_sval[1];  // гибкий массив байтов (об_sval[length])
 } PyBytesObject;
+```
 
-// bytes(string) или bytes(length) - конструктор
+### Общее
+
+Этот блок кода определяет структуру `PyBytesObject` — внутреннее представление объекта `bytes` в CPython. Она наследует
+`PyObject_VAR_HEAD` для базовых полей (refcnt, type, размер) и добавляет гибкий массив `ob_sval[]` для хранения самих
+байтов данных сразу после заголовка.
+
+### Описание
+
+`PyObject_VAR_HEAD` расширяется в `PyObject ob_base` (refcnt + obtype) плюс `Py_ssize_t ob_size` (длина в байтах).
+`char ob_sval[1]` — это C-трюк с flexible array member: компилятор видит минимум 1 байт, но при выделении памяти (
+`PyObject_MALLOC`) добавляется столько байтов, сколько указано в `ob_size`. Байты хранятся компактно: `&obj->ob_sval[0]`
+сразу после заголовка.
+
+### Уточнения
+
+- Размер в памяти: 24 байта заголовок (64-бит) + `ob_size` байтов данных.
+- Неизменяемый: после создания `ob_sval` не меняется, только refcnt управляет жизнью.
+- Python 3.9+: `PyBytes_Type.tp_basicsize = sizeof(PyBytesObject)-1`, чтобы формулы вроде `PyBytesObject_SIZE + length`
+  работали правильно.
+- Доступ к байтам: `((PyBytesObject*)obj)->ob_sval[i]` или `PyBytes_AS_STRING(obj)`.
+- Null-терминирован: `ob_sval[ob_size] = '\0'` для C-строк совместимости.
+
+---
+
+# Создание bytes (PyBytesObject)
+
+```c
+// Основной конструктор bytes(string, encoding) или bytes(length)
 PyObject *
 PyBytes_FromStringAndSize(const char *str, Py_ssize_t size)
 {
     PyBytesObject *op;
-    Py_ssize_t alloc_size;
     
     if (size < 0) {
         PyErr_SetString(PyExc_ValueError, "negative size");
         return NULL;
     }
-    alloc_size = PyBytesObject_SIZE + size;
-    op = (PyBytesObject *)PyObject_MALLOC(alloc_size);
+    
+    /* Выделяем память: заголовок + size байтов данных */
+    op = (PyBytesObject *)PyObject_MALLOC(size + sizeof(PyBytesObject) - 1);
     if (unlikely(op == NULL))
         return PyErr_NoMemory();
     
+    /* Инициализируем: refcnt=1, type=PyBytes_Type, obsize=size */
     PyObject_INIT_VAR(op, &PyBytes_Type, size);
+    
     if (str != NULL)
-        memcpy(op->ob_sval, str, size);
-    op->ob_sval[size] = '\0';  // null-terminated для C-строк
-    return (PyObject *) op;
+        memcpy(op->ob_sval, str, (size_t)size);
+    
+    /* Null-терминатор для C-строк */
+    op->ob_sval[size] = '\0';
+    
+    return (PyObject *)op;
 }
 
-// bytes() без аргументов
+// bytes() - пустой объект
 PyObject *
-PyBytes_FromObject(PyObject *x)
+PyBytes_FromString(const char *str)
 {
-    PyObject *res;
-    if (PyBytes_CheckExact(x)) {
-        Py_INCREF(x);
-        return x;
-    }
-    res = PyObject_Bytes(x);  // универсальный вызов __bytes__
-    return res;
+    return PyBytes_FromStringAndSize(str, strlen(str));
 }
 ```
 
 ### Общее
 
-`bytes(...)` создаёт неизменяемый объект с последовательностью байтов (0-255). Это как строка, но для сырых данных — ни
-unicode, ни текста. В CPython bytes живёт в `PyBytesObject`, наследует `PyVarObject` и хранит данные компактно прямо
-после заголовка.
+Создание `PyBytesObject` — это выделение памяти под заголовок `PyVarObject` плюс нужное количество байтов данных.
+CPython хранит байты компактно сразу после заголовка в поле `ob_sval[]`, делая объект быстрым и экономным по памяти.
 
 ### Описание
 
-Конструктор `PyBytes_FromStringAndSize()` выделяет память под `PyBytesObject` нужного размера через `PyObject_MALLOC`.
-Инициализирует через `PyObject_INIT_VAR` (refcnt=1, type=&PyBytes_Type, obsize=длина). Копирует байты в `ob_sval[]` и
-добавляет нулевой терминатор для совместимости с C-строками. `PyBytes_FromObject()` проверяет, уже ли это bytes, или
-вызывает `__bytes__` у объекта.
+`PyBytes_FromStringAndSize()` сначала проверяет size ≥ 0, потом выделяет память формулой
+`sizeof(PyBytesObject)-1 + size` (минус 1, потому что `ob_sval[1]` уже в структуре). `PyObject_INIT_VAR` устанавливает
+refcnt=1, тип `PyBytes_Type` и длину `obsize=size`. Байты копируются в `ob_sval[]`, добавляется `'\0'` для
+C-совместимости.
 
 ### Уточнения
 
-- `PyObject_VAR_HEAD` даёт refcnt, type, obsize (длина в байтах).
-- Память не отслеживается GC, только refcnt — быстро и предсказуемо.
-- `ob_sval[1]` — это трюк: компилятор видит минимум 1 байт, но `PyObject_MALLOC` даёт столько, сколько нужно.
-- Python 3.9+: bytes неизменяемы, как str, но для бинарных данных (сети, файлы).
-- Ошибка `ValueError` при size < 0, `MemoryError` при нехватке памяти.
-
----
-
-# Создание bytes (...)
-
-...
+- `PyObject_VAR_HEAD` расшифровывается в refcnt + obtype + obsize (24 байта на 64-бит).
+- `ob_sval[1]` — трюк C: компилятор требует минимум 1 байт, но `MALLOC` даёт столько, сколько нужно.
+- Память под bytes не попадает в GC, только refcnt — поэтому `PyObject_MALLOC` вместо `PyObject_GC_New`.
+- `PyBytes_Type.tp_basicsize = sizeof(PyBytesObject)-1`, чтобы `PyBytesObject_SIZE` считал правильно.
+- Python 3.9+: bytes неизменяемы, как str, но для 0-255 байтов (не unicode).
 
 ---
 
