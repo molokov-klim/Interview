@@ -681,7 +681,63 @@ typedef struct {
 
 # Создание str (PyUnicodeObject)
 
-...
+```c
+// Include/cpython/unicodeobject.h (Python 3.9+)
+typedef struct {
+    PyObject_VAR_HEAD
+    Py_ssize_t length;      // Длина строки в символах (obsize)
+    Py_hash_t hash;         // Кэшированный хэш (0 = не вычислен)
+    struct {
+        // Компактные Unicode варианты (Python 3.9+)
+        Py_UCS1 *str;       // 1-byte ASCII/Latin-1
+        Py_UCS2 *str2;      // 2-byte BMP
+        Py_UCS4 *str4;      // 4-byte полный Unicode
+    } data;
+} PyUnicodeObject;
+
+// Создание строки из C-строки (ASCII/Latin-1)
+PyObject* PyUnicode_FromString(const char *u) {
+    return PyUnicode_DecodeUTF8(u, strlen(u), NULL);
+}
+
+// Внутренняя функция создания (упрощённо)
+static PyObject* unicode_new(Py_ssize_t length, int kind) {
+    PyUnicodeObject *u;
+    Py_ssize_t size;
+    
+    size = length * PyUnicode_KIND_SIZE(kind) + sizeof(PyUnicodeObject);
+    u = PyObject_MALLOC(size);
+    if (!u) return PyErr_NoMemory();
+    
+    PyObject_INIT_VAR(u, &PyUnicode_Type, length);
+    u->hash = -1;  // Хэш не вычислен
+    u->data.any = PyUnicode_DATA(u);  // Указатель на данные
+    
+    return (PyObject*)u;
+}
+```
+
+### Общее
+
+PyUnicodeObject — это C-структура CPython для хранения строк str в Python 3.9+. Использует **компактное представление
+** (compact unicode): 1/2/4 байта на символ в зависимости от диапазона Unicode. Создание происходит через
+PyUnicode_FromString() или внутренние функции вроде unicode_new().
+
+### Описание
+
+- **PyObject_VAR_HEAD**: Наследует refcnt, obtype (PyUnicode_Type), obsize (длина в символах).
+- **length**: Количество символов (не байт!).
+- **hash**: Кэшированный хэш для быстрого dict/set (-1 = не вычислен).
+- **data.any**: Умный union — ASCII (1байт), BMP (2байт), полный Unicode (4байт).
+- **unicode_new()**: Выделяет память под PyUnicodeObject + данные, инициализирует через PyObject_INIT_VAR.
+
+### Уточнения
+
+- **Компактность Python 3.9+**: "hello" → 1-byte (Py_UCS1), "привет" → 2-byte (Py_UCS2).
+- **PyUnicode_FromString()**: Автоматически выбирает UTF-8 → PyUnicodeObject.
+- **Interning**: sys.intern("hello") сохраняет один PyUnicodeObject для одинаковых строк.
+- **Immutable**: После создания str нельзя изменить (no setattr!).
+- **Memory layout**: PyObject (24байт) + данные сразу следом (O(1) доступ).
 
 ---
 
@@ -741,7 +797,64 @@ typedef struct {
 
 # Создание dict (PyDictObject)
 
-...
+```c
+PyObject *
+PyDict_New(void)
+{
+    /* We don't incref Py_EMPTY_KEYS here because it is immortal. */
+    return new_dict(Py_EMPTY_KEYS, NULL, 0, 0);
+}
+
+static PyObject *
+new_dict(PyDictKeysObject *keys, PyDictValues *values,
+         Py_ssize_t used, int free_values_on_failure)
+{
+    assert(keys != NULL);
+    PyDictObject *mp = _Py_FREELIST_POP(PyDictObject, dicts);
+    if (mp == NULL) {
+        mp = PyObject_GC_New(PyDictObject, &PyDict_Type);
+        if (mp == NULL) {
+            dictkeys_decref(keys, false);
+            if (free_values_on_failure) {
+                free_values(values, false);
+            }
+            return NULL;
+        }
+    }
+    assert(Py_IS_TYPE(mp, &PyDict_Type));
+    mp->ma_keys = keys;
+    mp->ma_values = values;
+    mp->ma_used = used;
+    mp->_ma_watcher_tag = 0;
+    ASSERT_CONSISTENT(mp);
+    _PyObject_GC_TRACK(mp);
+    return (PyObject *)mp;
+}
+```
+
+### Общее
+
+Создание пустого словаря `dict{}` в CPython начинается с вызова `PyDict_New()`. Эта функция создаёт объект
+`PyDictObject` с минимальными начальными настройками, используя предсозданную "пустую" структуру ключей `Py_EMPTY_KEYS`.
+Словарь получается компактным и готовым к быстрому заполнению без немедленного выделения дополнительной памяти под
+записи.
+
+### Описание
+
+`PyDict_New()` вызывает вспомогательную функцию `new_dict()`, передавая ей бессмертный объект `Py_EMPTY_KEYS` (с
+`dk_refcnt = PY_SSIZE_T_MIN`, размер 8 слотов, все индексы `DKIX_EMPTY`). Функция `new_dict()` берёт объект из пула
+свободных словарей (`_Py_FREELIST_POP`) или создаёт новый через `PyObject_GC_New()`. Инициализируются поля: `ma_keys`
+указывает на пустые ключи, `ma_values = NULL` (комбинированная таблица), `ma_used = 0`. Объект помечается для сборщика
+мусора и возвращается.
+
+### Уточнения
+
+- `Py_EMPTY_KEYS` — глобальный бессмертный объект с 8 слотами (минимальный размер `PyDict_MINSIZE=8`), все индексы
+  заполнены `DKIX_EMPTY(-1)` для быстрого поиска.
+- Комбинированная таблица (`ma_values=NULL`) хранит ключи/значения в `dk_entries` структуры `PyDictKeysObject`.
+- При первом добавлении элемента словарь вырастет до нужного размера через `dictresize()` с коэффициентом
+  `USABLE_FRACTION=2/3`.
+- Пул freelists ускоряет создание малых словарей, снижая нагрузку на `malloc()`.
 
 ---
 
