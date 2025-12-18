@@ -1494,15 +1494,104 @@ PyFrozenSet_New(PyObject *iterable)
 
 ---
 
-# bool (...)
+# bool (PyBoolObject)
 
-...
+```c
+// Файл: Objects/boolobject.c (CPython 3.9+)
+// PyBoolObject - True/False (подтипы int)
+typedef struct {
+    PyLongObject longobj;  // наследует PyLongObject (int)
+} PyBoolObject;
+```
+
+**Общее**
+
+- Эта структура описывает внутреннее устройство объекта `bool` (`True` и `False`) в CPython.
+- В Python тип `bool` является подтипом `int`, поэтому `True` и `False` — это не отдельные базовые типы, а
+  специализированные экземпляры целых чисел (`1` и `0` соответственно).
+- Структура показывает, что логические значения реализованы на основе уже готового механизма `PyLongObject`.
+
+**Описание**
+
+- `typedef struct { ... } PyBoolObject;` — объявление структуры для объекта `bool`.
+- `PyLongObject longobj;` — это встраивание структуры `PyLongObject` (которая описывает `int` в Python). Благодаря этому
+  `bool` наследует всю функциональность `int`, включая хранение значений и операции с ними.
+- Таким образом, `PyBoolObject` не добавляет новых полей, а лишь определяет новый тип на базе существующего числового
+  объекта.
+
+**Уточнения**
+
+- В интерпретаторе Python существуют только два экземпляра `PyBoolObject`: `Py_True` и `Py_False`, они создаются один
+  раз при запуске (singleton-объекты).
+- Значение поля `longobj` внутри `True` — это `1`, а у `False` — `0`.
+- Такое решение экономит память и ускоряет операции, так как логические значения могут использовать ту же арифметическую
+  инфраструктуру, что и целые числа.
+- При проверке типов `bool` ведёт себя как отдельный тип, но при арифметических операциях — как `int`.
 
 ---
 
-# Создание bool (...)
+# Создание bool (PyBoolObject)
 
-...
+```c
+// Файл: Objects/boolobject.c (CPython 3.9+)
+// bool(x) - возвращает один из двух глобальных синглтонов
+PyObject *
+_PyBool_FromLong(long v)
+{
+    PyObject *result;
+    
+    if (v == 0) {
+        result = Py_NewReference(Py_False);  // увеличивает refcnt False
+    }
+    else {
+        result = Py_NewReference(Py_True);   // увеличивает refcnt True
+    }
+    
+    return result;
+}
+
+// Универсальный bool() для Python объектов
+PyObject *
+PyObject_IsTrue(PyObject *v)
+{
+    if (v == Py_None)
+        Py_RETURN_FALSE;
+    if (v == Py_True)
+        Py_RETURN_TRUE;
+    if (v == Py_False)
+        Py_RETURN_FALSE;
+    
+    return _PyBool_FromLong(PyObject_IsTruthy(v));
+}
+
+// Инициализация синглтонов (Python/pythonrun.c)
+void _PyBool_Init(void)
+{
+    Py_True = (PyObject *)_PyLong_New(1L);   // int 1 -> True
+    Py_False = (PyObject *)_PyLong_New(0L);  // int 0 -> False
+    Py_SET_TYPE(Py_True, &PyBool_Type);
+    Py_SET_TYPE(Py_False, &PyBool_Type);
+}
+```
+
+### Общее
+
+Создание `bool(...)` не создаёт новые объекты — всегда возвращает один из двух глобальных синглтонов `Py_True`/
+`Py_False`. Это супероптимизация: экономия памяти, постоянные `id(True)`, мгновенные сравнения `if x is True`.
+
+### Описание
+
+`_PyBool_FromLong()` преобразует C `long` в синглтон: 0 → `Py_False`, иначе → `Py_True` через `Py_NewReference()` (
+только +1 к refcnt). `PyObject_IsTrue()` для Python-объектов проверяет специальные случаи (None, True/False) и вызывает
+`PyObject_IsTruthy()` (длина>0 для контейнеров). Синглтоны создаются при запуске интерпретатора из int 0/1.
+
+### Уточнения
+
+- `Py_NewReference()` не выделяет память, только `Py_INCREF()`.
+- `PyBool_Type` наследует от `PyLong_Type`, поэтому `bool(1) is True`.
+- Python 3.9+: `tp_richcompare` оптимизирован для `is True/False`.
+- `bool([]) == False` через `PyObject_Length([]) == 0`.
+- Синглтоны бессмертны: refcnt никогда не 0, `tp_dealloc` не вызывается.
 
 ---
 
