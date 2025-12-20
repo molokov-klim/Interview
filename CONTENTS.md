@@ -2,7 +2,7 @@
 
 ## Содержание
 
-### [CORE](core/CORE_CONTENTS.md#core-contents)
+# CORE
 
 - [Типы данных](core/datatypes/datatypes.md#типы-данных)
 - [Срезы](core/slices/slices.md#срезы)
@@ -11,12 +11,12 @@
 - [Встроенные функции](core/built_in_functions/built_in_functions.md#встроенные-функции)
 - [Контекстные менеджеры (with)](core/context_manager/context_manager.md#контекстные-менеджеры)
 - [Генераторы и итераторы](core/generator_iterator/generator_iterator.md#генераторы-и-итераторы)
-- [Декораторы и замыкания](core.md#декораторы-и-замыкания)
-- [GIL (Global Interpreter Lock)](core.md#gil-global-interpreter-lock)
-- [Изменение списка во время итерации](core.md#изменение-коллекции-во-время-итерации)
-- [Области видимости](core.md#области-видимости)
-- [Lambda-функции](core.md#lambda-функции)
-- [Comprehensions и генераторные выражения](core.md#comprehensions-и-генераторные-выражения)
+- [Декораторы и замыкания](core/decorators_closure/decorators_closure.md#декораторы-и-замыкания)
+- [GIL (Global Interpreter Lock)](core/gil/gil.md#gil-global-interpreter-lock)
+- [Изменение списка во время итерации](core/unsafe_change_collection/unsafe_change_collection.md#изменение-коллекции-во-время-итерации)
+- [Области видимости](core/visibility_scopes/visibility_scopes.md#области-видимости)
+- [Lambda-функции](core/lambda/lambda.md#lambda-функции)
+- [Comprehensions и генераторные выражения](core/comprehensions/comprehensions.md#comprehensions-и-генераторные-выражения)
 - [copy() и deepcopy()](core.md#copy-и-deepcopy)
 - [Асинхронность](core.md#асинхронность)
 - [Многопоточность](core.md#многопоточность)
