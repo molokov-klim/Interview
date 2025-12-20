@@ -1,1104 +1,9 @@
-
----
-
-# **Срезы**
-
-## **Junior Level**
-
-Срезы в Python — это удобный способ получить часть последовательности (например, списка, строки или кортежа), не
-перебирая элементы вручную. Представьте, что у вас есть книга, и вам нужно вырвать из неё несколько страниц — срез
-делает примерно то же самое с данными.
-
-**Базовый синтаксис:** `последовательность[начало:конец:шаг]`
-
-- **Начало (start)** — индекс, с которого начинается срез (включается в результат). Если не указан — считается 0.
-- **Конец (stop)** — индекс, на котором срез заканчивается (НЕ включается в результат). Если не указан — считается до
-  конца последовательности.
-- **Шаг (step)** — через сколько элементов брать следующий. Если не указан — считается 1 (брать все подряд).
-
-**Простые примеры:**
-
-```python
-text = "Привет, мир!"
-print(text[0:6])  # "Привет" (символы с 0 по 5)
-print(text[8:])  # "мир!"   (с 8 до конца)
-print(text[:6])  # "Привет" (с начала до 5)
-print(text[::2])  # "Пие,мр" (каждый второй символ)
-```
-
-**Отрицательные индексы** — отсчитываются с конца:
-
-- `-1` — последний элемент
-- `-2` — предпоследний элемент
-
-```python
-numbers = [10, 20, 30, 40, 50]
-print(numbers[-3:-1])  # [30, 40] (с третьего с конца до предпоследнего)
-```
-
-**Отрицательный шаг** позволяет идти в обратном порядке:
-
-```python
-word = "питон"
-print(word[::-1])  # "нотип" (разворот строки)
-print(numbers[3:0:-1])  # [40, 30, 20] (от индекса 3 до 1 в обратном порядке)
-```
-
-**Важно:** срезы всегда создают **новый объект**. Если вы сделаете срез списка, получится новый список, а не ссылка на
-старый. Это защищает от случайного изменения исходных данных.
-
-## **Middle Level**
-
-### 1. **Как Python интерпретирует срезы "под капотом"**
-
-Когда вы пишете `seq[start:stop:step]`, Python фактически создаёт объект `slice(start, stop, step)` и передаёт его в
-метод `__getitem__` вашей последовательности. Этот объект можно сохранить и использовать повторно:
-
-```python
-data = list(range(100))
-my_slice = slice(10, 50, 3)  # создаём объект-срез
-print(data[my_slice])  # равносильно data[10:50:3]
-```
-
-Это особенно полезно при работе с многомерными массивами в библиотеках типа NumPy, где срезы могут быть сложными.
-
-### 2. **Особенности работы с разными типами последовательностей**
-
-- **Списки (list)** — срезы создают новые списки (shallow copy). Элементы копируются по ссылкам, а не дублируются:
-  ```python
-  matrix = [[1, 2], [3, 4]]
-  part = matrix[:1]     # part = [[1, 2]]
-  part[0][0] = 99       # изменится и matrix[0][0] тоже!
-  ```
-  Для полного копирования вложенных структур используйте `copy.deepcopy()`.
-
-- **Строки (str) и байты (bytes)** — срезы всегда возвращают новые объекты, поскольку эти типы неизменяемы.
-
-- **Пользовательские классы** — вы можете реализовать поддержку срезов, определив методы `__getitem__`, `__setitem__` и
-  `__delitem__`, которые будут обрабатывать объекты `slice`.
-
-### 3. **Расширенное использование с шагом (step)**
-
-Шаг может быть любым целым числом, кроме 0. Особый случай — **отрицательный шаг**:
-
-- При отрицательном шаге индексы `start` и `stop` меняются ролями по умолчанию: если не указать `start`, он становится
-  последним элементом; если не указать `stop` — первым.
-- Последовательность перебирается в обратном порядке.
-
-```python
-seq = [0, 1, 2, 3, 4, 5]
-
-# Что происходит при seq[5:1:-1]?
-# 1. Начинаем с индекса 5 (элемент 5)
-# 2. Идём в обратном порядке с шагом 1
-# 3. Останавливаемся ДО индекса 1 (т.е. на индексе 2)
-print(seq[5:1:-1])  # [5, 4, 3, 2]
-```
-
-### 4. **Идиомы и продвинутые паттерны**
-
-- **Копирование последовательности:** `seq[:]` или `seq.copy()` для списков
-- **Разворот:** `seq[::-1]` — создаёт развёрнутую копию
-- **Получение каждого N-го элемента:**
-  ```python
-  # Каждый третий элемент, начиная со второго
-  seq = list(range(20))
-  print(seq[1::3])  # [1, 4, 7, 10, 13, 16, 19]
-  ```
-- **Удаление части последовательности (для изменяемых типов):**
-  ```python
-  numbers = [0, 1, 2, 3, 4, 5]
-  numbers[2:4] = []           # удаляет элементы 2 и 3
-  # или del numbers[2:4]
-  ```
-
-### 5. **Срезы и производительность**
-
-Срезы работают за O(k), где k — размер среза, а не исходной последовательности. Однако есть нюансы:
-
-- Для списков срез создаёт новую структуру, копируя ссылки на элементы
-- При больших срезах это может быть накладно по памяти
-- Для строк срезы более эффективны благодаря оптимизациям интерпретатора
-
-### 6. **Где срезы не работают как ожидается**
-
-- **Словари и множества** не поддерживают срезы, поскольку не являются последовательностями (у них нет порядка элементов
-  до Python 3.7+ для dict, и даже тогда срезы не определены)
-- **Итераторы и генераторы** — тоже не поддерживают срезы напрямую. Вместо этого используйте `itertools.islice()`:
-  ```python
-  from itertools import islice
-  
-  def count():
-      i = 0
-      while True:
-          yield i
-          i += 1
-          
-  # Получить элементы с 10 по 20 (не включая 20)
-  sliced = islice(count(), 10, 20)
-  ```
-
-### 7. **Срезы в присваивании (для изменяемых последовательностей)**
-
-Это мощная особенность Python, позволяющая заменять часть последовательности другой последовательностью произвольной
-длины:
-
-```python
-numbers = [0, 1, 2, 3, 4, 5]
-numbers[2:4] = [20, 30, 40]  # Заменяем 2 элемента на 3
-print(numbers)  # [0, 1, 20, 30, 40, 4, 5]
-
-# Можно даже удалять элементы, вставляя пустую последовательность
-numbers[1:3] = []  # Удаляем элементы 1 и 2
-```
-
-Это работает потому, что для изменяемых последовательностей срезы в левой части присваивания реализуются через метод
-`__setitem__`, который может принимать объект slice и произвольную последовательность для вставки.
-
-**Итог:** Срезы — это не просто синтаксический сахар, а полноценный механизм доступа к данным, который при грамотном
-использовании делает код чище, выразительнее и иногда даже эффективнее.
-
-## **Senior Level**
-
-В CPython **срезы** реализуются через компактный объект `PySliceObject`, байткоды `BUILD_SLICE`/`BINARY_SUBSCR`/
-`STORE_SUBSCR` и унифицированный C-API `PySlice_GetIndicesEx` для нормализации индексов во всех
-типах. `Objects/sliceobject.c`, `Include/sliceobject.h`
-
-## 1. Структура PySliceObject
-
-```c
-typedef struct {
-    PyObject_VAR_HEAD     // PyObject + ob_size=3 (всегда 3 элемента)
-    PyObject *start;      // Начальный индекс (или Py_None)
-    PyObject *stop;       // Конечный индекс (или Py_None)
-    PyObject *step;       // Шаг (или Py_None)
-} PySliceObject;
-```
-
-Срез `lst[1:3:2]` в памяти — это структура из 4 полей: 24-байт заголовок PyObject + 3
-указателя (start=1, stop=3, step=2). `Py_None` означает "используй значение по умолчанию".
-
-## 2. Создание среза: BUILD_SLICE байткод
-
-**Python код:** `lst[1:3]`
-
-```
- 0 LOAD_FAST          0 (lst)      # Загружает переменную lst на стек
- 2 LOAD_CONST         0 (1)        # Загружает константу 1 на стек  
- 4 LOAD_CONST         1 (3)        # Загружает константу 3 на стек
- 6 BUILD_SLICE        2            # Создает объект среза slice(1, 3, None)
- 8 BINARY_SUBSCR                   # Выполняет операцию взятия среза: lst[1:3]
-```
-
-**Реализация BUILD_SLICE в ceval.c:**
-
-```c
-case BUILD_SLICE: {
-    PyObject *slice;           // Будущий PySliceObject
-    PyObject *stop, *start;    // Аргументы со стека
-    
-    // Снимаем аргументы (step, stop, start)
-    if (oparg == 3) {
-        PyObject *step = POP();    // step (может быть None)
-        stop = POP();              // stop
-        start = POP();             // start
-        slice = PySlice_New(start, stop, step);
-        Py_DECREF(step);
-    } else {
-        // 2 аргумента: slice(start, stop, None)
-        stop = POP();
-        start = POP();
-        slice = PySlice_New(start, stop, NULL);
-    }
-    
-    Py_DECREF(start);              // Освобождаем временные объекты
-    Py_DECREF(stop);
-    
-    if (slice == NULL) {           // Ошибка создания
-        return NULL;
-    }
-    
-    PUSH(slice);                   // PySliceObject на вершину стека
-    DISPATCH();                    // Следующая инструкция
-}
-```
-
-Интерпретатор снимает 2/3 значения со стека, вызывает PySlice_New (создаёт PySliceObject),
-кладёт результат обратно на стек. Всё за 1 инструкцию.
-
-## 3. PySlice_New - фабрика срезов
-
-```c
-PyObject *PySlice_New(PyObject *start, PyObject *stop, PyObject *step) {
-    PySliceObject *self;
-    
-    // Проверяем аргументы
-    if (step == NULL) {
-        step = Py_None;            // По умолчанию step=None
-    }
-    if (start == NULL) {
-        start = Py_None;
-    }
-    if (stop == NULL) {
-        stop = Py_None;
-    }
-    
-    // Выделяем память под PySliceObject (PyObject + 3 PyObject*)
-    self = PyObject_GC_New(PySliceObject, &PySlice_Type);
-    if (self == NULL) {
-        return NULL;
-    }
-    
-    // Заполняем поля (увеличиваем refcnt)
-    self->start = Py_NewRef(start);
-    self->stop = Py_NewRef(stop);
-    self->step = Py_NewRef(step);
-    
-    _PyObject_GC_TRACK(self);      // Добавляем в GC
-    return (PyObject *)self;
-}
-```
-
-PySlice_New создаёт объект из 24 байт заголовка + 3 указателя. Каждый аргумент получает +1 к
-refcnt. Объект регистрируется в GC для поиска циклов.
-
-## 4. Нормализация индексов: PySlice_GetIndicesEx
-
-**Ключевой API для всех типов (list/dict/numpy/...):**
-
-```c
-int PySlice_GetIndicesEx(
-    PySliceObject* s,           // Входной срез
-    Py_ssize_t length,          // Длина контейнера
-    Py_ssize_t *start,          // [out] нормализованный start
-    Py_ssize_t *stop,           // [out] нормализованный stop  
-    Py_ssize_t *step,           // [out] нормализованный step
-    Py_ssize_t *slicelength     // [out] длина результата среза
-) {
-    PyObject *start_o = s->start;
-    PyObject *stop_o = s->stop;
-    PyObject *step_o = s->step;
-    
-    Py_ssize_t istart = 0, iend = 0, istep = 1;
-    
-    // Конвертируем start
-    if (start_o == Py_None) {
-        istart = 0;
-    } else if (PySlice_Unpack(start_o, &istart, &iend, &istep) < 0) {
-        return -1;                 // Ошибка конвертации
-    }
-    
-    // Аналогично для stop_o
-    if (stop_o == Py_None) {
-        iend = length;
-    } else if (PySlice_Unpack(stop_o, &istart, &iend, &istep) < 0) {
-        return -1;
-    }
-    
-    // Аналогично для step_o
-    if (step_o == Py_None) {
-        istep = 1;
-    } else if (PySlice_Unpack(step_o, &istart, &iend, &istep) < 0) {
-        return -1;
-    }
-    
-    // Нормализуем отрицательные индексы
-    PySlice_AdjustIndices(length, istart, iend, istep, start, stop);
-    
-    // Вычисляем длину результата
-    *slicelength = PySlice_ComputeLength(*start, *stop, *step, length);
-    
-    *step = istep;
-    return 0;
-}
-```
-
-Эта функция превращает `slice(-2:, None, 2)` в конкретные числа: для списка длины 10 даёт
-start=8, stop=10, step=2. Вычисляет, сколько элементов будет в результате (2 элемента).
-
-## 5. PySlice_AdjustIndices - обработка отрицательных индексов
-
-```c
-void PySlice_AdjustIndices(
-    Py_ssize_t length,         // Длина контейнера
-    Py_ssize_t istart,         // Сырой start
-    Py_ssize_t iend,           // Сырой stop
-    Py_ssize_t istep,          // Шаг
-    Py_ssize_t *start,         // [out] нормализованный start
-    Py_ssize_t *end            // [out] нормализованный stop
-) {
-    Py_ssize_t i;
-    
-    if (istep > 0) {               // Положительный шаг
-        if (istart < 0) {
-            i = length + istart;   // -2 -> len-2
-            *start = i < 0 ? 0 : i;
-        } else {
-            *start = istart;
-        }
-        
-        if (iend < 0) {
-            i = length + iend;     // -1 -> len-1
-            *end = i < 0 ? 0 : i;
-        } else {
-            *end = iend;
-        }
-    } else {                       // Отрицательный шаг
-        // Симметричная логика для обратного прохода
-        if (istart < 0) {
-            i = length + istart;
-            *start = i < -1 ? length-1 : i;
-        } else {
-            *start = istart;
-        }
-        // Аналогично для end...
-    }
-}
-```
-
-`-1` всегда означает "последний элемент", `-2` — предпоследний. Функция переводит
-отрицательные индексы в абсолютные, обрезая по границам массива.
-
-## 6. List срез: list_slice()
-
-```c
-static PyObject *list_slice(PyListObject *self, Py_ssize_t ilow, Py_ssize_t ihigh) {
-    register Py_ssize_t i;
-    Py_ssize_t len = ihigh - ilow;     // Длина среза
-    
-    if (len <= 0) {
-        return Py_NewRef(&PyEmptyList);  // Пустой срез -> singleton []
-    }
-    
-    if (len == 1) {
-        // Быстрый путь для одного элемента
-        Py_INCREF(self->ob_item[ilow]);
-        return self->ob_item[ilow];
-    }
-    
-    // Создаём новый список
-    PyObject *np = PyList_New(len);
-    if (np == NULL)
-        return NULL;
-    
-    // Копируем элементы
-    for (i = 0; i < len; i++) {
-        PyObject *v = Py_NewRef(self->ob_item[ilow + i]);
-        PyList_SET_ITEM(np, i, v);
-    }
-    
-    return np;
-}
-```
-
-Создаём новый список нужной длины, увеличиваем refcnt каждого элемента оригинала (+1), кладём
-указатели в новый список. Эффективно благодаря PyList_New (over-allocation).
-
-## 7. Срезовое присваивание: list_ass_slice()
-
-```c
-static int list_ass_slice(PyListObject *self, Py_ssize_t low, Py_ssize_t high, PyObject *v) {
-    Py_ssize_t n;              // Длина заменяемого среза
-    PyObject **src, **dest;
-    Py_ssize_t i;
-    
-    n = high - low;            // Длина удаляемого среза
-    
-    if (v == NULL) {
-        // Удаление: lst[1:3] = []
-        return list_ass_slice_delete(self, low, high);
-    }
-    
-    if (!PyList_Check(v)) {
-        // Сжатие: lst[1:3] = 42
-        return list_ass_item(self, low, v);
-    }
-    
-    Py_ssize_t n_added = Py_SIZE(v);  // Длина нового списка
-    
-    // Перераспределяем память
-    if (_PyList_Resize_Shrink(self, low + n_added) < 0) {
-        return -1;
-    }
-    
-    // Копируем элементы
-    dest = self->ob_item + low;
-    src = ((PyListObject *)v)->ob_item;
-    for (i = 0; i < n_added; i++) {
-        PyObject *w = Py_NewRef(src[i]);
-        PyList_SET_ITEM(self, low + i, w);
-    }
-    
-    return 0;
-}
-```
-
-`lst[1:3] = [10,20]` удаляет 2 элемента, добавляет 2 новых, сдвигает хвост.
-`PyList_Resize_Shrink` оптимизирует память (over-allocation).
-
-## 8. Слоты PyList_Type для поддержки срезов
-
-```c
-static PySequenceMethods list_as_sequence = {
-    // sq_length: len(lst)
-    (lenfunc)list_length,
-    
-    // sq_concat: lst + lst2
-    (binaryfunc)list_concat,
-    
-    // sq_repeat: lst * 3
-    (ssizeargfunc)list_repeat,
-    
-    // sq_item: lst[i]
-    (ssizeargfunc)list_item,
-    
-    // sq_slice: lst[1:3] <- ВАЖНО!
-    (ssizessizeargfunc)list_slice,
-    
-    // sq_ass_item: lst[i] = x
-    (ssizeobjargproc)list_ass_item,
-    
-    // sq_ass_slice: lst[1:3] = ... <- ВАЖНО!
-    (ssizeobjargproc)list_ass_slice,
-};
-```
-
-Все типы регистрируют таблицу `PySequenceMethods` со слотами. BINARY_SUBSCR выбирает
-`sq_slice`/`mp_subscript` в зависимости от типа.
-
-Срезы в CPython — это **PySliceObject** (3 указателя) + **PySlice_GetIndicesEx** (нормализация) + **тип-специфичные**
-`sq_slice`/`sq_ass_slice`, вызываемые через байткоды BUILD_SLICE/BINARY_SUBSCR/STORE_SUBSCR.
-
----
-
-# **args и kwargs**
-
-## **Junior Level**
-
-`*args` и `**kwargs` — это специальные синтаксические конструкции в Python, позволяющие функциям принимать произвольное
-количество аргументов.
-
-**`*args`** (от слова "arguments") собирает все **позиционные аргументы**, переданные функции сверх явно объявленных, в
-**кортеж**. Это полезно, когда количество передаваемых аргументов заранее неизвестно.
-
-**`**kwargs`** (от "keyword arguments") собирает все **именованные аргументы** (ключ=значение), которые не были явно
-перечислены в параметрах функции, в **словарь**.
-
-Также символы `*` и `**` используются при **вызове** функции для распаковки коллекций:
-
-- `*` распаковывает итерируемый объект (список, кортеж) в позиционные аргументы
-- `**` распаковывает словарь в именованные аргументы
-
-Этот механизм — основа для создания гибких API, декораторов и функций-обёрток.
-
-## **Middle Level**
-
-1. **Строгий порядок параметров в определении функции**:
-   ```
-   def f(a, b, *args, c=None, d=None, **kwargs)
-   ```
-   Порядок следования:
-    - Позиционные параметры (a, b)
-    - `*args` — собирает избыточные позиционные аргументы
-    - Keyword-only аргументы (c, d) — после `*args` все параметры требуют явного указания имени
-    - `**kwargs` — собирает избыточные именованные аргументы
-
-2. **Внутреннее представление и особенности**:
-    - При передаче словаря в `**kwargs` ключи **должны быть строками**
-    - Дублирование имен аргументов при распаковке вызывает `TypeError`
-    - `**kwargs` сохраняет порядок аргументов (с Python 3.6)
-    - Метод `__getitem__` объекта используется при распаковке через `**`, что позволяет распаковывать любые
-      mapping-объекты
-
-3. **Принцип работы распаковки**:
-   Когда вызывается `func(*[1, 2, 3])`, интерпретатор:
-    - Создаёт итерируемый объект
-    - Распаковывает его элементы в отдельные позиционные аргументы
-    - Внутри функции эти аргументы доступны через кортеж `args`
-
-## **Senior Level**
-
-В CPython `*args` и `**kwargs` реализуются через специальные флаги в `PyCodeObject`, локальные переменные в фрейме
-`_PyInterpreterFrame` и C-логику в `ceval.c` для упаковки/распаковки аргументов при вызове
-функций. `Python/ceval.c`, `Objects/call.c`
-
-## 1. PyCodeObject: флаги аргументов
-
-```c
-typedef struct _PyCodeObject {
-    PyObject_HEAD
-    int co_argcount;           // Количество позиционных аргументов
-    int co_posonlyargcount;    // Только позиционные аргументы
-    int co_kwonlyargcount;     // Только именованные аргументы
-    int co_nlocals;            // Общее кол-во локальных переменных
-    int co_stacksize;          // Размер стека
-    int co_flags;              // Флаги (CO_VARARGS, CO_VARKEYWORDS)
-    PyObject *co_code;         // Байткод
-    PyObject *co_consts;       // Константы
-    PyObject *co_names;        // Имена (аргументы, глобальные)
-    PyObject *co_varnames;     // Имена локальных переменных
-    PyObject *co_freevars;     // Free переменные (nonlocal)
-    PyObject *co_cellvars;     // Cell переменные (nonlocal)
-    // ...
-} PyCodeObject;
-```
-
-`def f(a, *args, b=1, **kwargs):` → `co_argcount=1` (a), `CO_VARARGS=1`, `CO_VARKEYWORDS=1`.
-`co_varnames=["a", "args", "b", "kwargs"]`.
-
-**Флаги CO_* в co_flags:**
-
-```c
-#define CO_OPTIMIZED             0x0001  // Локальные оптимизированы
-#define CO_NEWLOCALS             0x0002  // Новый locals dict
-#define CO_VARARGS               0x0004  // *args присутствует
-#define CO_VARKEYWORDS           0x0008  // **kwargs присутствует
-#define CO_NESTED                0x0010  // Вложенная функция
-#define CO_GENERATOR             0x0020  // yield присутствует
-```
-
-## 2. CALL_FUNCTION в ceval.c: распаковка аргументов
-
-```c
-case CALL_FUNCTION: {
-    PyObject **args;           // Массив аргументов
-    PyObject *callable;        // Вызываемая функция
-    Py_ssize_t na = oparg;     // Количество аргументов
-    Py_ssize_t nargs = na;     // Фактическое количество
-    
-    // Снимаем аргументы со стека
-    args = (PyObject **)PyMem_Malloc((na + 1) * sizeof(PyObject *));
-    if (args == NULL) {
-        PyErr_NoMemory();
-        goto error;
-    }
-    
-    // Копируем аргументы в обратном порядке (справа налево)
-    for (Py_ssize_t i = 0; i < na; i++) {
-        args[i] = POP();       // Берём со стека
-    }
-    args[na] = NULL;           // Завершающий NULL
-    
-    // Берём вызываемую функцию
-    callable = PEEK(oparg);
-    
-    // Вызываем с распаковкой
-    PyObject *result = _PyObject_Vectorcall(callable, args, nargs, NULL);
-    PyMem_Free(args);
-    
-    Py_DECREF(callable);
-    if (result == NULL) {
-        goto error;
-    }
-    
-    PUSH(result);              // Результат на стек
-    DISPATCH();
-}
-```
-
-Интерпретатор снимает N аргументов со стека, кладёт их в массив `args[]`, вызывает
-`_PyObject_Vectorcall(func, args, N, NULL)`. Массив освобождается после вызова.
-
-## 3. _PyObject_Vectorcall: универсальный вызов
-
-```c
-PyObject *
-_PyObject_Vectorcall(PyObject *callable, PyObject *const *args,
-                     size_t nargsf, PyObject *kwnames) {
-    Py_ssize_t nargs = PyVectorcall_NARGS(nargsf);
-    
-    // Проверяем, поддерживает ли объект vectorcall (быстрый путь)
-    if (_PyObject_HasVectorcall(callable)) {
-        vectorcallfunc func = _PyObject_GetVectorcall(callable);
-        return func(callable, args, nargsf, kwnames);
-    }
-    
-    // Медленный путь: PyObject_Call
-    PyObject *argstuple = PyTuple_FromArray(args, nargs);
-    if (argstuple == NULL) {
-        return NULL;
-    }
-    
-    PyObject *result;
-    if (kwnames == NULL) {
-        result = PyObject_Call(callable, argstuple, NULL);
-    } else {
-        result = PyObject_Call(callable, argstuple, kwnames);
-    }
-    
-    Py_DECREF(argstuple);
-    return result;
-}
-```
-
-Новые функции используют **vectorcall** (C API с массивом аргументов). Старые — через
-`PyTuple_FromArray` (медленнее).
-
-## 4. Функция с *args/**kwargs: распаковка в MAKE_FUNCTION
-
-**Python:** `def f(a, *args, b=1, **kwargs):`
-
-```
-# Байткод в начале функции:
-0
-MAKE_FUNCTION
-15(code_object)  # Создаём PyFunctionObject
-2
-LOAD_FAST 0(.0)  # Берём self/аргументы
-```
-
-**ceval.c MAKE_FUNCTION распаковывает *args/**kwargs:**
-
-```c
-case MAKE_FUNCTION: {
-    PyObject *code = POP();        // PyCodeObject
-    PyObject *defaults = POP();    // (a=1, b=2)
-    PyObject *kwdefaults = POP();  // {c: 3}
-    PyObject *closure = POP();     // Замыкания
-    PyObject *annotations = POP(); // Аннотации
-    PyObject *qualname = POP();    // __qualname__
-    
-    PyFunctionObject *func = PyFunction_New(code, globals);
-    if (func == NULL) {
-        goto error;
-    }
-    
-    // Устанавливаем *args/**kwargs флаги
-    if (PyCode_GET_FLAGS(code) & CO_VARARGS) {
-        // args находится в co_varnames[co_argcount]
-        Py_ssize_t argcount = PyCode_GETARGCOUNT(code);
-        PyObject *args_name = PyTuple_GET_ITEM(code->co_varnames, argcount);
-        func->func_args = args_name;  // Сохраняем имя *args
-    }
-    
-    // Аналогично для **kwargs
-    if (PyCode_GET_FLAGS(code) & CO_VARKEYWORDS) {
-        Py_ssize_t kwonlyargcount = PyCode_GETKWONLYARGCOUNT(code);
-        Py_ssize_t varargcount = PyCode_GETVARARGS(code) ? 1 : 0;
-        Py_ssize_t nlocals = PyCode_GETNLOCALS(code);
-        PyObject *kwargs_name = PyTuple_GET_ITEM(code->co_varnames, 
-                                                 nlocals - kwonlyargcount - varargcount - 1);
-        func->func_kwargs = kwargs_name;
-    }
-    
-    PUSH((PyObject *)func);
-}
-```
-
-При создании функции интерпретатор читает флаги CO_VARARGS/CO_VARKEYWORDS и находит имена
-`*args`/`**kwargs` в `co_varnames`.
-
-## 5. Распаковка *args/**kwargs в фрейме выполнения
-
-**При входе в функцию CALL_FUNCTION распаковывает:**
-
-```c
-static PyObject *fast_function(PyFunctionObject *func, PyObject ***pp_stack,
-                               Py_ssize_t nargs, PyObject *kwnames) {
-    PyCodeObject *co = func->func_code;
-    Py_ssize_t nposargs = co->co_argcount + co->co_kwonlyargcount;
-    
-    // Позиционные аргументы
-    for (Py_ssize_t i = 0; i < co->co_argcount; i++) {
-        PyObject *arg = args[i];
-        PyFrame_SetLocal(frame, i, Py_NewRef(arg));  // args[0] -> locals[0]
-    }
-    
-    // *args (если есть)
-    if (PyCode_GET_FLAGS(co) & CO_VARARGS) {
-        Py_ssize_t nargs_var = nargs - co->co_argcount;
-        PyObject *args_tuple = PyTuple_New(nargs_var);
-        for (Py_ssize_t i = 0; i < nargs_var; i++) {
-            PyTuple_SET_ITEM(args_tuple, i, Py_NewRef(args[co->co_argcount + i]));
-        }
-        PyFrame_SetLocal(frame, co->co_argcount, args_tuple);
-    }
-    
-    // **kwargs (если есть)
-    if (PyCode_GET_FLAGS(co) & CO_VARKEYWORDS) {
-        PyObject *kwargs_dict = PyDict_New();
-        // Распаковываем kwnames в kwargs_dict
-        PyFrame_SetLocal(frame, func->func_kwargs_slot, kwargs_dict);
-    }
-    
-    return NULL;  // Успех
-}
-```
-
-При входе в `def f(a, *args, **kwargs):` интерпретатор кладёт `a=args[0]`,
-`*args=tuple(args[1:])`, `**kwargs=dict(kw)` в локальные переменные фрейма.
-
-## 6. PyFrameObject: хранение args/kwargs
-
-```c
-typedef struct _PyFrameObject {
-    PyObject_HEAD
-    struct _PyInterpreterFrame *f_frame;  // Текущий фрейм
-    PyCodeObject *f_code;                 // PyCodeObject
-    PyObject *f_globals;                  // globals()
-    PyObject *f_builtins;                 // builtins()
-    PyObject *f_locals;                   // locals() или NULL
-    PyObject **f_localsplus;              // Локальные + fast locals
-    // ...
-} PyFrameObject;
-```
-
-`f_localsplus[]` — массив всех локальных переменных. `f_localsplus[0]="a"`,
-`f_localsplus[1]="args"`, `f_localsplus[2]="b"`, `f_localsplus[3]="kwargs"`.
-
-## 7. Вызов с распаковкой: f(*args, **kwargs)
-
-**Python:** `f(*lst, **dct)`
-
-```assembler
-# Байткод:
-LOAD_GLOBAL f
-LOAD_FAST lst
-UNPACK_EX 0  # Распаковка *args
-LOAD_FAST dct
-UNPACK_EX 1  # Распаковка **kwargs (1 kwarg)
-CALL_FUNCTION_KW 3 1  # 3 позиционных + 1 именованный
-```
-
-**CALL_FUNCTION_KW обрабатывает kwnames:**
-
-```c
-case CALL_FUNCTION_KW: {
-    PyObject *kwnames = POP();     // Кортеж именованных аргументов
-    Py_ssize_t na = oparg >> 1;    // Позиционные аргументы
-    Py_ssize_t nk = oparg & 0xff;  // Именованные аргументы
-    
-    // Снимаем аргументы
-    PyObject **args = PyMem_Malloc((na + 1) * sizeof(PyObject *));
-    for (Py_ssize_t i = 0; i < na; i++) {
-        args[i] = POP();
-    }
-    args[na] = NULL;
-    
-    // Вызываем с именованными аргументами
-    PyObject *result = _PyObject_Vectorcall(callable, args, na, kwnames);
-    PyMem_Free(args);
-    Py_DECREF(kwnames);
-    PUSH(result);
-}
-```
-
-`*lst` распаковывается в позиционные аргументы, `**dct` → кортеж имен (
-`kwnames=("key1", "key2")`) + значения. Передаются в vectorcall.
-
-`*args`/**kwargs** в CPython — это флаги `CO_VARARGS`/`CO_VARKEYWORDS` в `PyCodeObject`, распаковка в `f_localsplus[]`
-фрейма через `fast_function`, поддержка через байткоды `CALL_FUNCTION_KW` и vectorcall протокол.
-
-- [Содержание](CONTENTS.md#содержание)
-
----
-
-# *Хеш-таблица*
-
-## **Junior Level**
-
-Хеш-таблица — это структура данных, обеспечивающая амортизированную сложность O(1) для операций поиска, вставки и
-удаления за счёт использования хеш-функции, преобразующей ключ в индекс массива. В Python она лежит в основе словарей (
-dict) и множеств (set). Ключевыми особенностями являются требование хешируемости (неизменяемости) ключей, сохранение
-порядка вставки и автоматическое увеличение размера при достижении определённого коэффициента заполнения.
-
-Представьте библиотеку, где номер полки вычисляется по названию книги по определённому правилу (например, первая буква).
-Это правило — **хеш-функция**. Она преобразует ключ в число-индекс. В идеале вы находите элемент за O(1) время.
-
-**Коллизии** (когда разным ключам соответствует один индекс) решаются разными способами. Например, на «полке» может быть
-список пар «ключ-значение», и вы ищете среди них по полному ключу.
-
-В Python ключ словаря или элемент множества должен быть **хешируемым** (неизменяемым) объектом.
-
-## **Middle Level**
-
-В Python хеш-таблицы используют **открытую адресацию** с **квадратичным зондированием** для разрешения коллизий.
-
-**Ключевые аспекты:**
-
-1. **Хешируемость:** Объект хешируем, если:
-    * Имеет метод `__hash__`, возвращающий целое число.
-    * Имеет метод `__eq__` для сравнения.
-    * Выполняется условие: `a == b` ⇒ `hash(a) == hash(b)`.
-    * Неизменяемые типы (int, str, tuple, frozenset) хешируемы по умолчанию.
-2. **Размер таблицы:** Всегда является степенью двойки, что позволяет вычислять индекс через битовую маску:
-   `index = hash(key) & (table_size - 1)`.
-3. **Коэффициент загрузки (load factor):** При заполнении ~2/3 таблица увеличивается вдвое (**rehashing**), что является
-   амортизированной операцией O(n).
-4. **Удаление элементов:** Элемент помечается как **dummy** (удалённый слот), чтобы не разрывать цепочки зондирования.
-5. **Сохранение порядка:** Начиная с Python 3.7, порядок вставки в словаре гарантирован. Это достигается отдельным
-   массивом записей (ключ-значение), который сохраняет порядок.
-
-## **Senior Level**
-
-В CPython 3.9+ **хеш-таблица** (`PyDictObject`) использует **split table** с **компактным представлением**: общие
-`PyDictKeysObject` (shared keys) + массив значений `ma_values[]`. Поиск через `lookdict_*` с **робин-худ хешированием**
-и **атомарными индексами**. `Objects/dictobject.c`,`Include/cpython/dictobject.h`
-
-## 1. PyDictObject (Python 3.9+)
-
-```c
-typedef struct {
-    Py_ssize_t ma_used;            // Количество *реальных* пар ключ-значение
-    uint64_t ma_version_tag;       // Версия для итераторов (атомарно)
-    PyDictKeysObject *ma_keys;     // Общие ключи (может быть shared)
-    PyObject **ma_values;          // Массив значений (split table)
-} PyDictObject;
-```
-
-Словарь = счетчик занятых слотов + версия + общие ключи + массив значений. `ma_used` считает
-пары, а не слоты хеш-таблицы.
-
-## 2. PyDictKeysObject - shared keys
-
-```c
-typedef struct _dictkeysobject {
-    Py_ssize_t dk_size;            // Размер хеш-таблицы (степень двойки)
-    enum dict_keys_kind dk_kind;   // DICT_KEYS_UNICODE, DICT_KEYS_SPLIT и т.д.
-    union {
-        PyDictUnicodeEntry *dk_entries;  // Полная таблица для unicode ключей
-        PyDictKeyEntry *dk_indices;      // Только индексы (int8/int16)
-    } dk;
-    uint64_t dk_version_tag;       // Версия ключей
-    Py_ssize_t dk_nentries;        // Количество активных записей
-    Py_ssize_t dk_usable;          // Сколько слотов ещё можно занять
-    Py_ssize_t dk_refcnt;          // Счётчик ссылок (shared keys)
-} PyDictKeysObject;
-```
-
-`PyDictKeysObject` содержит хеш-таблицу индексов + сами ключи. Может быть **общим** для многих
-словарей одной структуры (экономия памяти на классах).
-
-## 3. Индексы в хеш-таблице (dk_indices)
-
-```c
-// dk_indices содержит значения:
-// DKIX_EMPTY   (0-1)   - пустой слот
-// DKIX_DUMMY   (0x8000)- удалённый слот (tombstone)
-// DKIX_ACTIVE  (>0)    - индекс в entries/values (1..dk_size-1)
-// 0xFFFF       - не используется
-```
-
-Каждый слот хеш-таблицы — это **8-битный индекс** (int8_t): 0=пусто, 255=удалено,
-1-254=указатель на запись с ключом.
-
-## 4. lookdict_unicode - основной поиск (unicode ключи)
-
-```c
-static PyDictKeyEntry *lookdict_unicode(PyDictKeysObject *keys,
-                                        PyObject *key, Py_hash_t hash) {
-    size_t i = (size_t)hash & DK_MASK(keys);  // Начальный индекс (hash % size)
-    PyDictKeyEntry *entries = keys->dk_entries;
-    PyDictUnicodeEntry *unicode_entries = (PyDictUnicodeEntry *)entries;
-    
-    // Пробуем точное совпадение хеша + строки
-    Py_hash_t mask = DK_MASK(keys);
-    Py_ssize_t perturb = hash;
-    PyDictKeyEntry *freeslot = NULL;
-    PyDictKeyEntry *first_removed = NULL;
-    
-    // Робин-худ хеширование
-    while (1) {
-        PyDictKeyEntry *entry = &entries[i];
-        if (entry->me_key == NULL) {
-            // Пустой слот
-            return freeslot ? freeslot : entry;
-        }
-        
-        // Проверяем dummy слоты (удалённые)
-        if (entry->me_key == DKIX_DUMMY) {
-            if (!first_removed) {
-                first_removed = entry;
-            }
-            i = (i + 1) & mask;
-            continue;
-        }
-        
-        // Сравниваем хеши
-        if (entry->me_hash == hash) {
-            PyDictUnicodeEntry *ue = (PyDictUnicodeEntry *)entry;
-            if (_PyUnicode_EqualShared((PyASCIIObject *)ue->me_key, 
-                                       (PyASCIIObject *)key)) {
-                return entry;  // НАЙДЕН!
-            }
-        }
-        
-        // Робин-худ: ищем "бедного" соседа
-        perturb >>= PERTURB_SHIFT;
-        i = (i * 5 + 1 + perturb) & mask;
-        if (!freeslot) {
-            freeslot = first_removed;
-        }
-    }
-}
-```
-
-Вычисляем `hash(key) % размер`. Если слот пустой — останавливаемся. Если занят — проверяем
-ключ. Если не наш — делаем **робин-худ шаг** `(i*5 + 1 + perturb) % size`, пока не найдём или не упрёмся в пустой слот.
-
-## 5. Вставка: insertdict()
-
-```c
-static int insertdict(PyDictObject *mp, PyObject *key, Py_ssize_t hash, 
-                      PyObject *value, PyDictUnicodeEntry *entries) {
-    PyDictKeyEntry *ep;
-    size_t ix;                 // Индекс в хеш-таблице
-    PyDictKeysObject *keys = mp->ma_keys;
-    
-    // Находим место для вставки
-    ep = lookdict_unicode(keys, key, hash);
-    
-    if (ep->me_key != NULL && ep->me_key != DKIX_DUMMY) {
-        // Ключ уже существует - заменяем значение
-        if (mp->ma_values) {
-            PyDictValues *values = mp->ma_values;
-            Py_XSETREF(values->values[ep - entries], Py_NewRef(value));
-        } else {
-            Py_XSETREF(ep->me_value, Py_NewRef(value));
-        }
-        return 0;
-    }
-    
-    // Проверяем load factor (2/3)
-    if (keys->dk_usable == 0) {
-        // Таблица заполнена - увеличиваем в 2 раза
-        if (make_keys_object(mp, 2 * DK_SIZE(keys)) < 0) {
-            return -1;
-        }
-        keys = mp->ma_keys;
-        ep = lookdict_unicode(keys, key, hash);
-    }
-    
-    // Вставляем новую запись
-    PyDictUnicodeEntry *ue = (PyDictUnicodeEntry *)ep;
-    ue->me_key = Py_NewRef(key);
-    ue->me_hash = hash;
-    if (mp->ma_values) {
-        mp->ma_values->values[ep-entries] = Py_NewRef(value);
-    } else {
-        ue->me_value = Py_NewRef(value);
-    }
-    
-    keys->dk_nentries++;       // +1 активная запись
-    keys->dk_usable--;         // -1 свободный слот
-    mp->ma_used++;
-    
-    return 0;
-}
-```
-
-Ищем место через lookdict. Если ключ есть — меняем значение. Если таблица заполнена на 2/3 —
-удваиваем размер. Копируем ключ/значение (+refcnt).
-
-## 6. Resize: make_keys_object()
-
-```c
-static int make_keys_object(PyDictObject *mp, Py_ssize_t newsize) {
-    PyDictKeysObject *oldkeys = mp->ma_keys;
-    PyDictKeysObject *newkeys;
-    
-    // Округляем до степени двойки (8, 16, 32...)
-    newsize = estimate_new_capacity(mp->ma_used, newsize);
-    
-    // Создаём новые ключи
-    newkeys = raw_make_keys(newsize);
-    if (newkeys == NULL) {
-        return -1;
-    }
-    
-    // Перехешируем все старые элементы
-    PyDictKeyEntry *oldentries = oldkeys->dk_entries;
-    for (Py_ssize_t i = 0; i < mp->ma_used; i++) {
-        PyDictKeyEntry *old_ep = &oldentries[i];
-        if (old_ep->me_key != NULL && old_ep->me_key != DKIX_DUMMY) {
-            insertdict(mp, old_ep->me_key, old_ep->me_hash, 
-                      old_ep->me_value, newkeys->dk_entries);
-        }
-    }
-    
-    // Заменяем ключи атомарно
-    _PyDict_SetKeys(mp, newkeys);
-    
-    // Уменьшаем refcnt старых ключей
-    DK_DECREF(oldkeys);
-    
-    return 0;
-}
-```
-
-При 2/3 заполнении создаём новую таблицу вдвое больше, перехешируем **все** элементы заново,
-атомарно меняем указатель `ma_keys`.
-
-## 7. Атомарные операции (Python 3.9+)
-
-```c
-// Атомарная загрузка индекса (relaxed memory order)
-#define LOAD_INDEX(keys, size, idx) \
-    _Py_atomic_load_int##size##_relaxed(&((const int##size##_t*)keys->dk_indices)[idx])
-
-// Атомарное сохранение индекса (release memory order)
-#define STORE_INDEX(keys, size, idx, value) \
-    _Py_atomic_store_int##size##_release(&((int##size##_t*)keys->dk_indices)[idx], (int##size##_t)value)
-
-// При добавлении записи (thread-safe)
-static inline void split_keys_entry_added(PyDictKeysObject *keys) {
-    // Атомарно увеличиваем счётчики
-    _Py_atomic_fetch_add_ssize_relaxed(&keys->dk_nentries, 1);
-    _Py_atomic_fetch_sub_ssize_release(&keys->dk_usable, 1);
-}
-```
-
-В многопоточной среде (GIL released) индексы `dk_indices[]` обновляются атомарно. `release`
-гарантирует видимость изменений.
-
-## 8. Shared keys для классов (экономия памяти)
-
-```c
-// Классовые словари используют общие PyDictKeysObject
-static PyDictKeysObject *class_keys = NULL;
-
-PyObject *PyDict_FromKeys(PyObject *keys, PyObject *values) {
-    // Создаём shared keys для классов
-    if (PyType_Check(values)) {
-        class_keys = intern_keys(keys);
-        Py_INCREF(class_keys);
-    }
-}
-```
-
-Все экземпляры класса `class C:` делят один `PyDictKeysObject` с одинаковыми именами
-атрибутов. Значения хранятся отдельно в `ma_values[]`.
-
-## 9. Байткод: DICT_MERGE (PEP 584, 3.9+)
-
-```
-# d1 |= d2  # Байткод:
-DICT_MERGE   1     # Объединяем словари
-```
-
-```c
-case DICT_MERGE: {
-    PyObject *update = PEEK(oparg);  // Второй словарь
-    PyObject *target = PEEK(oparg + 1);  // Первый словарь
-    
-    if (!_PyDict_MergeEx(target, update, oparg)) {
-        goto error;
-    }
-    Py_DECREF(update);
-    DISPATCH_SAME_OPARG(2);
-}
-```
-
-`d1 |= d2` вызывает `_PyDict_MergeEx` (атомарное объединение с приоритетом правого словаря).
-
-**Хеш-таблица** в CPython 3.9+ — **split table** (`PyDictKeysObject` + `ma_values[]`), **робин-худ хеширование**, *
-*атомарные индексы**, **shared keys** для классов, resize при 2/3 load factor, vectorcall поддержка.
-
-- [Содержание](CONTENTS.md#содержание)
-
+[Содержание](/CONTENTS.md#содержание)
 ---
 
 # *Встроенные функции*
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Junior Level**
 
@@ -1116,6 +21,8 @@ case DICT_MERGE: {
 стандартизировано.
 
 [Built in functions how to use](built_in_functions.md#built-in-functions-how-to-use)
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
@@ -1237,11 +144,15 @@ case DICT_MERGE: {
 4. **Функции высшего порядка**: `map()`, `filter()`, `sorted()` принимают функции в качестве аргументов. Это делает их
    мощным инструментом для функционального программирования.
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Senior Level**
 
 В CPython 3.9+ **встроенные функции** реализуются через **PyCFunctionObject**/**PyCMethodObject** в модуле
 `bltinmodule.c`, регистрируемые в `__builtins__` через `builtin_functions[]`. Поддерживают **vectorcall** (
 METH_FASTCALL) и классические **METH_VARARGS**. `Python/bltinmodule.c`,`Objects/methodobject.c`
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## 1. PyCFunctionObject - структура встроенной функции
 
@@ -1258,6 +169,8 @@ typedef struct {
 
 Встроенная функция `len()` в памяти — это 64-байт структура: заголовок + указатель на
 C-функцию `len_func` + `__module__="builtins"`. `vectorcall` — быстрый путь вызова без tuple.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## 2. PyMethodDef - таблица встроенных функций
 
@@ -1337,6 +250,8 @@ static PyMethodDef builtin_functions[] = {
 Это **таблица методов** — массив структур `{имя, C_функция, флаги, docstring}`. `builtin_len`
 принимает METH_O (1 аргумент). Регистрируется в `__builtins__`.
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## 3. Регистрация в bltinmodule.c: builtinmodule_exec
 
 ```c
@@ -1397,6 +312,8 @@ static int builtin_add_funcs(PyObject *mod_dict, PyMethodDef *functions) {
 вызывает `PyCFunction_NewEx` (создаёт PyCFunctionObject для каждой функции), кладёт в `__dict__` модуля как `len`,
 `print`, `abs`.
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## 4. PyCFunction_NewEx - создание PyCFunctionObject
 
 ```c
@@ -1423,6 +340,8 @@ PyObject *PyCFunction_NewEx(PyMethodDef *ml, PyObject *self, PyObject *module) {
 
 **Объяснение людей:** Для `len` создаётся PyCFunctionObject: `m_ml=&builtin_len_def`, `m_self=NULL`,
 `m_module="builtins"`, `vectorcall=cfunction_vectorcall_FASTCALL`.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## 5. Вызов len(obj): vectorcall путь (3.9+)
 
@@ -1457,6 +376,8 @@ static PyObject *cfunction_vectorcall_FASTCALL(
 
 `len(obj)` → `cfunction_vectorcall_FASTCALL` → `builtin_len(NULL, obj)` → C-функция получает
 `self=NULL`, `arg=obj`. Без создания tuple/list — **максимальная скорость**.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## 6. builtin_len - реализация len()
 
@@ -1505,6 +426,8 @@ Py_ssize_t PyObject_Length(PyObject *o) {
 `len(lst)` → `PyObject_Length(lst)` → `PyList_Type.tp_as_sequence->sq_length(lst)` →
 `list_length()` возвращает `self->ob_size`. Если нет `sq_length` — пробует `__len__()`.
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## 7. list_length - sq_length для PyListObject
 
 ```c
@@ -1515,6 +438,8 @@ static Py_ssize_t list_length(PyListObject *self) {
 
 `len([1,2,3])` возвращает `ob_size=3` из заголовка PyVarObject. **Мгновенно** — поле в самом
 объекте.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## 8. Байткод: LOAD_GLOBAL -> builtins.len
 
@@ -1559,6 +484,8 @@ case LOAD_GLOBAL: {
 `LOAD_GLOBAL len` ищет имя `"len"` сначала в `globals()`, потом в `builtins`. Находит
 PyCFunctionObject, увеличивает refcnt, кладёт на стек.
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## 9. Vectorcall диспетчеризация (3.9+)
 
 ```c
@@ -1588,11 +515,13 @@ PyObject *_PyObject_Vectorcall(PyObject *callable,
 скорости, **PyMethodDef таблица**, поиск через `LOAD_GLOBAL` → `globals/builtins`, диспетч `PyObject_Length` →
 `sq_length`.
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # *Контекстные менеджеры*
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Junior Level**
 
@@ -1620,6 +549,8 @@ finally:
 ```
 
 Контекстный менеджер инкапсулирует эту логику, делая код чище и безопаснее.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
@@ -1700,6 +631,8 @@ with open('a.txt') as f1, open('b.txt', 'w') as f2:
   Если исключения не было, все они равны `None`. Возврат `True` подавляет исключение. Исключение, возникшее *внутри*
   `__exit__`, заменяет исходное (если оно было).
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Senior Level**
 
 В CPython 3.9+ **контекстные менеджеры** реализуются через байткод `WITH_EXCEPT_START`/`GET_AITER`/`GET_ANEXT`/
@@ -1731,6 +664,8 @@ with open('a.txt') as f1, open('b.txt', 'w') as f2:
 
 `BEFORE_WITH` вызывает `__enter__`, `STORE_FAST` сохраняет результат в `var`.
 `WITH_EXCEPT_START` вызывает `__exit__(exc_type, exc_val, tb)` при выходе/исключении.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## 2. BEFORE_WITH байткод (ceval.c)
 
@@ -1767,6 +702,8 @@ case BEFORE_WITH: {
 `BEFORE_WITH` ищет `ctx.__enter__()` через `_PyObject_LookupSpecial` (быстрый поиск по MRO),
 вызывает без аргументов, кладёт результат на стек вместо `ctx`.
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## 3. WITH_EXCEPT_START - вызов __exit__
 
 ```c
@@ -1802,6 +739,8 @@ case WITH_EXCEPT_START: {
 
 При исключении/выходе из `with` берём сохранённое `(exc_type, exc_val, tb)`, вызываем
 `__exit__(exc_info)`, если возвращает `True` — **подавляем** исключение.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## 4. SETUP_WITH (SETUP_FINALLY + PUSH_EXC_INFO)
 
@@ -1955,11 +894,13 @@ io_FileIO___exit__(PyFileIOObject *self, PyObject *args) {
 **Контекстные менеджеры** в CPython 3.9+ — байткоды `BEFORE_WITH` (вызов `__enter__`), `WITH_EXCEPT_START` (вызов
 `__exit__(exc_info)`), структуры для сохранения `exc_info` tuple, быстрый поиск через `_PyObject_LookupSpecial`.
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # **Генераторы и итераторы**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Junior Level**
 
@@ -2000,6 +941,8 @@ io_FileIO___exit__(PyFileIOObject *self, PyObject *args) {
    бесконечно.
 3. **Гибкость:** С генератором можно общаться "в обе стороны" — не только получать значения, но и посылать ему данные
    или исключения с помощью методов `.send()` и `.throw()`.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
@@ -2075,6 +1018,8 @@ def chain(*iterables):
 * Он также **прозрачно передаёт** вызовы `.send()` и `.throw()` во вложенный генератор, что критически важно для
   сохранения семантики двусторонней связи в цепочке генераторов. Это делает код с вложенными генераторами чистым и
   предсказуемым.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Senior Level**
 
@@ -2350,11 +1295,13 @@ PyObject *PyObject_GetIter(PyObject *obj) {
 **Генераторы/итераторы** в CPython 3.9+ — **PyGenObject** с **замороженным _PyInterpreterFrame**, состояния
 `FRAME_SUSPENDED`, байткоды `YIELD_VALUE`/`RESUME`, протокол `tp_iter`/`tp_iternext`, `PyObject_GetIter` диспетчер.
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # **Декораторы и замыкания**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Junior Level**
 
@@ -2370,6 +1317,8 @@ PyObject *PyObject_GetIter(PyObject *obj) {
 А замыкания — это то, что делает декораторы возможными. Если очень просто: замыкание — это функция внутри функции,
 которая помнит переменные из внешней функции даже после того, как та завершилась. Как будто у неё есть память. Например,
 можно создать функцию-счетчик, которая будет помнить, сколько раз её вызвали.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
@@ -2409,6 +1358,8 @@ PyObject *PyObject_GetIter(PyObject *obj) {
 По сути, декораторы и замыкания — это инструменты, которые помогают нам писать более чистый, модульный и
 переиспользуемый код. Они позволяют отделять сквозную функциональность вроде логирования, кэширования или проверки прав
 от основной бизнес-логики, что соответствует принципам хорошего проектирования.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Senior Level**
 
@@ -2683,11 +1634,13 @@ STORE_NAME        f
 **Декораторы/замыкания** в CPython 3.9+ — **PyCellObject** (`ob_ref`), `co_cellvars`/`co_freevars`, байткоды
 `LOAD_CLOSURE`/`STORE_DEREF`/`MAKE_CLOSURE`, `func_closure` tuple в PyFunctionObject.
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # **GIL (Global Interpreter Lock)**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Junior Level**
 
@@ -2703,6 +1656,8 @@ Python). Все сотрудники могут готовить докумен�
 Но есть важный нюанс. Во время операций ввода-вывода — когда программа ждет ответа от сети, читает файл или общается с
 базой данных — поток освобождает GIL, позволяя другим потокам работать. Поэтому для I/O-задач (например, веб-серверов)
 многопоточность всё равно полезна.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
@@ -2752,6 +1707,8 @@ GIL был введён для упрощения управления памя�
 CPU-интенсивная — смотрим в сторону многопроцессорности или выноса вычислений в C-расширения. Если I/O-интенсивная —
 можно использовать потоки, асинхронное программирование или комбинацию подходов. GIL — это не приговор, а особенность,
 которую нужно учитывать при проектировании.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Senior Level**
 
@@ -3005,11 +1962,13 @@ Free-threaded использует **атомарные** `PyDict_LookupWithCach
 **GIL** в CPython 3.9+ — **_gil_runtime_state** (`mutex + recursion_count`), **take_gil/drop_gil**, **PyGILState_Ensure
 ** (C API), **per-interp GIL** (3.12), **free-threaded** (`Py_GIL_DISABLED`, 3.13).
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # **Изменение коллекции во время итерации**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Junior Level**
 
@@ -3024,6 +1983,8 @@ Free-threaded использует **атомарные** `PyDict_LookupWithCach
 
 Это правило касается всех изменяемых коллекций — списков, словарей, множеств. Для безопасной модификации нужно либо
 итерироваться по копии коллекции, либо сначала собрать все необходимые изменения, а затем применить их к оригиналу.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
@@ -3049,6 +2010,8 @@ Free-threaded использует **атомарные** `PyDict_LookupWithCach
 информацию (например, какие элементы нужно удалить или добавить), сохранив её во временной структуре, а затем отдельным
 действием примените все изменения к исходной коллекции. Этот метод не только безопасен, но и делает код более понятным,
 поскольку чётко разделяет ответственность между этапами обработки данных.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Senior Level**
 
@@ -3328,11 +2291,13 @@ static PyObject *myiter_next(MyIterObject *self) {
 **Изменение коллекции** в CPython 3.9+ детектируется **version tag** (`ob_version`/`ma_version_tag`) в
 PyListObject/PyDictObject + проверкой в `tp_iternext()` итераторов → **RuntimeError** при несоответствии.
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 ### **Области видимости**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Junior Level**
 
@@ -3356,6 +2321,8 @@ PyListObject/PyDictObject + проверкой в `tp_iternext()` итерато
 * `global` — позволяет изменять переменную, объявленную на уровне модуля (глобально).
 * `nonlocal` — используется во вложенных функциях и указывает, что переменная принадлежит области видимости ближайшей
   внешней функции (но не глобальной).
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
@@ -3385,6 +2352,8 @@ PyListObject/PyDictObject + проверкой в `tp_iternext()` итерато
 получает специальное имя `__main__`. Каждый импортированный модуль живёт в своём собственном изолированном глобальном
 пространстве, что предотвращает коллизии имён между разными частями программы и способствует созданию чистой, модульной
 архитектуры.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Senior Level**
 
@@ -3707,11 +2676,13 @@ typedef struct _PyCodeObject {
 **Области видимости** в CPython 3.9+ — **symtable** (флаги DEF_*), компилятор → `LOAD_FAST`/`LOAD_NAME`/`LOAD_GLOBAL`/
 `LOAD_DEREF`, поиск localsplus→locals→globals→builtins, кеш `co_opcache`.
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # **Lambda-функции**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Junior Level**
 
@@ -3730,6 +2701,8 @@ typedef struct _PyCodeObject {
 делает их непригодными для сложной логики с условиями `if-elif-else` (хотя можно использовать тернарный оператор),
 циклами или присваиваниями. Если логика перестаёт помещаться в одну строку или требует пояснений, это верный признак,
 что пора использовать обычную функцию.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
@@ -3754,6 +2727,8 @@ typedef struct _PyCodeObject {
 принимающие аргумент `key`, как в `sorted()`, `min()`, `max()` или группировке `itertools.groupby()`. Их сила — в
 лаконичности и возможности быть определёнными именно там, где они используются, что уменьшает разрыв между объявлением и
 применением.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Senior Level**
 
@@ -4042,11 +3017,13 @@ COMPILER_SCOPE_LAMBDA    // co_flags без CO_NEWLOCALS (использует g
 **Lambda** в CPython 3.9+ — **PyCodeObject** из `compiler_lambda()`, `MAKE_FUNCTION 0`, **отдельный PyFrameObject** при
 вызове, **без локальных** (CO_NEWLOCALS=0), поддержка замыканий через `LOAD_DEREF`.
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # *Comprehensions и генераторные выражения*
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Junior Level**
 
@@ -4062,6 +3039,8 @@ comprehension создаёт множество, dict comprehension — слов
 
 Их удобно использовать для фильтрации (добавив `if`) и для преобразования элементов. Это делает код чище и часто
 быстрее, чем аналогичные циклы.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
@@ -4092,6 +3071,8 @@ comprehension создаёт множество, dict comprehension — слов
 6. **Отличия от функций-генераторов**: Генераторные выражения — это синтаксический сахар для создания анонимных
    генераторов. Они не могут содержать сложную логику с несколькими `yield` или `return`, в отличие от
    функций-генераторов.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Senior Level**
 
@@ -4357,11 +3338,13 @@ Async genexp → **async generator** с `async for`/`await` в байткоде.
 *MAP_ADD** с фиксированным списком/словарём в `.0`, **PEP 709 inline** (3.12+ без function call), **over-allocation**
 оптимизация.
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # **copy() и deepcopy()**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Junior Level**
 
@@ -4380,6 +3363,8 @@ Async genexp → **async generator** с `async for`/`await` в байткоде.
 Выбор между этими двумя функциями зависит от ситуации. Если вы работаете с неизменяемыми объектами (числа, строки,
 кортежи) или уверены, что не будете менять вложенные элементы, достаточно `copy()`. Когда же требуется полная изоляция —
 например, для тестовых данных, конфигураций или сложных изменяемых структур — без `deepcopy()` не обойтись.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
@@ -4404,6 +3389,8 @@ Async genexp → **async generator** с `async for`/`await` в байткоде.
 На практике глубокое копирование незаменимо при работе с многомерными структурами данных, графами или любыми объектами,
 где важна полная независимость копии. Поверхностное же копирование часто используется для создания "снимков" состояния
 объекта в определённый момент, когда достаточно скопировать только верхний уровень структуры.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Senior Level**
 
@@ -4697,11 +3684,13 @@ _deepcopy_dispatch[type(open('file.txt'))] = _deepcopy_file_like
 `PyList_New()`/`PyDict_NewPresized()` + `Py_INCREF()` (shallow), `_reconstruct()` для классов, `__copy__()`/
 `__deepcopy__()` хуки.
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # **Асинхронность**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Junior Level**
 
@@ -4720,6 +3709,8 @@ _deepcopy_dispatch[type(open('file.txt'))] = _deepcopy_file_like
 Он позволяет обрабатывать тысячи одновременных соединений в одном потоке, экономя ресурсы. Важно помнить, что
 асинхронность не ускоряет вычисления — для сложной математики лучше подходят другие инструменты, например,
 многопроцессорность.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
@@ -4769,6 +3760,8 @@ _deepcopy_dispatch[type(open('file.txt'))] = _deepcopy_file_like
 Асинхронность в Python — это мощный инструмент для создания высокопроизводительных приложений, работающих с множеством
 одновременных операций ввода-вывода. При грамотном использовании она позволяет писать чистый, структурированный и
 эффективный код, в котором конкурентность управляется явно и предсказуемо.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Senior Level**
 
@@ -5054,11 +4047,13 @@ PyObject *PyCoro_Send(PyObject *coro, PyObject *arg) {
 **Асинхронность** в CPython 3.9+ — **PyCoroObject** (`CO_COROUTINE`), `GET_AWAITABLE`/`YIELD_FROM`, **TaskObj** в
 `_asynciomodule.c`, **event loop** (epoll + callbacks), **кооперативное** переключение на `await`.
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # **Многопоточность**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Junior Level**
 
@@ -5078,6 +4073,8 @@ PyObject *PyCoro_Send(PyObject *coro, PyObject *arg) {
 Для создания и управления потоками используется модуль `threading`, который предоставляет класс `Thread` для создания
 потоков и различные примитивы синхронизации, такие как блокировки (`Lock`), семафоры (`Semaphore`) и события (`Event`),
 помогающие координировать доступ к общим ресурсам.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
@@ -5113,6 +4110,8 @@ PyObject *PyCoro_Send(PyObject *coro, PyObject *arg) {
 эффективного многопоточного кода. Многопоточность в Python — мощный инструмент для I/O-задач, но для CPU-интенсивных
 вычислений стоит рассмотреть многопроцессорность или альтернативные реализации Python, такие как PyPy или использование
 библиотек, отпускающих GIL.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Senior Level**
 
@@ -5394,11 +4393,13 @@ case LOAD_GLOBAL: {
 `PyThread_start_new_thread()` → `pthread_create()`, **per-interpreter** списки (3.12), **GIL** (`holds_gil`), *
 *free-threaded** атомарные операции (3.13).
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # **Мультипроцессинг**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Junior Level**
 
@@ -5417,6 +4418,8 @@ case LOAD_GLOBAL: {
 как это делают потоки. Для взаимодействия приходится использовать специальные механизмы межпроцессного взаимодействия (
 IPC). Для работы с процессами в Python используется модуль `multiprocessing`, который предоставляет API, во многом
 похожий на `threading`, но предназначенный для процессов.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
@@ -5459,6 +4462,8 @@ Semaphore, Event, Condition), но работающих через механи�
 Мультипроцессинг в Python — это мощный инструмент для преодоления ограничений GIL и использования всех вычислительных
 ресурсов системы, особенно когда задачи могут быть эффективно распараллелены и требуют минимального обмена данными между
 процессами.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Senior Level**
 
@@ -5688,11 +4693,13 @@ class Server:
 ** (`pickle` + Unix sockets), **sem_t/HANDLE** семафоры, **Pool** worker'ы, **Copy-on-Write** (`fork`), **SharedMemory
 ** (`mmap`).
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # **Dataclass**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Junior Level**
 
@@ -5709,6 +4716,8 @@ Dataclass — это декоратор из модуля `dataclasses`, кот�
 представление и корректное сравнение экземпляров по значению полей. Dataclass также предлагает гибкие настройки: можно
 создавать неизменяемые классы, управлять участием полей в сравнении, задавать значения по умолчанию и даже определять
 поля, которые вычисляются динамически.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
@@ -5765,6 +4774,8 @@ Dataclass поддерживает наследование, собирая по
     - `compare`: Участвует ли поле в сравнении
     - `hash`: Участвует ли поле в вычислении хеша
     - `metadata`: Произвольные метаданные
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Senior Level**
 
@@ -6032,11 +5043,13 @@ class Employee(Person):
 _create_fn() + exec()** генерация `__init__`/`__repr__`, **Field дескрипторы**, **DataclassType метакласс**, `frozen`/
 `__post_init__` поддержка.
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # **Enum**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Junior Level**
 
@@ -6061,6 +5074,8 @@ class TaskStatus(Enum):
 Теперь в коде можно использовать `TaskStatus.RUNNING` вместо просто `1`. Enum предоставляет итерацию, сравнение и доступ
 к членам по имени или значению. Особенно полезны они для ограничения допустимых значений параметров функции и замены
 строковых констант.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
@@ -6091,6 +5106,8 @@ class TaskStatus(Enum):
     - Наследование: Enum может наследоваться от других классов (кроме другого Enum)
 
 6. **Иммутабельность**: Члены Enum — синглтоны. Нельзя изменить их значение после создания.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Senior Level**
 
@@ -6327,11 +5344,13 @@ def __reduce_ex__(self, proto):
 *`_member_map_/ _member_names_`**, **сигнатоны** через `__new__`, **`auto()`** + `_generate_next_value_`, *
 *IntEnum/StrEnum** наследование, **Flag** битовые операции.
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # **Garbage Collector (Сборщик мусора)**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Junior Level**
 
@@ -6348,6 +5367,8 @@ def __reduce_ex__(self, proto):
 Для оптимизации процесса объекты делятся на три поколения (0, 1, 2), основываясь на наблюдении, что большинство объектов
 живут недолго. Сборка мусора чаще всего происходит в самом молодом поколении (0). Модуль `gc` позволяет управлять этим
 процессом, получать статистику и настраивать поведение сборщика.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
@@ -6389,6 +5410,8 @@ def __reduce_ex__(self, proto):
     * Подсчёт ссылок — это операция с низкими накладными расходами, выполняемая при каждой манипуляции со ссылками.
     * Запуск циклического сборщика (особенно для старших поколений) может вызывать заметные паузы (stop-the-world), так
       как требует обхода всех проверяемых объектов.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Senior Level**
 
@@ -6657,11 +5680,13 @@ gen2 + все младшие). Возвращает **количество** о�
 **GC** в CPython 3.9+ — **PyGC_Head** (16 байт), **3 поколения** (700/10/10), **refcount** + **tp_traverse DFS**, *
 *двусвязные списки** поколений, **продвижение** выживших, **триггер** при `count > threshold`.
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # **Сложность кода (Asymptotic, Cyclomatic, Coupling, Maintainability)**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Junior Level**
 
@@ -6689,6 +5714,8 @@ gen2 + все младшие). Возвращает **количество** о�
 - **Высокая связанность** → сложности с изоляцией модулей для модульного тестирования.
 - **Низкая поддерживаемость** → больше времени тратится на понимание кода перед внесением изменений или написанием
   тестов.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
@@ -6778,6 +5805,8 @@ Quality Gate") и предоставляют сводные отчеты о зд
 
 Надеюсь, это объяснение было полезным и полным. Если у вас есть вопросы по какому-то из видов сложности или инструментам
 для их анализа — обращайтесь.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Senior Level**
 
@@ -7147,6 +6176,8 @@ def monster_function(a, b, c, d, e, f):
 
 # **typing**
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Junior Level**
 
 `typing` модуль в Python предоставляет инструменты для добавления подсказок типов (type hints) в код. Это не меняет
@@ -7166,6 +6197,8 @@ def monster_function(a, b, c, d, e, f):
 **Generic** — это способ создавать классы или функции, которые могут работать с разными типами, но сохранять информацию
 о конкретном типе. Например, `List[int]` — это список целых чисел, а `List[str]` — список строк. `Generic` позволяет вам
 создавать свои собственные классы, которые могут быть параметризованы типами.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
@@ -7204,6 +6237,8 @@ def monster_function(a, b, c, d, e, f):
       `Union[WebElement, None]` при поиске элемента).
     - `Generic` и `TypeVar` позволяют создавать гибкие, переиспользуемые компоненты тестовых фреймворков, например,
       абстрактный репозиторий для тестовых данных `Repository[T]`, где `T` — тип модели.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Senior Level**
 
@@ -7361,7 +6396,7 @@ TypeVar — как пустая коробка с именем "T". Generic — 
 Эти механизмы делают typing эффективным: ~0 overhead на runtime, полная поддержка в IDE/mypy. Для собеседования
 акцентируй: нет enforcement в CPython, только storage/parsing.
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
@@ -7593,11 +6628,13 @@ def process_device_data(
         )
 ```
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # **Инвариантность и ковариантность**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Junior Level**
 
@@ -7620,6 +6657,8 @@ def process_device_data(
 
 В Python эти концепции важны при работе с типизацией (type hints), особенно при использовании обобщённых типов вроде
 `List[T]`, `Callable[[T], R]`.
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
@@ -7664,6 +6703,8 @@ def process_device_data(
 6. **Проверка типов (mypy, pyright)**:
     - Статические анализаторы используют информацию о вариативности для проверки безопасности типов
     - Ошибки вариативности — частые причины ошибок типизации
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Senior Level**
 
@@ -7931,184 +6972,274 @@ covariant** коллекций. Полная проверка **только в 
 
 **НЕ путай**: variance — это **информация для статических анализаторов**, **НЕ runtime проверка типов**!
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # Сравнение объектов**
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Junior Level**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Senior Level**
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # Управление памятью
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Junior Level**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Senior Level**
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # Исключения и обработка ошибок
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Junior Level**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Senior Level**
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # Сериализация/десериализация
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Junior Level**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Senior Level**
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # Работа с файлами и путями
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Junior Level**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Senior Level**
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # Системные вызовы
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Junior Level**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Senior Level**
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # Метаклассы
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Junior Level**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Senior Level**
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # Дескрипторы
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Junior Level**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Senior Level**
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # Слоты
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Junior Level**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Senior Level**
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # Weak references
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Junior Level**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Senior Level**
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # Атрибуты объектов
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Junior Level**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Senior Level**
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # Система импорта
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Junior Level**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Senior Level**
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # Пул потоков/процессов
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Junior Level**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Senior Level**
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # Очереди
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Junior Level**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Senior Level**
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 # Синхронизация
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Junior Level**
+
+[Содержание](/CONTENTS.md#содержание)
 
 ## **Middle Level**
 
+[Содержание](/CONTENTS.md#содержание)
+
 ## **Senior Level**
 
-- [Содержание](CONTENTS.md#содержание)
+- [Содержание](/CONTENTS.md#содержание)

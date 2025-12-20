@@ -1971,6 +1971,3 @@ case LIST_APPEND: {
 - `DISPATCH_SAME_OPARG(1)` — "быстрый dispatch" без изменения аргумента операции.
 
 [Содержание](/CONTENTS.md#содержание)
-
----
-в

@@ -5,9 +5,9 @@
 ### [CORE](core/CORE_CONTENTS.md#core-contents)
 
 - [Типы данных](core/datatypes/datatypes.md#типы-данных)
-- [Срезы](core.md#срезы)
-- [*args и **kwargs](core.md#args-и-kwargs)
-- [Хеш-таблица](core.md#хеш-таблица)
+- [Срезы](core/slices/slices.md#срезы)
+- [*args и **kwargs](core/args_kwargs/args_kwargs.md#args-и-kwargs)
+- [Хеш-таблица](core/hash_table/hash_table.md#хеш-таблица)
 - [Встроенные функции](core.md#встроенные-функции)
 - [Контекстные менеджеры (with)](core.md#контекстные-менеджеры)
 - [Генераторы и итераторы](core.md#генераторы-и-итераторы)
