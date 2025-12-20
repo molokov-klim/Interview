@@ -8,9 +8,9 @@
 - [Срезы](core/slices/slices.md#срезы)
 - [*args и **kwargs](core/args_kwargs/args_kwargs.md#args-и-kwargs)
 - [Хеш-таблица](core/hash_table/hash_table.md#хеш-таблица)
-- [Встроенные функции](core.md#встроенные-функции)
-- [Контекстные менеджеры (with)](core.md#контекстные-менеджеры)
-- [Генераторы и итераторы](core.md#генераторы-и-итераторы)
+- [Встроенные функции](core/built_in_functions/built_in_functions.md#встроенные-функции)
+- [Контекстные менеджеры (with)](core/context_manager/context_manager.md#контекстные-менеджеры)
+- [Генераторы и итераторы](core/generator_iterator/generator_iterator.md#генераторы-и-итераторы)
 - [Декораторы и замыкания](core.md#декораторы-и-замыкания)
 - [GIL (Global Interpreter Lock)](core.md#gil-global-interpreter-lock)
 - [Изменение списка во время итерации](core.md#изменение-коллекции-во-время-итерации)
@@ -42,6 +42,7 @@
 - [Пул потоков/процессов](core.md#пул-потоков-процессов)
 - [Очереди](core.md#очереди)
 - [Синхронизация](core.md#синхронизация)
+- [Collections](#collections)
 
 ## ООП
 
