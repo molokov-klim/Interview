@@ -71,14 +71,14 @@
 
 ## Инструменты
 
-- [pytest](tools.md#pytest)
-- [pytest hooks](tools.md#pytest-hooks)
-- [Kubernetes](tools.md#kubernetes)
-- [unittest framework](tools.md#unittest-framework)
-- [Mocking и патчинг](tools.md#mocking-и-патчинг)
-- [Тестовые двойники](tools.md#тестовые-двойники)
-- [Фабрики тестовых данных](tools.md#фабрики-тестовых-данных)
-- [Параметризация тестов](tools.md#параметризация-тестов)
+- [pytest](tools/pytest/pytest.md#pytest)
+- [pytest hooks](tools/pytest_hooks/pytest_hooks.md#pytest-hooks)
+- [Kubernetes](tools/kubernetes/kubernetes.md#kubernetes)
+- [unittest framework](tools/unittest/unittest.md#unittest-framework)
+- [Mocking и патчинг](tools/mock/mock.md#mocking-и-патчинг)
+- [Тестовые двойники](tools/test_doubles/test_doubles.md#тестовые-двойники)
+- [Фабрики тестовых данных](tools/test_data_factory/test_data_factory.md#фабрики-тестовых-данных)
+- [Параметризация тестов](tools/parametrize/parametrize.md#параметризация-тестов)
 - [Фикстуры разных уровней](tools.md#фикстуры-разных-уровней)
 - [Allure отчеты](tools.md#allure-отчеты)
 - [Selenium/Playwright](tools.md#selenium-playwright)
