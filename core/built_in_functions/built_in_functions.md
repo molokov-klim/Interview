@@ -17,7 +17,7 @@
 Важно понимать, что это не просто функции, а часть ядра языка. Они реализованы максимально эффективно и их поведение
 стандартизировано.
 
-[Built in functions how to use](built_in_functions.md#built-in-functions-how-to-use)
+[Built in functions how to use](how_to_use.md#built-in-functions-how-to-use)
 
 [Содержание](/CONTENTS.md#содержание)
 
