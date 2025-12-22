@@ -90,8 +90,9 @@
 - [Системы очередей](tools/queue_system/queue_system.md#системы-очередей)
 - [Базы данных в тестах](tools/db/db.md#базы-данных-в-тестах)
 
-## Дополнительные Python-темы для AQA
+## Дополнительные темы для AQA
 
+- [git](additional/git/git.md#git)
 - [SQLAlchemy](additional/sqlalchemy/sqlalchemy.md#sqlalchemy)
 - [Alembic](additional/alembic/alembic.md#alembic)
 - [Pydantic](additional/pydantic/pydantic.md#pydantic)
