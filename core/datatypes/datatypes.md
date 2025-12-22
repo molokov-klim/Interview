@@ -71,6 +71,7 @@
 **`array.array`** — эффективный массив однотипных элементов
 
 **`datetime` модуль:**
+
 - **`datetime.date`** — только дата (год, месяц, день)
 - **`datetime.time`** — только время
 - **`datetime.datetime`** — дата и время
@@ -87,8 +88,9 @@
 **`uuid.UUID`** — уникальные идентификаторы
 
 **`typing` модуль** — типы для аннотаций (не runtime-типы, но важны для статической проверки):
-    - `List`, `Dict`, `Set`, `Tuple` (дженерик-версии)
-    - `Optional`, `Union`, `Any`, и др.
+
+- `List`, `Dict`, `Set`, `Tuple` (дженерик-версии)
+- `Optional`, `Union`, `Any`, и др.
 
 **`re.Pattern`** и **`re.Match`** — скомпилированные регулярные выражения и результаты их работы
 
@@ -946,6 +948,8 @@ print(f"Итого: {total}")  # 36.43
 
 ## complex
 
+## Fraction
+
 ## bool
 
 ## NoneType
@@ -965,6 +969,34 @@ print(f"Итого: {total}")  # 36.43
 ## bytes
 
 ## bytearray
+
+## namedtuple
+
+## deque
+
+## Counter
+
+## defaultdict
+
+## OrderedDict
+
+## NamedTuple
+
+## array
+
+## SimpleNamespace
+
+## Path
+
+## UUID
+
+## datetime
+
+## Enum
+
+## dataclass
+
+## re.Pattern & re.Match
 
 [Содержание](/CONTENTS.md#содержание)
 
