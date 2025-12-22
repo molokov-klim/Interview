@@ -6,22 +6,95 @@
 
 ## **Junior Level**
 
-Типы данных в Python делятся на **изменяемые** (mutable) и **неизменяемые** (immutable).
+Все типы данных в Python делятся на две фундаментальные категории: **изменяемые (mutable)** и **неизменяемые (immutable)
+**. От этого зависит поведение объектов при их передаче в функции, присваивании и модификации.
 
-**Простые типы:**
+---
 
-- Числа: `int`, `float`, `decimal`, `complex`
-- Строки: `str`
-- Логические значения: `bool`
-- Специальный тип: `NoneType` (единственное значение `None`)
+### **Простые (скалярные) неизменяемые типы**
 
-**Коллекции**
+Это базовые типы, значение которых нельзя изменить после создания.
 
-- `list` — изменяемая упорядоченная коллекция
-- `tuple` — неизменяемая упорядоченная коллекция
-- `dict` — изменяемая коллекция пар «ключ-значение» (упорядоченная с Python 3.7)
-- `set` / `frozenset` — изменяемое и неизменяемое множества уникальных элементов
-- `bytes` / `bytearray` — неизменяемая и изменяемая последовательности байтов
+* **Числа:**
+    * `int` — целые числа (например, `5`, `-10`, `0`)
+    * `float` — числа с плавающей точкой (например, `3.14`, `2.0`, `-0.001`)
+    * `complex` — комплексные числа (например, `1+2j`)
+
+* **Текстовый тип:**
+    * `str` — строки (например, `"Hello"`, `'World'`)
+
+* **Логический тип:**
+    * `bool` — принимает значения `True` или `False`
+
+* **Специальный тип:**
+    * `NoneType` — тип с единственным значением `None` (обозначает отсутствие значения).
+
+---
+
+### **Коллекции (составные типы)**
+
+#### **Неизменяемые (immutable) коллекции:**
+
+* `tuple` — упорядоченный кортеж. После создания нельзя добавить, удалить или изменить элементы.  
+  Пример: `(1, "яблоко", True)`
+* `frozenset` — неизменяемое множество уникальных элементов.
+* `bytes` — неизменяемая последовательность байтов (0-255).
+
+#### **Изменяемые (mutable) коллекции:**
+
+* `list` — упорядоченный список. Можно свободно изменять.  
+  Пример: `[1, 2, 3] -> [1, 10, 3]`
+* `dict` — словарь (неупорядоченный до Python 3.7, упорядоченный по порядку добавления начиная с 3.7). Коллекция пар
+  «ключ: значение». Изменяемы ключи и значения.
+* `set` — множество уникальных элементов. Можно добавлять и удалять элементы.
+* `bytearray` — изменяемая последовательность байтов.
+* `range` — представляет неизменяемую последовательность чисел (часто используется в циклах).
+
+---
+
+## **Не built-in, но доступные из стандартной библиотеки**
+
+Стандартная библиотека Python содержит модули с дополнительными типами данных, которые можно использовать без установки
+внешних библиотек.
+
+**`decimal.Decimal`** — десятичные числа с фиксированной точностью, идеально для финансовых расчетов
+**`fractions.Fraction`** — рациональные числа (дроби)
+
+**`collections` модуль:**
+
+- **`namedtuple`** — именованный кортеж (неизменяемый)
+- **`deque`** — двусторонняя очередь (изменяемая, быстрая вставка/удаление с обоих концов)
+- **`Counter`** — подкласс dict для подсчета хешируемых объектов
+- **`defaultdict`** — словарь с заводским значением для отсутствующих ключей
+- **`OrderedDict`** — словарь, сохраняющий порядок добавления (с Python 3.7 обычный dict тоже сохраняет порядок)
+
+**`array.array`** — эффективный массив однотипных элементов
+
+**`datetime` модуль:**
+- **`datetime.date`** — только дата (год, месяц, день)
+- **`datetime.time`** — только время
+- **`datetime.datetime`** — дата и время
+- **`datetime.timedelta`** — разница между двумя датами/временами
+- **`datetime.timezone`** — информация о часовом поясе
+
+**`enum.Enum`** — перечисления
+
+**`dataclasses.dataclass`** — современный способ создания классов-контейнеров данных
+**`typing.NamedTuple`** — typed версия namedtuple
+**`types.SimpleNamespace`** — объект с доступом к атрибутам через точку
+**`pathlib.Path`** — объектно-ориентированный путь к файлу/директории
+
+**`uuid.UUID`** — уникальные идентификаторы
+
+**`typing` модуль** — типы для аннотаций (не runtime-типы, но важны для статической проверки):
+    - `List`, `Dict`, `Set`, `Tuple` (дженерик-версии)
+    - `Optional`, `Union`, `Any`, и др.
+
+**`re.Pattern`** и **`re.Match`** — скомпилированные регулярные выражения и результаты их работы
+
+## **Важное отличие**
+
+Built-in типы доступны всегда, без импорта, типы из стандартной библиотеки требуют импорта.
 
 [Содержание](/CONTENTS.md#содержание)
 
@@ -37,9 +110,839 @@
 
 ## int
 
+## **1. Создание int**
+
+```python
+# Из строки
+x = int("42")  # 42
+x = int("101", 2)  # 5 (из двоичной)
+x = int("FF", 16)  # 255 (из шестнадцатеричной)
+
+# Из других типов
+x = int(3.14)  # 3 (округление к нулю)
+x = int(True)  # 1
+x = int(False)  # 0
+```
+
+## **2. Арифметические операции**
+
+```python
+a, b = 10, 3
+
+# Базовые операции
+print(a + b)  # 13
+print(a - b)  # 7
+print(a * b)  # 30
+print(a / b)  # 3.333... (float)
+print(a // b)  # 3 (целочисленное деление)
+print(a % b)  # 1 (остаток)
+print(a ** b)  # 1000 (возведение в степень)
+print(-a)  # -10 (унарный минус)
+print(+a)  # 10 (унарный плюс)
+print(abs(-a))  # 10 (модуль)
+```
+
+## **3. Битовые операции**
+
+```python
+a, b = 0b1100, 0b1010  # 12 и 10
+
+print(bin(a & b))  # 0b1000 (8) - AND
+print(bin(a | b))  # 0b1110 (14) - OR
+print(bin(a ^ b))  # 0b0110 (6) - XOR
+print(bin(~a))  # -0b1101 (-13) - NOT
+print(bin(a << 2))  # 0b110000 (48) - сдвиг влево
+print(bin(a >> 2))  # 0b11 (3) - сдвиг вправо
+```
+
+## **4. Методы класса int**
+
+### **int.bit_length()**
+
+```python
+x = 42
+print(x.bit_length())  # 6 (бит нужно для 42: 101010)
+print((255).bit_length())  # 8
+```
+
+### **int.bit_count()** (Python 3.8+)
+
+```python
+x = 42  # 101010 в двоичной
+print(x.bit_count())  # 3 (количество единичных битов)
+```
+
+### **int.to_bytes()**
+
+```python
+x = 1024
+# Преобразование в байты
+bytes_data = x.to_bytes(2, byteorder='big')
+print(bytes_data)  # b'\x04\x00'
+
+# Обратное преобразование
+x_back = int.from_bytes(bytes_data, 'big')
+print(x_back)  # 1024
+```
+
+### **int.as_integer_ratio()**
+
+```python
+x = 10
+print(x.as_integer_ratio())  # (10, 1)
+```
+
+## **5. Сравнение**
+
+```python
+a, b = 10, 20
+
+print(a == b)  # False
+print(a != b)  # True
+print(a < b)  # True
+print(a <= b)  # True
+print(a > b)  # False
+print(a >= b)  # False
+```
+
+## **6. Преобразование в другие системы счисления**
+
+```python
+x = 255
+
+# Встроенные функции
+print(bin(x))  # 0b11111111
+print(oct(x))  # 0o377
+print(hex(x))  # 0xff
+
+# С помощью format
+print(format(x, 'b'))  # 11111111
+print(format(x, 'o'))  # 377
+print(format(x, 'x'))  # ff
+print(format(x, 'X'))  # FF
+print(format(x, 'd'))  # 255
+```
+
+## **7. Математические функции**
+
+```python
+import math
+
+x = -10
+print(math.fabs(x))  # 10.0 (модуль, возвращает float)
+print(math.factorial(5))  # 120 (5!)
+print(math.gcd(48, 18))  # 6 (НОД)
+print(math.lcm(12, 18))  # 36 (НОК, Python 3.9+)
+```
+
+## **8. Операции присваивания**
+
+```python
+x = 10
+x += 5  # x = 15
+x -= 3  # x = 12
+x *= 2  # x = 24
+x //= 5  # x = 4
+x %= 3  # x = 1
+x **= 3  # x = 1
+x <<= 2  # x = 4
+x >>= 1  # x = 2
+```
+
+## **9. Проверка типа и преобразования**
+
+```python
+x = 42
+
+print(type(x))  # <class 'int'>
+print(isinstance(x, int))  # True
+print(float(x))  # 42.0
+print(complex(x))  # (42+0j)
+print(str(x))  # "42"
+print(bool(x))  # True (кроме 0)
+```
+
+## **10. Особенности int в Python 3**
+
+```python
+# Автоматическая длинная арифметика
+big_num = 10 ** 100  # Огромное число
+print(big_num.bit_length())  # 333
+
+# Разделители разрядов
+x = 1_000_000  # Начиная с Python 3.6
+print(x)  # 1000000
+```
+
+## **Полезные трюки**
+
+```python
+# Обмен значений без временной переменной
+a, b = 5, 10
+a, b = b, a
+print(a, b)  # 10, 5
+
+# Проверка четности
+x = 7
+print(x & 1)  # 1 - нечетное, 0 - четное
+
+# Быстрое умножение/деление на степень двойки
+x = 10
+print(x << 3)  # 80 (10 * 8)
+print(x >> 1)  # 5 (10 / 2)
+
+# Минимум/максимум
+print(min(5, 10, 3))  # 3
+print(max(5, 10, 3))  # 10
+
+# Сумма элементов
+numbers = [1, 2, 3, 4, 5]
+print(sum(numbers))  # 15
+```
+
+[Содержание](/CONTENTS.md#содержание)
+
+---
+
 ## float
 
+# **Тип float в Python**
+
+## **1. Создание float**
+
+```python
+# Прямое указание
+x = 3.14
+x = 0.1
+x = -2.5
+
+# Из строки
+x = float("3.14")  # 3.14
+x = float("inf")  # inf
+x = float("-inf")  # -inf
+x = float("nan")  # nan
+
+# Из других типов
+x = float(10)  # 10.0
+x = float(True)  # 1.0
+x = float("  5.5  ")  # 5.5 (пробелы игнорируются)
+
+# Научная нотация
+x = 1.23e4  # 12300.0
+x = 1.23e-2  # 0.0123
+```
+
+## **2. Арифметические операции**
+
+```python
+a, b = 5.5, 2.2
+
+print(a + b)  # 7.7
+print(a - b)  # 3.3
+print(a * b)  # 12.1
+print(a / b)  # 2.5
+print(a // b)  # 2.0 (целочисленное деление, возвращает float!)
+print(a % b)  # 1.1 (остаток)
+print(a ** b)  # 42.373... (возведение в степень)
+print(-a)  # -5.5
+print(+a)  # 5.5
+print(abs(-a))  # 5.5
+```
+
+## **3. Методы класса float**
+
+### **float.as_integer_ratio()**
+
+```python
+x = 0.25
+print(x.as_integer_ratio())  # (1, 4)
+
+x = 3.5
+print(x.as_integer_ratio())  # (7, 2)
+
+x = 0.1
+print(x.as_integer_ratio())  # (3602879701896397, 36028797018963968)
+```
+
+### **float.is_integer()**
+
+```python
+print(3.0.is_integer())  # True
+print(3.14.is_integer())  # False
+print(float(5).is_integer())  # True
+```
+
+### **float.hex() и float.fromhex()**
+
+```python
+x = 3.14
+hex_repr = x.hex()
+print(hex_repr)  # '0x1.91eb851eb851fp+1'
+
+y = float.fromhex(hex_repr)
+print(y)  # 3.14
+```
+
+## **4. Сравнение чисел с плавающей точкой**
+
+```python
+a, b, c = 0.1 + 0.2, 0.3, 1e-10
+
+print(a == b)  # False (из-за погрешности)
+print(abs(a - b) < 1e-9)  # True (сравнение с допуском)
+
+# Специальные значения
+x = float('nan')
+y = float('inf')
+z = float('-inf')
+
+print(x == x)  # False! nan != nan
+print(y == y)  # True
+print(z < 0)  # True
+```
+
+## **5. Проверка специальных значений**
+
+```python
+import math
+
+x = float('nan')
+y = float('inf')
+z = 3.14
+
+print(math.isnan(x))  # True
+print(math.isinf(y))  # True
+print(math.isfinite(z))  # True
+print(math.isinf(z))  # False
+
+# Альтернативно
+print(x != x)  # True (только для nan)
+```
+
+## **6. Округление**
+
+```python
+x = 3.14159
+
+# Встроенная функция round
+print(round(x))  # 3
+print(round(x, 2))  # 3.14
+print(round(x, 3))  # 3.142
+
+# Функции из модуля math
+import math
+
+print(math.floor(x))  # 3 (вниз)
+print(math.ceil(x))  # 4 (вверх)
+print(math.trunc(x))  # 3 (к нулю)
+
+# Округление банкира (по умолчанию)
+print(round(2.5))  # 2
+print(round(3.5))  # 4
+```
+
+## **7. Математические функции из модуля math**
+
+```python
+import math
+
+x = 3.14
+print(math.sqrt(x))  # 1.772... (квадратный корень)
+print(math.exp(x))  # 23.103... (e^x)
+print(math.log(x))  # 1.144... (натуральный логарифм)
+print(math.log10(x))  # 0.496... (десятичный логарифм)
+print(math.sin(x))  # 0.001... (синус)
+print(math.cos(x))  # -0.999... (косинус)
+print(math.tan(x))  # -0.001... (тангенс)
+print(math.degrees(x))  # 179.908... (радианы в градусы)
+print(math.radians(180))  # 3.141... (градусы в радианы)
+```
+
+## **8. Преобразование типов**
+
+```python
+x = 3.14
+
+print(int(x))  # 3 (отбрасывает дробную часть)
+print(str(x))  # "3.14"
+print(repr(x))  # "3.14"
+print(bool(x))  # True (кроме 0.0)
+print(complex(x))  # (3.14+0j)
+```
+
+## **9. Операции присваивания**
+
+```python
+x = 5.5
+x += 2.2  # 7.7
+x -= 1.1  # 6.6
+x *= 2  # 13.2
+x /= 4  # 3.3
+x //= 2  # 1.0
+x **= 3  # 1.0
+```
+
+## **10. Форматирование вывода**
+
+```python
+x = 1234.56789
+
+# f-строки
+print(f"{x:.2f}")  # 1234.57
+print(f"{x:10.2f}")  # "   1234.57"
+print(f"{x:,.2f}")  # 1,234.57
+print(f"{x:.2e}")  # 1.23e+03
+
+# format()
+print("{:.3f}".format(x))  # 1234.568
+print("{:.0f}".format(x))  # 1235
+
+# %-форматирование
+print("%.4f" % x)  # 1234.5679
+```
+
+## **11. Полезные константы**
+
+```python
+import math
+
+print(math.pi)  # 3.141592653589793
+print(math.e)  # 2.718281828459045
+print(math.tau)  # 6.283185307179586 (2*pi)
+print(math.inf)  # inf
+print(-math.inf)  # -inf
+print(math.nan)  # nan
+```
+
+## **12. Особенности float**
+
+```python
+# Погрешность представления
+print(0.1 + 0.2)  # 0.30000000000000004
+print(0.1 + 0.2 == 0.3)  # False
+
+# Как это исправить
+import math
+
+print(math.isclose(0.1 + 0.2, 0.3))  # True
+
+# Или с указанием допуска
+print(abs((0.1 + 0.2) - 0.3) < 1e-9)  # True
+
+# Большие и маленькие числа
+print(1e308)  # 1e+308 (нормально)
+print(1e309)  # inf (переполнение)
+print(1e-323)  # 1e-323 (нормально)
+print(1e-324)  # 0.0 (анти-переполнение)
+```
+
+## **13. Десятичные дроби для точных вычислений**
+
+```python
+from decimal import Decimal, getcontext
+
+# Устанавливаем точность
+getcontext().prec = 28
+
+# Точные вычисления с Decimal
+a = Decimal('0.1')
+b = Decimal('0.2')
+c = Decimal('0.3')
+print(a + b == c)  # True!
+
+# Или с дробями
+from fractions import Fraction
+
+print(Fraction(1, 10) + Fraction(2, 10) == Fraction(3, 10))  # True
+```
+
+## **14. Полезные функции**
+
+```python
+import math
+
+# Модуль числа
+print(math.fabs(-3.14))  # 3.14
+
+# Факториал (но для int)
+print(math.factorial(5))  # 120
+
+# Наибольший общий делитель
+print(math.gcd(48, 18))  # 6
+
+# Гиперболические функции
+print(math.sinh(1.0))  # 1.175...
+print(math.cosh(1.0))  # 1.543...
+
+# Проверка близости значений
+print(math.isclose(1.0, 1.0000000001))  # True
+```
+
+## **15. Сортировка и сравнение**
+
+```python
+numbers = [3.14, 2.71, 1.41, float('inf'), float('-inf'), float('nan')]
+sorted_nums = sorted(numbers, key=lambda x: (math.isnan(x), x))
+print(sorted_nums)  # [-inf, 1.41, 2.71, 3.14, inf, nan]
+```
+
+## **Важные замечания:**
+
+1. **Float имеет ограниченную точность** - обычно 15-17 значащих цифр
+2. **Оперируйте с допуском** при сравнении float чисел
+3. **Используйте Decimal** для финансовых расчетов
+4. **Проверяйте на специальные значения** (nan, inf)
+5. **Осторожно с суммированием** - используйте math.fsum() для точного суммирования:
+
+[Содержание](/CONTENTS.md#содержание)
+
+---
+
 ## decimal
+
+# **Тип Decimal в Python (модуль decimal)**
+
+## **1. Импорт и создание Decimal**
+
+```python
+from decimal import Decimal, getcontext, ROUND_HALF_UP, ROUND_DOWN, ROUND_CEILING
+
+# Создание из строки (рекомендуется)
+d1 = Decimal('10.5')
+d2 = Decimal('3.14')
+d3 = Decimal('0.1')
+
+# Создание из int
+d4 = Decimal(10)  # 10
+d5 = Decimal(0)  # 0
+
+# Создание из float (не рекомендуется из-за потери точности)
+d6 = Decimal(3.14)  # Может быть неточным
+
+# Создание из кортежа
+d7 = Decimal((0, (1, 2, 3), -2))  # 1.23
+# (sign, digits, exponent)
+# sign: 0 - положительный, 1 - отрицательный
+```
+
+## **2. Настройка контекста (точности и округления)**
+
+```python
+# Получить текущий контекст
+ctx = getcontext()
+print(f"Точность: {ctx.prec}")  # По умолчанию 28
+
+# Установить точность (количество значащих цифр)
+getcontext().prec = 10
+
+# Установить режим округления
+getcontext().rounding = ROUND_HALF_UP  # Обычное округление (0.5 → 1)
+getcontext().rounding = ROUND_DOWN  # Отсечение дробной части
+getcontext().rounding = ROUND_CEILING  # К +∞
+
+# Временное изменение контекста
+from decimal import localcontext
+
+with localcontext() as ctx:
+    ctx.prec = 5
+    ctx.rounding = ROUND_DOWN
+    result = Decimal('1') / Decimal('3')
+    print(result)  # 0.33333
+```
+
+## **3. Арифметические операции**
+
+```python
+a = Decimal('10.5')
+b = Decimal('3.2')
+
+# Базовые операции
+print(a + b)  # 13.7
+print(a - b)  # 7.3
+print(a * b)  # 33.60
+print(a / b)  # 3.28125
+print(a // b)  # 3 (целочисленное деление)
+print(a % b)  # 0.9 (остаток)
+print(a ** 2)  # 110.25
+print(-a)  # -10.5
+print(+a)  # 10.5
+print(abs(a))  # 10.5
+
+# Деление с остатком (divmod)
+quotient, remainder = divmod(a, b)
+print(quotient, remainder)  # 3 0.9
+```
+
+## **4. Методы Decimal**
+
+### **compare() - сравнение**
+
+```python
+a = Decimal('10.5')
+b = Decimal('3.2')
+
+print(a.compare(b))  # 1 (a > b)
+print(b.compare(a))  # -1 (b < a)
+print(a.compare(a))  # 0 (равны)
+
+# Методы сравнения
+print(a.__eq__(b))  # False
+print(a.__ne__(b))  # True
+print(a.__lt__(b))  # False
+print(a.__le__(b))  # False
+print(a.__gt__(b))  # True
+print(a.__ge__(b))  # True
+```
+
+### **quantize() - округление до указанной точности**
+
+```python
+d = Decimal('3.1415926535')
+
+# Округление до 3 знаков после запятой
+print(d.quantize(Decimal('0.001')))  # 3.142
+print(d.quantize(Decimal('0.001'), rounding=ROUND_DOWN))  # 3.141
+
+# Округление до целых
+print(d.quantize(Decimal('1')))  # 3
+
+# Округление до десятков
+print(Decimal('123.456').quantize(Decimal('10')))  # 120
+
+# С указанием формата
+from decimal import DecimalTuple
+
+print(d.quantize(Decimal('0.00')))  # 3.14
+```
+
+### **normalize() - нормализация**
+
+```python
+d1 = Decimal('100.00')
+d2 = Decimal('100')
+
+print(d1.normalize())  # 1E+2
+print(d2.normalize())  # 100
+
+# Удаление лишних нулей
+d3 = Decimal('123.4500')
+print(d3.normalize())  # 123.45
+```
+
+### **adjusted() - порядок числа**
+
+```python
+d = Decimal('123.456')
+print(d.adjusted())  # 2 (10^2 = 100, порядок числа)
+# Для 0.00123 → -3
+```
+
+### **as_tuple() - представление в виде кортежа**
+
+```python
+d = Decimal('-123.456')
+t = d.as_tuple()
+print(t)  # DecimalTuple(sign=1, digits=(1, 2, 3, 4, 5, 6), exponent=-3)
+print(f"Знак: {t.sign}, цифры: {t.digits}, экспонента: {t.exponent}")
+```
+
+### **copy_abs(), copy_negate() и др.**
+
+```python
+d = Decimal('-123.456')
+
+print(d.copy_abs())  # 123.456 (модуль)
+print(d.copy_negate())  # 123.456 (смена знака)
+print(d.copy_sign(Decimal('5.5')))  # -5.5 (копирует знак)
+```
+
+### **fma() - fused multiply-add**
+
+```python
+# a * b + c (одна операция без промежуточного округления)
+a = Decimal('1.23')
+b = Decimal('4.56')
+c = Decimal('7.89')
+
+print(a.fma(b, c))  # 1.23*4.56 + 7.89 = 13.4988
+```
+
+## **5. Математические функции**
+
+```python
+from decimal import Decimal
+
+d = Decimal('3.14159')
+
+# Квадратный корень
+print(d.sqrt())  # 1.7724531023414978
+
+# Возведение в степень
+print(d ** 2)  # 9.8695877281
+print(pow(d, 2))  # 9.8695877281
+print(d.exp())  # e^d (23.140692632779...)
+print(d.ln())  # Натуральный логарифм
+print(d.log10())  # Десятичный логарифм
+```
+
+## **6. Специальные значения и проверки**
+
+```python
+from decimal import Decimal, InvalidOperation
+
+d1 = Decimal('10.5')
+d2 = Decimal('0')
+d3 = Decimal('NaN')  # Не число
+d4 = Decimal('Infinity')  # +∞
+d5 = Decimal('-Infinity')  # -∞
+
+# Проверки
+print(d1.is_finite())  # True
+print(d1.is_infinite())  # False
+print(d1.is_nan())  # False
+print(d1.is_signed())  # False (отрицательный ли)
+print(d1.is_zero())  # False
+
+print(d3.is_nan())  # True
+print(d4.is_infinite())  # True
+
+# Проверка на нормализованность
+print(d1.is_normal())  # True
+print(d2.is_normal())  # False (0 не нормализован)
+print(Decimal('0.001').is_normal())  # False (слишком маленькое)
+
+# Проверка на каноничность
+print(d1.is_canonical())  # True
+```
+
+## **7. Сравнение с другими типами**
+
+```python
+d = Decimal('10.5')
+
+print(d == 10.5)  # False (разные типы)
+print(d == Decimal('10.5'))  # True
+print(d == '10.5')  # False
+
+# Сравнение с int и float
+print(d == 10.5)  # False, но можно сравнивать
+print(d > 10)  # True
+print(d < 11)  # True
+
+# Конвертация
+print(float(d))  # 10.5
+print(int(d))  # 10
+print(str(d))  # '10.5'
+print(repr(d))  # "Decimal('10.5')"
+```
+
+## **8. Работа с денежными значениями**
+
+```python
+from decimal import Decimal, ROUND_HALF_UP
+
+# Расчет скидки
+price = Decimal('99.99')
+discount = Decimal('0.15')  # 15%
+final_price = price * (Decimal('1') - discount)
+print(final_price)  # 84.9915
+
+# Округление для денег
+final_price = final_price.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+print(final_price)  # 84.99
+
+# Расчет НДС
+vat_rate = Decimal('0.20')  # 20%
+vat_amount = final_price * vat_rate
+vat_amount = vat_amount.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+print(vat_amount)  # 17.00
+```
+
+## **9. Форматирование вывода**
+
+```python
+d = Decimal('1234.5678')
+
+# Форматирование с помощью format()
+print(f"{d:,.2f}")  # 1,234.57
+print(f"{d:.0f}")  # 1235
+print(f"{d:.4e}")  # 1.2346e+03
+
+# Использование to_eng_string()
+print(d.to_eng_string())  # 1234.5678
+```
+
+## **10. Полезные константы**
+
+```python
+from decimal import Decimal
+
+# Создание констант
+print(Decimal('0'))  # 0
+print(Decimal('1'))  # 1
+print(Decimal('10'))  # 10
+print(Decimal('0.1'))  # 0.1
+print(Decimal('Infinity'))  # Infinity
+print(Decimal('-Infinity'))  # -Infinity
+print(Decimal('NaN'))  # NaN
+```
+
+## **11. Обработка исключений**
+
+```python
+from decimal import Decimal, InvalidOperation, DivisionByZero
+
+try:
+    result = Decimal('1') / Decimal('0')
+except DivisionByZero:
+    print("Деление на ноль!")
+
+try:
+    result = Decimal('abc')
+except InvalidOperation:
+    print("Недопустимая операция!")
+
+# Или проще
+d = Decimal('10.5')
+if d.is_nan():
+    print("Это не число!")
+```
+
+## **12. Примеры использования**
+
+### **Точные финансовые расчеты**
+
+```python
+from decimal import Decimal, ROUND_HALF_UP
+
+# Расчет сложных процентов
+principal = Decimal('1000.00')
+rate = Decimal('0.05')  # 5%
+years = 5
+
+for year in range(1, years + 1):
+    principal += principal * rate
+    principal = principal.quantize(Decimal('0.01'), ROUND_HALF_UP)
+    print(f"Год {year}: {principal}")
+
+# Сумма списка значений
+prices = [Decimal('10.99'), Decimal('5.49'), Decimal('19.95')]
+total = sum(prices)
+print(f"Итого: {total}")  # 36.43
+```
+
+## **Важные замечания:**
+
+1. **Всегда создавайте Decimal из строк**, а не из float
+2. **Устанавливайте нужную точность** в контексте
+3. **Используйте quantize()** для округления денежных значений
+4. **Проверяйте на специальные значения** (NaN, Infinity)
+5. **Decimal медленнее float**, но обеспечивает точность
+6. **Используйте Decimal для**: финансовых расчетов, точных научных вычислений, налоговых расчетов
+
+[Содержание](/CONTENTS.md#содержание)
+
+---
 
 ## complex
 
@@ -62,7 +965,6 @@
 ## bytes
 
 ## bytearray
-
 
 [Содержание](/CONTENTS.md#содержание)
 
