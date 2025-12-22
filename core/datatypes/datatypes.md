@@ -1155,11 +1155,653 @@ except TypeError as e:
 
 ## Fraction
 
+## **Тип Fraction в Python (модуль fractions)**
+
+Класс `Fraction` из модуля `fractions` представляет собой рациональное число (дробь) и обеспечивает точные
+арифметические операции без ошибок округления, присущих двоичным числам с плавающей запятой. Экземпляры `Fraction`
+являются неизменяемыми (immutable) и хешируемыми.
+
+## **1. Импорт и создание Fraction**
+
+```python
+from fractions import Fraction
+from decimal import Decimal
+
+# Создание из двух целых чисел (числитель, знаменатель)
+f1 = Fraction(3, 4)  # 3/4
+f2 = Fraction(6, 8)  # Автоматически сокращается до 3/4
+f3 = Fraction(5)  # 5/1
+f4 = Fraction()  # 0/1
+
+# Создание из строки (рекомендуется для точности)
+f5 = Fraction('3/7')  # 3/7
+f6 = Fraction(' -2/5 ')  # -2/5 (пробелы игнорируются)
+f7 = Fraction('1.414213')  # 1414213/1000000
+f8 = Fraction('7e-6')  # 7/1000000
+
+# Создание из Decimal (точное преобразование)
+f9 = Fraction(Decimal('0.1'))  # 1/10
+
+# Создание из float (может быть неточным из-за двоичного представления)
+f10 = Fraction(0.75)  # 3/4
+f11 = Fraction(1.1)  # 2476979795053773/2251799813685248 (не 11/10!)
+
+# Создание из другого Fraction
+f12 = Fraction(f1)  # Копия f1 (3/4)
+
+# Альтернативный конструктор Fraction.from_number() (Python 3.14+)
+f13 = Fraction.from_number(42)  # 42/1
+f14 = Fraction.from_number((2, 3))  # 2/3 (из пары чисел)
+
+# Примечание: При denominator=0 вызывается ZeroDivisionError
+```
+
+## **2. Арифметические операции**
+
+```python
+a = Fraction(2, 3)  # 2/3
+b = Fraction(1, 4)  # 1/4
+
+# Базовые операции (возвращают новый Fraction)
+print(a + b)  # 11/12
+print(a - b)  # 5/12
+print(a * b)  # 1/6
+print(a / b)  # 8/3
+print(a ** 2)  # 4/9 (возведение в степень)
+print(-a)  # -2/3
+print(+a)  # 2/3
+print(abs(Fraction(-3, 4)))  # 3/4
+
+# Целочисленное деление и остаток
+print(a // b)  # 2 (int)
+print(a % b)  # 5/12 (Fraction)
+
+# Деление с остатком (divmod)
+quotient, remainder = divmod(a, b)
+print(quotient, remainder)  # 2 5/12
+
+# Поддерживаются смешанные операции с int
+print(a + 2)  # 8/3
+print(3 * b)  # 3/4
+```
+
+## **3. Атрибуты и методы экземпляра Fraction**
+
+### **3.1. Базовые атрибуты (только для чтения)**
+
+```python
+f = Fraction(6, 8)  # Автоматически сокращается до 3/4
+
+print(f.numerator)  # 3
+print(f.denominator)  # 4 (всегда положительный)
+print(type(f.numerator))  # <class 'int'>
+print(type(f.denominator))  # <class 'int'>
+
+# Попытка изменения вызовет ошибку
+try:
+    f.numerator = 5
+except AttributeError as e:
+    print(f"Ошибка: {e}")  # can't set attribute
+```
+
+### **3.2. as_integer_ratio() - представление в виде пары целых чисел**
+
+```python
+f = Fraction(3, 4)
+ratio = f.as_integer_ratio()
+print(ratio)  # (3, 4)
+print(type(ratio))  # <class 'tuple'>
+
+# Полезно для взаимодействия с другими функциями
+import math
+
+f2 = Fraction(*ratio)  # Распаковка обратно
+print(f2)  # 3/4
+
+# Использование с float
+float_val = float(f)
+print(float_val)  # 0.75
+print(float_val.as_integer_ratio())  # (3, 4)
+```
+
+### **3.3. is_integer() - проверка, является ли число целым**
+
+```python
+print(Fraction(8, 4).is_integer())  # True (8/4 = 2)
+print(Fraction(5, 2).is_integer())  # False (5/2 = 2.5)
+print(Fraction(0, 1).is_integer())  # True (0)
+print(Fraction(-9, 3).is_integer())  # True (-9/3 = -3)
+
+# Использование в условных операциях
+f = Fraction(10, 5)
+if f.is_integer():
+    print(f"{f} является целым числом: {int(f)}")  # 10/5 является целым числом: 2
+```
+
+### **3.4. limit_denominator() - рациональное приближение**
+
+```python
+# Восстановление "красивой" дроби из неточного float
+f_float = Fraction(1.1)  # Неточное представление
+print(f_float)  # 2476979795053773/2251799813685248
+
+f_approx = f_float.limit_denominator(100)
+print(f_approx)  # 11/10 (точное значение)
+
+# Рациональное приближение иррациональных чисел
+pi_approx = Fraction('3.141592653589793').limit_denominator(1000)
+print(pi_approx)  # 355/113 (известное приближение π)
+
+# Восстановление точных значений из математических функций
+import math
+
+cos_result = Fraction(math.cos(math.pi / 3)).limit_denominator(10)
+print(cos_result)  # 1/2 (точное значение cos(π/3))
+
+# Контроль точности через max_denominator
+f = Fraction('0.333333')
+print(f.limit_denominator(10))  # 1/3
+print(f.limit_denominator(100))  # 33/100
+```
+
+## **4. Методы округления и преобразования**
+
+### **4.1. __floor__(), __ceil__(), __round__() - округление**
+
+```python
+f = Fraction(7, 3)  # 2.333...
+
+# Округление вниз (floor)
+import math
+
+print(f.__floor__())  # 2
+print(math.floor(f))  # 2 (предпочтительный способ)
+
+# Округление вверх (ceil)
+print(f.__ceil__())  # 3
+print(math.ceil(f))  # 3
+
+# Округление до ближайшего целого
+print(round(f))  # 2
+print(f.__round__())  # 2
+print(round(Fraction(5, 2)))  # 2 (округление половины к четному)
+
+# Округление с указанием количества знаков
+print(round(Fraction(22, 7), 3))  # 3.143 (возвращает float)
+print(Fraction(22, 7).__round__(3))  # 3143/1000 (возвращает Fraction)
+```
+
+### **4.2. Преобразование в другие типы**
+
+```python
+f = Fraction(5, 2)
+
+print(int(f))  # 2 (отбрасывание дробной части)
+print(float(f))  # 2.5
+print(str(f))  # '5/2'
+print(repr(f))  # "Fraction(5, 2)"
+
+# Явное преобразование знаменателя
+print(f.numerator / f.denominator)  # 2.5 (как float)
+
+# Для Decimal нужна предварительная конвертация в строку или float
+from decimal import Decimal
+
+print(Decimal(str(f)))  # 2.5
+print(Decimal(float(f)))  # 2.5
+```
+
+## **5. Форматирование вывода (Python 3.12+)**
+
+```python
+f = Fraction(103993, 33102)
+
+# Общее форматирование (с Python 3.13)
+print(format(f, '_'))  # 103_993/33_102 (разделитель групп)
+print(format(f, '.^+20'))  # ......+103993/33102...... (выравнивание)
+
+# Форматирование в стиле float (с Python 3.12)
+print(format(f, '.10f'))  # 3.1415926530
+print(format(f, '.4e'))  # 3.1416e+00
+print(format(f, '.2g'))  # 3.1
+print(format(Fraction(3, 2), '.0%'))  # 150% (процентный формат)
+
+# Использование в f-строках
+print(f"{f:.6f}")  # 3.141593
+print(f"{Fraction(1, 7):.3e}")  # 1.429e-01
+
+# Флаг '#' для явного отображения знаменателя
+print(format(Fraction(3, 1), ''))  # '3'
+print(format(Fraction(3, 1), '#'))  # '3/1'
+```
+
+## **6. Проверки и сравнения**
+
+```python
+# Сравнение Fraction
+a = Fraction(1, 2)
+b = Fraction(2, 4)
+c = Fraction(2, 3)
+
+print(a == b)  # True (1/2 == 2/4)
+print(a < c)  # True (1/2 < 2/3)
+print(a >= Fraction(1, 3))  # True
+
+# Сравнение с другими числовыми типами
+print(a == 0.5)  # True
+print(a > 0.3)  # True
+print(a <= 1)  # True
+
+# Проверка на равенство с учётом автоматического сокращения
+print(Fraction(2, 4) == Fraction(1, 2))  # True
+
+# Минимальное и максимальное значение в последовательности
+fractions_list = [Fraction(1, 3), Fraction(1, 2), Fraction(3, 4)]
+print(min(fractions_list))  # 1/3
+print(max(fractions_list))  # 3/4
+```
+
+## **7. Примеры практического использования**
+
+```python
+# Точные вычисления с дробями
+recipe_ratio = Fraction(3, 4)  # 3/4 чашки муки на порцию
+portions = 5
+total_flour = recipe_ratio * portions
+print(f"Всего муки: {total_flour} чашки")  # 15/4 или 3¾ чашки
+
+# Расчет вероятностей
+prob_a = Fraction(1, 6)  # Вероятность выпадения конкретной грани кубика
+prob_not_a = 1 - prob_a
+print(f"Вероятность не выпадения: {prob_not_a}")  # 5/6
+
+# Работа с периодическими десятичными дробями
+periodic = Fraction('0.142857')  # 1/7 в десятичном виде
+print(f"Точное значение: {periodic}")  # 142857/1000000
+print(f"Сокращенная форма: {periodic.limit_denominator(10)}")  # 1/7
+
+# Финансовые расчеты с точными дробями
+price_per_kg = Fraction(75, 2)  # 37.5 руб/кг
+weight = Fraction(3, 4)  # 0.75 кг
+total_cost = price_per_kg * weight
+print(f"Итого: {total_cost} руб.")  # 225/8 = 28.125 руб.
+print(f"Итого: {float(total_cost):.2f} руб.")  # 28.13 руб.
+```
+
+## **8. Важные особенности и ограничения**
+
+```python
+# 1. Автоматическое сокращение дробей
+print(Fraction(10, 20))  # 1/2 (автоматически)
+print(Fraction(-3, -9))  # 1/3 (знак нормализуется к числителю)
+
+# 2. Проблемы точности при создании из float
+print(Fraction(0.1))  # 3602879701896397/36028797018963968
+print(Fraction('0.1'))  # 1/10 (используйте строки!)
+print(Fraction(Decimal('0.1')))  # 1/10
+
+# 3. Производительность
+# Fraction работает медленнее float, но обеспечивает точность
+# Для интенсивных вычислений рассмотрите decimal.Decimal или специализированные библиотеки
+
+# 4. Совместимость с math.gcd (Python 3.9+)
+import math
+
+f = Fraction(12, 18)
+print(f)  # 2/3 (использует math.gcd для нормализации)
+
+# 5. Специальные методы для числовой башни
+print(Fraction(3, 4).real)  # 3/4
+print(Fraction(3, 4).imag)  # 0
+```
+
+## **Ключевые выводы:**
+
+1. **Используйте строки или Decimal** для создания точных дробей, избегайте прямого создания из float.
+2. **Дроби автоматически сокращаются** при создании и операциях.
+3. **`limit_denominator()`** — ключевой метод для работы с приближениями и восстановления "красивых" дробей.
+4. **Поддержка форматирования** (Python 3.12+) позволяет выводить дроби в различных форматах.
+5. **Fraction неизменяем** — все операции возвращают новые объекты.
+6. **Идеально подходит для** точных вычислений, финансовых расчётов, работы с вероятностями и пропорциями.
+
 [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 ## bool
+
+## **Тип bool в Python (логический тип)**
+
+Тип `bool` (логический тип) — это подкласс встроенного типа `int`. В Python существует только два экземпляра этого типа:
+`True` (истина, соответствует `1`) и `False` (ложь, соответствует `0`).
+
+## **1. Создание булевых значений**
+
+```python
+# Прямое использование констант True и False
+b1 = True
+b2 = False
+
+# Создание через конструктор bool()
+b3 = bool(1)  # True
+b4 = bool(0)  # False
+b5 = bool(-5)  # True (любое ненулевое число)
+b6 = bool(0.0)  # False
+b7 = bool(0.1)  # True
+
+# Создание из строк
+b8 = bool('')  # False (пустая строка)
+b9 = bool('text')  # True (непустая строка)
+
+# Создание из коллекций
+b10 = bool([])  # False (пустой список)
+b11 = bool([1, 2])  # True (непустой список)
+b12 = bool(None)  # False
+
+# Создание из других булевых значений
+b13 = bool(True)  # True
+b14 = bool(False)  # False
+```
+
+## **2. Арифметические операции**
+
+Поскольку `bool` является подклассом `int`, поддерживаются все арифметические операции, но результаты преобразуются к
+`int`:
+
+```python
+# Арифметические операции (True=1, False=0)
+print(True + True)  # 2
+print(True + False)  # 1
+print(False * 10)  # 0
+print(True * 3.14)  # 3.14
+print(True ** 4)  # 1
+print(-True)  # -1
+
+# Целочисленное деление
+print(True // 2)  # 0
+print(False // 2)  # 0
+
+# Остаток от деления
+print(True % 2)  # 1
+
+# Деление с остатком (divmod)
+print(divmod(True, 2))  # (0, 1)
+```
+
+## **3. Методы типа bool**
+
+### **3.1. as_integer_ratio() - представление в виде дроби**
+
+```python
+print(True.as_integer_ratio())  # (1, 1)
+print(False.as_integer_ratio())  # (0, 1)
+
+# Полезно для некоторых математических операций
+ratio = True.as_integer_ratio()
+print(f"True как дробь: {ratio[0]}/{ratio[1]}")
+```
+
+### **3.2. bit_length() - минимальное количество бит для представления**
+
+```python
+print(True.bit_length())  # 1 (для 1 нужен 1 бит)
+print(False.bit_length())  # 0 (0 представляется пустой битовой строкой)
+
+# Сравнение с int
+print((1).bit_length())  # 1
+print((0).bit_length())  # 0
+```
+
+### **3.3. conjugate() - комплексное сопряжение**
+
+```python
+# Для совместимости с int (возвращает self)
+print(True.conjugate())  # 1
+print(False.conjugate())  # 0
+
+# Фактически то же самое, что и:
+print(True.real)  # 1
+print(True.imag)  # 0
+```
+
+### **3.4. Магические методы для операторов сравнения**
+
+```python
+# Все методы сравнения возвращают bool
+print(True.__eq__(True))  # True
+print(True.__ne__(False))  # True
+print(True.__lt__(False))  # False (1 < 0)
+print(True.__gt__(False))  # True  (1 > 0)
+print(True.__le__(True))  # True  (1 ≤ 1)
+print(True.__ge__(False))  # True  (1 ≥ 0)
+
+# Сравнение с другими типами
+print(True.__eq__(1))  # True
+print(False.__eq__(0))  # True
+```
+
+### **3.5. Магические методы для логических операторов**
+
+```python
+# Логическое И (and)
+print(True.__and__(True))  # True
+print(True.__and__(False))  # False
+print(False.__and__(True))  # False
+
+# Логическое ИЛИ (or)
+print(True.__or__(False))  # True
+print(False.__or__(False))  # False
+
+# Логическое НЕ (not)
+print(True.__not__())  # False
+print(False.__not__())  # True
+
+# Логическое исключающее ИЛИ (xor)
+print(True.__xor__(True))  # False
+print(True.__xor__(False))  # True
+```
+
+## **4. Специальные методы bool**
+
+### **4.1. __bool__() - приведение к bool (всегда возвращает self)**
+
+```python
+print(True.__bool__())  # True
+print(False.__bool__())  # False
+
+
+# Этот метод вызывается при неявном приведении к bool
+class MyClass:
+    def __bool__(self):
+        return False
+
+
+obj = MyClass()
+print(bool(obj))  # False (вызывает obj.__bool__())
+```
+
+### **4.2. __repr__(), __str__() - строковое представление**
+
+```python
+print(True.__repr__())  # 'True'
+print(False.__repr__())  # 'False'
+print(True.__str__())  # 'True'
+print(False.__str__())  # 'False'
+
+# В контексте форматирования
+print(f"Значение: {True}")  # Значение: True
+print(str(False))  # False
+print(repr(True))  # True
+```
+
+## **5. Преобразование в другие типы**
+
+```python
+# Преобразование в int (явное и неявное)
+print(int(True))  # 1
+print(int(False))  # 0
+print(True + 2)  # 3 (неявное преобразование)
+
+# Преобразование в float
+print(float(True))  # 1.0
+print(float(False))  # 0.0
+
+# Преобразование в str
+print(str(True))  # 'True'
+print(str(False))  # 'False'
+
+# Преобразование в комплексные числа
+print(complex(True))  # (1+0j)
+print(complex(False))  # 0j
+
+# Преобразование в байты
+print(bytes(True))  # b'\x01'
+print(bytes(False))  # b'\x00'
+```
+
+## **6. Операции сравнения**
+
+```python
+# Сравнение bool между собой
+print(True == True)  # True
+print(True != False)  # True
+print(False == False)  # True
+
+# Сравнение с int (True=1, False=0)
+print(True == 1)  # True
+print(False == 0)  # True
+print(True == 1.0)  # True
+print(True > 0)  # True
+print(False < 0.5)  # True
+
+# Сравнение с другими типами
+print(True == 'True')  # False
+print(False == '')  # False
+
+# Лексикографическое сравнение (наследуется от int)
+print(True > False)  # True (1 > 0)
+```
+
+## **7. Проверка типа и идентичности**
+
+```python
+# Проверка типа
+print(type(True))  # <class 'bool'>
+print(isinstance(True, bool))  # True
+print(isinstance(True, int))  # True (bool - подкласс int)
+
+# Проверка идентичности
+print(True is True)  # True
+print(False is False)  # True
+print(True is not False)  # True
+
+# Проверка на соответствие конкретным значениям
+print(True is (not False))  # True
+print(False is (not True))  # True
+
+# None не равен False, хотя оба "ложны" в булевом контексте
+print(None == False)  # False
+print(bool(None) == False)  # True
+```
+
+## **8. Таблица методов bool**
+
+| Метод                | Описание                                         | Пример (результат)                   |
+|----------------------|--------------------------------------------------|--------------------------------------|
+| `as_integer_ratio()` | Возвращает дробь `(числитель, знаменатель)`      | `True.as_integer_ratio()` → `(1, 1)` |
+| `bit_length()`       | Минимальное количество бит для представления     | `True.bit_length()` → `1`            |
+| `conjugate()`        | Комплексное сопряжение (возвращает self как int) | `True.conjugate()` → `1`             |
+| `__eq__(other)`      | Проверка на равенство `==`                       | `True.__eq__(1)` → `True`            |
+| `__ne__(other)`      | Проверка на неравенство `!=`                     | `True.__ne__(False)` → `True`        |
+| `__lt__(other)`      | Проверка "меньше" `<`                            | `False.__lt__(True)` → `True`        |
+| `__le__(other)`      | Проверка "меньше или равно" `<=`                 | `True.__le__(True)` → `True`         |
+| `__gt__(other)`      | Проверка "больше" `>`                            | `True.__gt__(False)` → `True`        |
+| `__ge__(other)`      | Проверка "больше или равно" `>=`                 | `False.__ge__(False)` → `True`       |
+| `__and__(other)`     | Логическое И `&`                                 | `True.__and__(True)` → `True`        |
+| `__or__(other)`      | Логическое ИЛИ `\|`                              | `True.__or__(False)` → `True`        |
+| `__xor__(other)`     | Исключающее ИЛИ `^`                              | `True.__xor__(True)` → `False`       |
+| `__bool__()`         | Приведение к bool                                | `True.__bool__()` → `True`           |
+| `__repr__()`         | Строковое представление                          | `False.__repr__()` → `'False'`       |
+| `__str__()`          | Строковое представление                          | `True.__str__()` → `'True'`          |
+
+## **9. Важные особенности**
+
+```python
+# 1. bool - подкласс int
+print(issubclass(bool, int))  # True
+print(True + True)  # 2
+print(True == 1)  # True
+
+# 2. Только два экземпляра
+print(id(True))  # Постоянный id
+print(id(False))  # Постоянный id
+print(True is (not False))  # True
+
+# 3. Булево значение других объектов
+# Все объекты имеют истинностное значение
+values = [0, 0.0, '', [], {}, None, 'text', [1], 5]
+for v in values:
+    print(f"bool({repr(v)}) = {bool(v)}")
+
+# 4. Операторы and, or, not возвращают операнды, а не bool
+print(0 and 5)  # 0
+print(3 or 0)  # 3
+print(not 0)  # True (исключение - всегда возвращает bool)
+
+# 5. Использование в условиях
+if True:
+    print("Это всегда выполнится")
+
+if False:
+    print("Это никогда не выполнится")
+
+# 6. Истинные и ложные значения
+false_values = [False, None, 0, 0.0, '', [], {}, set()]
+true_values = [True, 1, -1, 0.1, 'a', [0], {'key': 'value'}]
+```
+
+## **10. Примеры использования**
+
+```python
+# Флаги состояния
+is_authenticated = True
+is_admin = False
+
+if is_authenticated and not is_admin:
+    print("Доступ для обычного пользователя")
+
+# Переключатели
+feature_enabled = False
+feature_enabled = not feature_enabled  # Переключить на True
+
+# Подсчет истинных значений
+results = [True, False, True, True, False]
+true_count = sum(results)  # 3 (True = 1, False = 0)
+print(f"Истинных значений: {true_count}")
+
+# Фильтрация списка
+data = [1, 0, 3, 0, 5]
+filtered = list(filter(bool, data))  # [1, 3, 5]
+print(f"Отфильтрованные данные: {filtered}")
+
+# Проверка всех/любого условия
+all_true = all([True, True, True])  # True
+any_true = any([False, False, True])  # True
+
+# Условные выражения
+status = "Включено" if feature_enabled else "Выключено"
+print(f"Функция: {status}")
+```
+
+## **Ключевые выводы:**
+
+1. **`bool` — подкласс `int`**: `True == 1`, `False == 0`, поддерживает арифметические операции.
+2. **Только два экземпляра**: `True` и `False` — синглтоны.
+3. **Автоматическое приведение**: Любой объект может быть приведен к `bool` через `__bool__()` или `__len__()`.
+4. **Логические операторы**: `and`, `or`, `not` работают с истинностными значениями.
+5. **Наследование от int**: Большинство методов унаследованы от `int`.
+6. **Использование**: Флаги состояния, условия, фильтрация, подсчеты.
+
 
 [Содержание](/CONTENTS.md#содержание)
 
