@@ -145,8 +145,13 @@
 
 ## Мягкие навыки (Soft Skills)
 
+- [Почему решил сменить место работы](soft_skills/change_work/change_work.md#change_work)
 - [Коммуникация с разработчиками и продакт-менеджерами](soft_skills/communication/communication.md#коммуникация-с-разработчиками-и-продакт-менеджерами)
 - [Приоритизация тестовых сценариев](soft_skills/priority/priority.md#приоритизация-тестовых-сценариев)
 - [Оценка сроков тестирования](soft_skills/deadlines/deadlines.md#оценка-сроков-тестирования)
 - [Менторинг junior QA](soft_skills/mentoring/mentoring.md#менторинг-junior-qa)
 - [Техническая документация для тестов](soft_skills/docs/docs.md#техническая-документация-для-тестов)
+
+# Кодинг
+
+- [Работа с коллекциями](coding/collections/collections.md#collections)
