@@ -92,6 +92,7 @@
 
 ## Дополнительные темы для AQA
 
+- [REST](additional/rest/rest.md#rest-api)
 - [git](additional/git/git.md#git)
 - [SQLAlchemy](additional/sqlalchemy/sqlalchemy.md#sqlalchemy)
 - [Alembic](additional/alembic/alembic.md#alembic)
