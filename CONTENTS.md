@@ -73,6 +73,7 @@
 
 - [pytest](tools/pytest/pytest.md#pytest)
 - [pytest hooks](tools/pytest_hooks/pytest_hooks.md#pytest-hooks)
+- [appium](tools/appium/appium.md#appium)
 - [Kubernetes](tools/kubernetes/kubernetes.md#kubernetes)
 - [unittest framework](tools/unittest/unittest.md#unittest-framework)
 - [Mocking и патчинг](tools/mock/mock.md#mocking-и-патчинг)
@@ -129,6 +130,7 @@
 - [Тестирование WebSocket](practice/websocket/websocket.md#тестирование-websocket)
 - [Тестирование баз данных](practice/db/db.md#тестирование-баз-данных)
 - [Тестирование мобильных приложений](practice/mobile/mobile.md#тестирование-мобильных-приложений)
+- [Тестирование web-форм](practice/web_form/web_form.md#тестирование-web-форм)
 - [Работа с прокси и снифферами](practice/sniffer/sniffer.md#работа-с-прокси-и-снифферами)
 - [Тестирование локализации и интернационализации](practice/local/local.md#тестирование-локализации-и-интернационализации)
 - [Доступность (Accessibility) тестирование](practice/accessibility/accessibility.md#доступность-accessibility-тестирование)
