@@ -4960,11 +4960,428 @@ print(bool(array.array('i', [0])))  # True
 
 ## SimpleNamespace
 
+## **Тип SimpleNamespace в Python**
+
+`SimpleNamespace` — это класс из модуля `types`, предоставляющий удобный способ создания объектов с атрибутами, доступными по точечной нотации. Он предназначен для замены словарей в случаях, когда нужен объектно-ориентированный стиль доступа к полям. `SimpleNamespace` мутабелен, поддерживает динамическое добавление/удаление атрибутов и имеет читаемое строковое представление.
+
+## **Создание SimpleNamespace**
+
+```python
+from types import SimpleNamespace
+
+# 2.1 Через конструктор с ключевыми аргументами
+ns1 = SimpleNamespace(a=1, b=2, c='text')
+print(ns1.a)  # 1
+
+# 2.2 Из словаря
+data = {'x': 10, 'y': 20}
+ns2 = SimpleNamespace(**data)  # x=10, y=20
+
+# 2.3 Пустой объект
+ns3 = SimpleNamespace()
+
+# 2.4 Вложенные объекты
+ns4 = SimpleNamespace(name='test', data=SimpleNamespace(id=42, value='data'))
+
+# 2.5 С None и списками
+ns5 = SimpleNamespace(items=[1, 2, 3], optional=None)
+```
+
+## **Атрибуты типа SimpleNamespace**
+
+`SimpleNamespace` не имеет фиксированных публичных атрибутов — все атрибуты динамические. Доступны стандартные методы объекта.
+
+```python
+ns = SimpleNamespace(a=1, b=2)
+
+# Динамические атрибуты
+print(hasattr(ns, 'a'))  # True
+print(ns.__dict__)  # {'a': 1, 'b': 2} — внутреннее хранилище
+
+# Нет специальных атрибутов типа real/numerator
+try:
+    print(ns.real)
+except AttributeError as e:
+    print(f"Ошибка: {e}")  # 'SimpleNamespace' object has no attribute 'real'
+
+print(type(ns).__name__)  # 'SimpleNamespace'
+```
+
+## **Методы типа SimpleNamespace**
+
+У `SimpleNamespace` нет специальных методов мутации — используется прямое присваивание атрибутов. Поддерживает стандартные методы объекта.
+
+### **Добавление и удаление атрибутов**
+
+```python
+ns = SimpleNamespace(x=1)
+
+# Добавление атрибута
+ns.y = 2
+ns.z = [1, 2, 3]  # Любые типы
+
+# Удаление атрибута
+del ns.x
+print(hasattr(ns, 'x'))  # False
+
+# Очистка всех атрибутов
+ns.__dict__.clear()
+```
+
+### **Доступ к атрибутам**
+
+```python
+ns = SimpleNamespace(a=1, b='hello')
+
+print(ns.a)  # 1 (точечная нотация)
+print(getattr(ns, 'b'))  # 'hello'
+print(hasattr(ns, 'c'))  # False
+
+# Установка по умолчанию
+print(getattr(ns, 'c', 'default'))  # 'default'
+```
+
+## **Поддерживаемые операции**
+
+```python
+ns1 = SimpleNamespace(a=1, b=2)
+ns2 = SimpleNamespace(a=1, b=2)
+ns3 = SimpleNamespace(a=1, b=3)
+
+# 5.1 Сравнение объектов (по __dict__)
+print(ns1 == ns2)  # True
+print(ns1 == ns3)  # False
+
+# 5.2 Строковое представление
+print(ns1)  # namespace(a=1, b=2)
+print(repr(ns1))  # namespace(a=1, b=2)
+print(str(ns1))  # namespace(a=1, b=2)
+
+# 5.3 Итерация по атрибутам
+for key, value in ns1.__dict__.items():
+    print(f"{key}: {value}")
+
+# 5.4 Неподдерживаемые: арифметика
+try:
+    ns1 + ns2
+except TypeError as e:
+    print(f"Не поддерживается: {e}")
+```
+
+## **Операции сравнения**
+
+```python
+ns1 = SimpleNamespace(x=1, y=2)
+ns2 = SimpleNamespace(x=1, y=2)
+ns3 = SimpleNamespace(x=1, y=3)
+ns4 = SimpleNamespace(x=1)
+
+# Сравнение по содержимому __dict__
+print(ns1 == ns2)  # True
+print(ns1 != ns3)  # True
+
+# Порядок атрибутов не важен
+ns5 = SimpleNamespace(y=2, x=1)
+print(ns1 == ns5)  # True
+
+# Разные типы
+print(ns1 == {'x': 1, 'y': 2})  # False (разные типы)
+```
+
+## **Преобразование в другие типы и форматирование**
+
+```python
+ns = SimpleNamespace(a=1, b=2, c=[3, 4])
+
+# 7.1 В словарь
+print(ns.__dict__)  # {'a': 1, 'b': 2, 'c': [3, 4]}
+print(vars(ns))  # {'a': 1, 'b': 2, 'c': [3, 4]}
+
+# 7.2 В JSON-подобный формат
+import json
+print(json.dumps(vars(ns)))  # {"a": 1, "b": 2, "c": [3, 4]}
+
+# 7.3 Копирование
+import copy
+ns_copy = copy.copy(ns)  # Поверхностная копия
+ns_deep = copy.deepcopy(ns)  # Глубокая копия
+
+# 7.4 Распаковка атрибутов
+def func(a, b):
+    print(a, b)
+
+func(**vars(ns))  # 1 2
+```
+
+## **Важные особенности**
+
+```python
+from types import SimpleNamespace
+
+# 1. Динамические атрибуты (мутабельность)
+ns = SimpleNamespace()
+ns.x = 1
+ns.y = 'dynamic'
+del ns.x  # Легко удаление
+
+# 2. Читаемое представление
+print(SimpleNamespace(a=1, b=2))  # namespace(a=1, b=2)
+
+# 3. Замена словарей
+config = {'host': 'localhost', 'port': 8080}
+cfg = SimpleNamespace(**config)
+print(cfg.host)  # 'localhost' вместо config['host']
+
+# 4. Ложные значения
+print(bool(SimpleNamespace()))  # True (не пустой объект)
+print(bool(SimpleNamespace(a=None)))  # True
+
+# 5. Хешируемость
+try:
+    hash(SimpleNamespace())  # TypeError: unhashable type: 'SimpleNamespace'
+except TypeError:
+    print("Не хешируем из-за мутабельности")
+```
+
+## **Важные замечания:**
+
+1. **Динамические атрибуты**: Можно добавлять/удалять поля в runtime через `ns.field = value`.
+2. **__dict__ хранилище**: Все атрибуты хранятся в `ns.__dict__` как обычный словарь.
+3. **Не хешируем**: Из-за мутабельности нельзя использовать как ключи словарей.
+4. **Сравнение**: По содержимому `__dict__`, порядок ключей не важен.
+5. **Копирование**: `copy.copy()` копирует поверхностно, `deepcopy()` — глубоко.
+6. **Альтернативы**: `dataclasses`, `namedtuple` для неизменяемых структур.
+
+## **Ключевые выводы:**
+
+1. **`SimpleNamespace` — удобный объект с атрибутами** вместо словаря.
+2. **Динамическая мутация**: `ns.new_field = value`, `del ns.old_field`.
+3. **Читаемый `repr`**: `namespace(a=1, b=2)` — лучше чем `{'a': 1}`.
+4. **Идеален для**: конфигураций, результатов функций, замены словарей.
+5. **`vars(ns)` или `ns.__dict__`** — преобразование в словарь.
+6. **Доступен с Python 3.3+** в модуле `types`.
+
 [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 ## Path
+
+## **Тип Path в Python (объектный путь)**
+
+`Path` — это класс из модуля `pathlib`, представляющий пути к файловой системе в объектно-ориентированном стиле. Это современная альтернатива `os.path`, поддерживающая кросс-платформенность (Windows/Unix), цепочки методов и богатый API для работы с файлами/директориями. `Path` неизменяем, хешируем и идеален для скриптов автоматизации.
+
+## **Создание объектов Path**
+
+```python
+from pathlib import Path
+
+# 1.1 Литералы путей
+p1 = Path("file.txt")
+p2 = Path("/home/user/docs")
+p3 = Path()  # Текущая директория
+p4 = Path("dir", "subdir", "file.py")  # Многоуровневый
+
+# 1.2 Абсолютные пути
+p5 = Path.home()  # /home/user
+p6 = Path.cwd()   # /current/working/dir
+p7 = Path("/etc/passwd")
+
+# 1.3 Из строк и переменных
+import os
+p8 = Path(os.environ["HOME"]) / "projects"
+p9 = Path(*["usr", "bin", "python"])  # Распаковка
+
+# 1.4 Специальные пути
+p10 = Path("nonexistent")  # Может не существовать
+```
+
+## **Атрибуты типа Path**
+
+`Path` имеет атрибуты для разбора пути и метаданных файловой системы.
+
+```python
+p = Path("dir/file.txt")
+
+# Основные атрибуты пути
+print(p.name)        # 'file.txt' — имя файла
+print(p.stem)        # 'file' — имя без расширения
+print(p.suffix)      # '.txt' — расширение
+print(p.parent)      # 'dir' — родительская директория
+print(p.parts)       # ('dir', 'file.txt') — компоненты
+
+# Метаданные (если существует)
+print(p.exists())    # False
+print(p.is_file())   # False
+print(p.is_dir())    # False
+
+# Нет атрибутов типа real/numerator
+try:
+    print(p.real)
+except AttributeError as e:
+    print(f"Ошибка: {e}")
+```
+
+## **Методы типа Path**
+
+`Path` предоставляет методы для навигации, проверки и манипуляции путями/файлами.
+
+### **Методы разбора и навигации**
+
+```python
+p = Path("docs/project/README.md")
+
+print(p.parent)        # docs/project
+print(p.parents[1])    # docs
+print(p.with_name("main.md"))  # docs/project/main.md
+print(p.with_suffix(".txt"))   # docs/project/README.txt
+print(p.with_stem("INDEX"))    # docs/project/INDEX.md
+```
+
+### **Методы работы с файловой системой**
+
+```python
+p = Path("test.txt")
+
+# Создание/проверка
+p.write_text("Hello")  # Создает файл
+p.read_text()          # 'Hello'
+p.unlink()             # Удаляет файл
+
+dir_path = Path("temp_dir")
+dir_path.mkdir(exist_ok=True)  # Создает директорию
+dir_path.rmdir()               # Удаляет пустую директорию
+```
+
+### **Методы поиска и итерации**
+
+```python
+root = Path(".")
+
+print(root.exists())           # True
+print(root.is_dir())           # True
+print(list(root.glob("*.py"))) # Список .py файлов
+print(list(root.rglob("*.txt"))) # Рекурсивно *.txt
+
+# Итерация содержимого
+for child in root.iterdir():
+    print(child.name)
+```
+
+## **Поддерживаемые операции**
+
+```python
+p1 = Path("dir1")
+p2 = Path("file.txt")
+p3 = Path("dir2/subdir")
+
+# 5.1 Оператор / для объединения путей
+p4 = p1 / p2          # dir1/file.txt
+print(p4)
+
+# 5.2 Сравнения путей
+print(p1 == p1)       # True
+print(p1 < p3)        # Лексикографическое
+
+# 5.3 Строковое представление
+print(str(p1))        # 'dir1'
+print(p1.as_posix())  # 'dir1' (Unix-стиль)
+print(repr(p1))       # Path('dir1')
+
+# 5.4 Неподдерживаемые: арифметика
+try:
+    p1 + p2
+except TypeError as e:
+    print(f"Не поддерживается: {e}")
+```
+
+## **Операции сравнения**
+
+```python
+p1 = Path("file1.txt")
+p2 = Path("file1.txt")
+p3 = Path("file2.txt")
+p4 = Path("dir/file.txt")
+
+# Нормализованное сравнение (case-sensitive)
+print(p1 == p2)       # True
+print(p1 == p3)       # False
+print(p1 < p3)        # True (лексикографически)
+
+# Разные типы
+print(p1 == "file1.txt")  # False (разные типы)
+print(p1 == str(p1))      # False
+```
+
+## **Преобразование в другие типы и форматирование**
+
+```python
+p = Path("docs/file.txt")
+
+# 7.1 В примитивы
+print(str(p))         # 'docs/file.txt'
+print(p.as_posix())   # 'docs/file.txt'
+print(bytes(p))       # b'docs/file.txt'
+
+# 7.2 В другие коллекции
+print(p.parts)        # ('docs', 'file.txt')
+print(tuple(p.parts)) # ('docs', 'file.txt')
+print(list(p.glob("*")))  # [Path(...), ...]
+
+# 7.3 Абсолютный путь
+print(p.absolute())   # /full/absolute/path/docs/file.txt
+print(p.resolve())    # Разрешенный путь (симлинки)
+
+# 7.4 JSON сериализация
+import json
+print(json.dumps({"path": str(p)}))
+```
+
+## **Важные особенности**
+
+```python
+from pathlib import Path
+
+# 1. Неизменяемость (иммутабельность)
+p1 = Path("file.txt")
+p2 = p1.with_name("new.txt")  # p1 не изменился!
+print(p1)  # file.txt
+
+# 2. Кросс-платформенность
+p_win = Path(r"C:\Users\user\docs")
+p_unix = Path("/home/user/docs")
+print(p_win.as_posix())  # /c/Users/user/docs
+
+# 3. Автоматическая нормализация
+p = Path("dir//file.txt") / "../file.txt"
+print(p.resolve())  # Нормализованный путь
+
+# 4. Ложные значения
+print(bool(Path("nonexistent")))  # False
+print(bool(Path(".")))            # True
+
+# 5. Хешируемость (можно в set/dict)
+paths = {Path("a"), Path("b")}
+print(len(paths))  # 2
+```
+
+## **Важные замечания:**
+
+1. **Неизменяемость**: Методы возвращают **новые** Path, оригинал не меняется.
+2. **Кросс-платформенность**: Автоматически обрабатывает `/` и `\`.
+3. **Оператор `/`**: `parent / child` — удобнее `os.path.join()`.
+4. **Чувствительность к регистру**: Зависит от ОС (Windows — нет, Linux — да).
+5. **Символические ссылки**: `resolve()` разрешает, `readlink()` читает.
+6. **Windows UNC пути**: Поддерживает `\\server\share\path`.
+
+## **Ключевые выводы:**
+
+1. **`Path` — объектный путь** вместо строк `os.path`.
+2. **Неизменяемый, хешируемый**, цепочки методов: `p.parent / "file".with_suffix(".py")`.
+3. **Кросс-платформенный**: Работает на Windows/Unix без изменений.
+4. **Идеален для**: скриптов, CLI, тестов, DevOps задач.
+5. **`/` для join**, `glob()`/`rglob()` для поиска файлов.
+6. **`pathlib` с Python 3.4+** — современный стандарт вместо `os.path`.
 
 [Содержание](/CONTENTS.md#содержание)
 
@@ -4972,17 +5389,659 @@ print(bool(array.array('i', [0])))  # True
 
 ## UUID
 
+## **Тип UUID в Python (универсальный идентификатор)**
+
+`UUID` — это класс из модуля `uuid`, представляющий универсальный уникальный идентификатор (Universally Unique Identifier). Это 128-битное значение в формате RFC 4122, используемое для создания уникальных идентификаторов без координации. `UUID` неизменяем, хешируем и поддерживает 5 версий генерации (v1-v5) для разных сценариев.
+
+## **Создание объектов UUID**
+
+```python
+import uuid
+
+# 1.1 UUID версии 1 (на основе времени + MAC-адрес)
+u1 = uuid.uuid1()
+print(u1)  # 123e4567-e89b-12d3-a456-426614174000
+
+# 1.2 UUID версии 4 (случайный)
+u2 = uuid.uuid4()
+print(u2)  # 550e8400-e29b-41d4-a716-446655440000
+
+# 1.3 UUID версии 5 (SHA-1 хеш от namespace + name)
+ns_dns = uuid.NAMESPACE_DNS
+u3 = uuid.uuid5(ns_dns, 'python.org')
+print(u3)  # 4ca978ad-9d79-4c90-b9ba-44eb80b18dd9
+
+# 1.4 Из строки
+u4 = uuid.UUID('12345678-1234-5678-9abc-123456789abc')
+u5 = uuid.UUID('urn:uuid:12345678-1234-5678-9abc-123456789abc')
+
+# 1.5 Пустой/нулевой UUID
+u6 = uuid.UUID('00000000-0000-0000-0000-000000000000')
+```
+
+## **Атрибуты типа UUID**
+
+`UUID` имеет атрибуты для доступа к компонентам 128-битного значения.
+
+```python
+u = uuid.UUID('12345678-1234-5678-9abc-123456789abc')
+
+# Байт-компоненты (int)
+print(u.hex)         # '12345678123456789abcdef123456789abc'
+print(u.int)         # 32424403007676212263071501564589869012
+print(u.version)     # 1 (версия UUID)
+print(u.variant)     # 1 (вариант RFC 4122)
+
+# Временные атрибуты (для v1)
+print(u.time_low)    # 305419896
+print(u.time_mid)    # 4660
+print(u.time_hi_version)  # 2232
+
+# Нет атрибутов типа real/numerator
+try:
+    print(u.real)
+except AttributeError as e:
+    print(f"Ошибка: {e}")
+```
+
+## **Методы типа UUID**
+
+`UUID` неизменяем, поэтому методы возвращают новые объекты или информацию.
+
+### **Основные методы**
+
+```python
+u = uuid.UUID('12345678-1234-5678-9abc-123456789abc')
+
+# Строковые представления
+print(u.urn)         # 'urn:uuid:12345678-1234-5678-9abc-123456789abc'
+print(u.bytes)       # b'\x12\x34\x56\x78\x12\x34\x56\x78\x9a\xbc\x12\x34\x56\x78\x9a\xbc'
+print(u.fields)      # (305419896, 4660, 2232, 1, 16)
+
+# Проверка версии
+print(u.version == 1)  # True
+
+# Генерация новых
+new_uuid = uuid.uuid4()
+print(isinstance(new_uuid, uuid.UUID))  # True
+```
+
+### **Статические методы модуля uuid**
+
+```python
+# Пространства имен
+print(uuid.NAMESPACE_DNS)    # 6ba7b810-9dad-11d1-80b4-00c04fd430c8
+print(uuid.NAMESPACE_URL)    # 6ba7b811-9dad-11d1-80b4-00c04fd430c8
+
+# UUID версии 3 (MD5)
+u3 = uuid.uuid3(uuid.NAMESPACE_DNS, 'python.org')
+print(u3)
+```
+
+## **Поддерживаемые операции**
+
+```python
+u1 = uuid.UUID('12345678-1234-5678-9abc-123456789abc')
+u2 = uuid.UUID('12345678-1234-5678-9abc-123456789abc')
+u3 = uuid.UUID('87654321-4321-8765-cba9-abcdef012345')
+
+# 5.1 Сравнения
+print(u1 == u2)      # True
+print(u1 < u3)       # True (лексикографическое)
+
+# 5.2 Хеширование
+print(hash(u1))      # int хеш
+s = {u1, u2}         # Работает как ключ
+
+# 5.3 Строковое представление
+print(str(u1))       # '12345678-1234-5678-9abc-123456789abc'
+print(repr(u1))      # UUID('12345678-1234-5678-9abc-123456789abc')
+
+# 5.4 Неподдерживаемые: арифметика
+try:
+    u1 + u2
+except TypeError as e:
+    print(f"Не поддерживается: {e}")
+```
+
+## **Операции сравнения**
+
+```python
+u1 = uuid.UUID('00000000-0000-0000-0000-000000000001')
+u2 = uuid.UUID('00000000-0000-0000-0000-000000000002')
+u3 = uuid.UUID('00000000-0000-0000-0000-000000000000')
+
+# Лексикографическое сравнение по hex
+print(u1 == u1)      # True
+print(u1 > u3)       # True
+print(u1 < u2)       # True
+
+# Разные типы
+print(u1 == str(u1))  # False
+print(u1 == u1.bytes) # False
+
+# Случайные UUID уникальны
+print(uuid.uuid4() == uuid.uuid4())  # Почти всегда False
+```
+
+## **Преобразование в другие типы и форматирование**
+
+```python
+u = uuid.UUID('12345678-1234-5678-9abc-123456789abc')
+
+# 7.1 В примитивы
+print(str(u))        # '12345678-1234-5678-9abc-123456789abc'
+print(u.hex)         # '12345678123456789abcdef123456789abc'
+print(int(u))        # 32424403007676212263071501564589869012
+print(u.bytes)       # b'\x12\x34\x56\x78...'
+
+# 7.2 В JSON
+import json
+print(json.dumps(str(u)))  # "12345678-1234-5678-9abc-123456789abc"
+
+# 7.3 Бинарные форматы
+print(u.hex.encode())      # bytes из hex
+print(uuid.UUID(bytes=u.bytes))  # Из bytes
+
+# 7.4 Сериализация
+data = {'id': u}
+print(data)  # {'id': UUID('12345678-1234-5678-9abc-123456789abc')}
+```
+
+## **Важные особенности**
+
+```python
+import uuid
+
+# 1. Неизменяемость
+u = uuid.uuid4()
+# u.bytes = b'...'  # AttributeError!
+
+# 2. Версии UUID
+print(uuid.uuid1().version)   # 1 (время+MAC)
+print(uuid.uuid3(uuid.NAMESPACE_DNS, 'test').version)  # 3 (MD5)
+print(uuid.uuid4().version)   # 4 (случайный)
+print(uuid.uuid5(uuid.NAMESPACE_DNS, 'test').version)  # 5 (SHA1)
+
+# 3. Практическая уникальность
+print(uuid.uuid4() == uuid.uuid4())  # ~1/2^122 шанс совпадения
+
+# 4. Ложные значения
+print(bool(uuid.UUID('00000000-0000-0000-0000-000000000000')))  # False
+print(bool(uuid.uuid4()))  # True
+
+# 5. Хешируемость
+uuid_set = {uuid.uuid4() for _ in range(3)}
+print(len(uuid_set))  # 3
+```
+
+## **Важные замечания:**
+
+1. **Неизменяемость**: После создания UUID нельзя изменить.
+2. **Версии**: v1(время), v3(MD5), v4(случайный), v5(SHA1) — выбирайте по задаче.
+3. **Коллизии**: v4 имеет ~1/2^122 шанс совпадения — практически уникален.
+4. **Размер**: Всегда 128 бит, 36 символов в строке.
+5. **Производительность**: `uuid4()` быстрее `uuid1()` (без системных вызовов).
+6. **Сетевой трафик**: Храните как `bytes` (16 байт) вместо строки (36+).
+
+## **Ключевые выводы:**
+
+1. **`UUID` — неизменяемый 128-битный уникальный идентификатор**.
+2. **5 версий**: `uuid4()` для случайных, `uuid5()` для детерминированных.
+3. **Хешируемый**: Идеален как ключ в `dict`/`set`/БД.
+4. **Идеален для**: ID пользователей, сессий, файлов, записей БД.
+5. **`str(u)`, `u.bytes`, `int(u)`** — основные преобразования.
+6. **`uuid` модуль с Python 2.5+** — стандарт для уникальных ID.
+
 [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 ## datetime
 
+## **Тип datetime в Python (дата и время)**
+
+`datetime` — это класс из модуля `datetime`, представляющий дату и время как единый объект. Поддерживает точность до микросекунд, часовые пояса, арифметику дат и богатый API для форматирования/парсинга. `datetime` неизменяем, хешируем и является основным типом для работы с временными метками в Python.
+
+## **Создание объектов datetime**
+
+```python
+from datetime import datetime, date, time
+
+# 1.1 Конструктор с параметрами
+dt1 = datetime(2023, 12, 25, 15, 30, 45, 123456)
+print(dt1)  # 2023-12-25 15:30:45.123456
+
+# 1.2 Текущая дата/время
+dt2 = datetime.now()
+dt3 = datetime.utcnow()  # UTC
+
+# 1.3 Из строк (ISO 8601 и др.)
+dt4 = datetime.fromisoformat('2023-12-25T15:30:45.123456')
+dt5 = datetime.strptime('25/12/2023 15:30', '%d/%m/%Y %H:%M')
+
+# 1.4 Из timestamp (Unix time)
+dt6 = datetime.fromtimestamp(1703524245)
+
+# 1.5 Специальные значения
+dt7 = datetime.min  # 0001-01-01 00:00:00
+dt8 = datetime.max  # 9999-12-31 23:59:59.999999
+```
+
+## **Атрибуты типа datetime**
+
+`datetime` имеет атрибуты для доступа к компонентам даты/времени.
+
+```python
+dt = datetime(2023, 12, 25, 15, 30, 45, 123456)
+
+# Компоненты даты
+print(dt.year)     # 2023
+print(dt.month)    # 12
+print(dt.day)      # 25
+
+# Компоненты времени
+print(dt.hour)     # 15
+print(dt.minute)   # 30
+print(dt.second)   # 45
+print(dt.microsecond)  # 123456
+
+# Дата и время отдельно
+print(dt.date())   # 2023-12-25
+print(dt.time())   # 15:30:45.123456
+
+# Нет атрибутов типа real/numerator
+try:
+    print(dt.real)
+except AttributeError as e:
+    print(f"Ошибка: {e}")
+```
+
+## **Методы типа datetime**
+
+`datetime` предоставляет методы для арифметики, форматирования и преобразований.
+
+### **Арифметические методы**
+
+```python
+from datetime import timedelta
+
+dt = datetime(2023, 12, 25, 15, 30)
+
+# Добавление/вычитание времени
+dt2 = dt + timedelta(days=1, hours=2)  # 2023-12-26 17:30:00
+dt3 = dt - timedelta(hours=1)          # 2023-12-25 14:30:00
+
+# Разница между датами
+delta = dt2 - dt
+print(delta)  # 1 day, 2:00:00
+print(delta.total_seconds())  # 93600.0
+```
+
+### **Форматирование и парсинг**
+
+```python
+dt = datetime(2023, 12, 25, 15, 30, 45)
+
+# В строку
+print(dt.strftime('%Y-%m-%d %H:%M:%S'))  # 2023-12-25 15:30:45
+print(dt.isoformat())                     # 2023-12-25T15:30:45
+
+# Из строки (обратная операция)
+dt_parsed = datetime.strptime('2023-12-25 15:30:45', '%Y-%m-%d %H:%M:%S')
+```
+
+## **Поддерживаемые операции**
+
+```python
+from datetime import datetime, timedelta
+
+dt1 = datetime(2023, 12, 25, 15, 0)
+dt2 = datetime(2023, 12, 25, 16, 0)
+delta = timedelta(hours=1)
+
+# 5.1 Арифметика с timedelta
+print(dt1 + delta)  # 2023-12-25 16:00:00
+print(dt2 - delta)  # 2023-12-25 15:00:00
+
+# 5.2 Сравнения
+print(dt1 < dt2)    # True
+
+# 5.3 Строковое представление
+print(str(dt1))     # '2023-12-25 15:00:00'
+print(repr(dt1))    # 'datetime.datetime(2023, 12, 25, 15, 0)'
+
+# 5.4 Неподдерживаемые: //, %, *
+try:
+    dt1 // dt2
+except TypeError as e:
+    print(f"Не поддерживается: {e}")
+```
+
+## **Операции сравнения**
+
+```python
+dt1 = datetime(2023, 12, 25, 15, 0)
+dt2 = datetime(2023, 12, 25, 15, 0)
+dt3 = datetime(2023, 12, 25, 16, 0)
+
+# Полное сравнение (дата + время)
+print(dt1 == dt2)  # True
+print(dt1 < dt3)   # True
+
+# Разные типы
+print(dt1 == dt1.date())  # False
+print(dt1.timestamp() == dt1.timestamp())  # True (float)
+```
+
+## **Преобразование в другие типы и форматирование**
+
+```python
+dt = datetime(2023, 12, 25, 15, 30, 45, 123456)
+
+# 7.1 В примитивы
+print(dt.timestamp())  # 1703524245.123456 (Unix timestamp)
+print(int(dt.timestamp()))  # 1703524245
+print(dt.date())       # date(2023, 12, 25)
+print(dt.time())       # time(15, 30, 45, 123456)
+
+# 7.2 Строковые форматы
+print(dt.isoformat())  # '2023-12-25T15:30:45.123456'
+print(dt.strftime('%d.%m.%Y'))  # '25.12.2023'
+
+# 7.3 JSON сериализация
+import json
+from datetime import date
+print(json.dumps({'dt': dt.isoformat()}))  # {"dt": "2023-12-25T15:30:45.123456"}
+```
+
+## **Важные особенности**
+
+```python
+from datetime import datetime, timezone, timedelta
+
+# 1. Неизменяемость
+dt = datetime(2023, 1, 1)
+# dt.year = 2024  # AttributeError!
+
+# 2. Часовые пояса (Python 3.2+)
+utc = timezone.utc
+tz_msk = timezone(timedelta(hours=3))
+dt_tz = datetime(2023, 1, 1, tzinfo=utc)
+print(dt_tz.astimezone(tz_msk))  # Конвертация
+
+# 3. Ложные значения
+print(bool(datetime.min))  # True
+print(bool(datetime.max))  # True
+
+# 4. Хешируемость
+dt_set = {datetime.now(), datetime.now()}
+print(len(dt_set))  # 2 (разные моменты)
+
+# 5. Диапазон: 1-9999 гг.
+print(datetime.min.year)  # 1
+print(datetime.max.year)  # 9999
+```
+
+## **Важные замечания:**
+
+1. **Неизменяемость**: Методы возвращают **новые** `datetime`, оригинал не меняется.
+2. **`datetime.now()` vs `datetime.utcnow()`**: Первый — локальное, второй — UTC.
+3. **`tzinfo=None` по умолчанию**: Без часового пояса (naive datetime).
+4. **Директивы формата**: `%Y`, `%m`, `%d`, `%H`, `%M`, `%S`, `%f` (микросекунды).
+5. **`timedelta` для арифметики**: Не поддерживает месяцы/годы (переменная длина).
+6. **ISO 8601**: `fromisoformat()`/`isoformat()` — стандарт для JSON/API.
+
+## **Ключевые выводы:**
+
+1. **`datetime` — неизменяемый объект даты+времени** с микросекундной точностью.
+2. **`now()`, `fromisoformat()`, `strptime()`** — основные способы создания.
+3. **Арифметика через `timedelta`**, сравнение полное (дата+время).
+4. **Идеален для**: логов, API, БД, планировщиков, отчетов.
+5. **`strftime()`/`strptime()`** — форматирование/парсинг дат.
+6. **`datetime` с Python 2.3+** — стандарт вместо ручных вычислений.
+
 [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 ## Enum
+
+## **Тип Enum в Python (перечисление)**
+
+`Enum` — это класс из модуля `enum`, предоставляющий типобезопасные перечисления с именованными константами. Гарантирует уникальность членов, поддерживает хеширование, сравнение и итерацию. `Enum` неизменяем, идеален для замены констант `int`/строк и создания самодокументируемого кода.
+
+## **Создание объектов Enum**
+
+```python
+from enum import Enum, auto
+import enum
+
+# 1.1 Классический Enum с явными значениями
+class Color(Enum):
+    RED = 1
+    GREEN = 2
+    BLUE = 3
+
+c1 = Color.RED
+c2 = Color(2)  # По значению
+c3 = Color['RED']  # По имени
+
+# 1.2 Автоматические значения (auto())
+class Status(enum.Enum):
+    PENDING = auto()  # 1
+    RUNNING = auto()  # 2
+    DONE = auto()     # 3
+
+# 1.3 Enum с строками
+class HttpMethod(str, Enum):
+    GET = "GET"
+    POST = "POST"
+    PUT = "PUT"
+
+# 1.4 Пустой/одиночный
+class Single(Enum):
+    ONLY = 42
+```
+
+## **Атрибуты типа Enum**
+
+Enum-члены имеют атрибуты `name` (имя) и `value` (значение).
+
+```python
+from enum import Enum
+
+class Color(Enum):
+    RED = 1
+    GREEN = 2
+
+c = Color.RED
+
+# Основные атрибуты
+print(c.name)    # 'RED'
+print(c.value)   # 1
+print(type(c))   # <enum 'Color'>
+
+# Классовые атрибуты
+print(Color.RED)           # <Color.RED: 1>
+print(Color.__members__)   # dict всех членов
+
+# Нет атрибутов типа real/numerator
+try:
+    print(c.real)
+except AttributeError as e:
+    print(f"Ошибка: {e}")
+```
+
+## **Методы типа Enum**
+
+Enum поддерживает доступ по имени/значению, итерацию и проверки.
+
+### **Доступ и проверки**
+
+```python
+class Color(Enum):
+    RED = 1
+    GREEN = 2
+    BLUE = 3
+
+# Поиск по имени/значению
+print(Color['RED'])      # Color.RED
+print(Color(2))          # Color.GREEN
+
+# Проверки
+print(Color.RED in Color)  # True
+print(Color.RED is Color.RED)  # True
+
+# Итерация
+for color in Color:
+    print(f"{color.name}: {color.value}")
+```
+
+### **Классовые методы**
+
+```python
+class Status(Enum):
+    PENDING = 1
+    DONE = 2
+
+print(Status._member_names_)  # ['PENDING', 'DONE']
+print(Status._member_map_)    # OrderedDict всех членов
+print(Status._value2member_map_)  # {1: Status.PENDING, 2: Status.DONE}
+```
+
+## **Поддерживаемые операции**
+
+```python
+class Color(Enum):
+    RED = 1
+    GREEN = 2
+    BLUE = 3
+
+c1 = Color.RED
+c2 = Color.GREEN
+c3 = Color.RED
+
+# 5.1 Сравнения (по идентичности)
+print(c1 == c3)      # True
+print(c1 is c3)      # True
+print(c1 < c2)       # True (по порядку объявления)
+
+# 5.2 Хеширование
+colors = {c1, c2}    # Работает
+print(hash(c1))      # int
+
+# 5.3 Строковое представление
+print(str(c1))       # 'Color.RED'
+print(repr(c1))      # '<Color.RED: 1>'
+
+# 5.4 Неподдерживаемые: арифметика
+try:
+    c1 + c2
+except TypeError as e:
+    print(f"Не поддерживается: {e}")
+```
+
+## **Операции сравнения**
+
+```python
+class Priority(Enum):
+    LOW = 1
+    MEDIUM = 2
+    HIGH = 3
+
+low = Priority.LOW
+med = Priority.MEDIUM
+high = Priority.HIGH
+
+# Сравнение по идентичности/порядку
+print(low == low)        # True
+print(low != med)        # True
+print(low < med < high)  # True
+
+# Разные типы
+print(low == 1)          # False
+print(low == 'LOW')      # False
+
+# Итерационный порядок
+print(list(Priority))    # [LOW, MEDIUM, HIGH]
+```
+
+## **Преобразование в другие типы и форматирование**
+
+```python
+class Color(Enum):
+    RED = 1
+    GREEN = 2
+
+c = Color.RED
+
+# 7.1 В примитивы
+print(c.name)      # 'RED'
+print(c.value)     # 1
+print(int(c.value))  # 1
+
+# 7.2 JSON сериализация
+import json
+print(json.dumps(c.name))  # "RED"
+
+# 7.3 Итерация и списки
+print(list(Color))         # [<Color.RED: 1>, <Color.GREEN: 2>]
+names = [e.name for e in Color]  # ['RED', 'GREEN']
+
+# 7.4 Пользовательское форматирование
+print(f"{c!r}")  # '<Color.RED: 1>'
+print(f"{c!s}")  # 'Color.RED'
+```
+
+## **Важные особенности**
+
+```python
+from enum import Enum, auto
+
+# 1. Неизменяемость членов
+class Color(Enum):
+    RED = 1
+# Color.RED = 2  # AttributeError!
+
+# 2. Уникальность значений (по умолчанию)
+try:
+    class Bad(Enum):
+        A = 1
+        B = 1  # ValueError: duplicate values
+except ValueError:
+    pass
+
+# 3. Автоматические значения
+class AutoEnum(Enum):
+    A = auto()  # 1
+    B = auto()  # 2
+
+# 4. Ложные значения
+print(bool(Color.RED))  # True
+
+# 5. Хешируемость гарантирована
+enum_set = {Color.RED, Color.GREEN}
+print(Color.RED in enum_set)  # True
+```
+
+## **Важные замечания:**
+
+1. **Уникальность**: Значения уникальны в пределах Enum (кроме `@enum.unique`).
+2. **`auto()`**: Автоинкремент начиная с 1.
+3. **Наследование**: `IntEnum`, `StrEnum`, `Flag` для специальных случаев.
+4. **Сравнение**: По идентичности членов, не по `value`.
+5. **`_ignore_`**: Исключить поля из enum-членов.
+6. **Производительность**: Быстрее словарей для констант.
+
+## **Ключевые выводы:**
+
+1. **`Enum` — типобезопасные именованные константы** с `name`/`value`.
+2. **`Color.RED`, `Color['RED']`, `Color(1)`** — доступ к членам.
+3. **Хешируемый, неизменяемый**, идеален для `switch`-подобных конструкций.
+4. **Идеален для**: состояний, статусов, кодов ошибок, конфигураций.
+5. **`auto()`** и наследование (`IntEnum`, `StrEnum`) для гибкости.
+6. **`enum` с Python 3.4+** — стандарт вместо магических чисел/строк.
 
 [Содержание](/CONTENTS.md#содержание)
 
