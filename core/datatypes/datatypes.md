@@ -4210,6 +4210,187 @@ print(list(Counter('aab').elements()))  # ['a', 'a', 'b']
 
 ## defaultdict
 
+## **Тип defaultdict в Python (словарь с значениями по умолчанию)**
+
+Тип `defaultdict` из модуля `collections` представляет словарь, который **автоматически создает значения по умолчанию**
+для отсутствующих ключей.
+Это подкласс `dict`, где при обращении к несуществующему ключу вызывается фабричная функция `default_factory`.
+Мутабелен,
+не хешируем, идеален для группировки данных, подсчета, вложенных структур без проверок `if key in dict`.
+
+## **Создание defaultdict**
+
+```python
+from collections import defaultdict
+
+# 1.1 Список по умолчанию
+d1 = defaultdict(list)
+d1['a'].append(1)  # defaultdict(<class 'list'>, {'a': [1]})
+d1['a'].append(2)  # defaultdict(<class 'list'>, {'a': [1, 2]})
+
+# 1.2 Словарь по умолчанию
+d2 = defaultdict(dict)
+d2['user']['name'] = 'Alice'  # defaultdict(<class 'dict'>, {'user': {'name': 'Alice'}})
+
+# 1.3 Из итерируемых объектов
+d3 = defaultdict(int, [('a', 1), ('a', 2)])  # defaultdict(<class 'int'>, {'a': 2})
+d4 = defaultdict(lambda: 0)  # defaultdict(<function <lambda> at ...>)
+```
+
+## **Атрибуты типа defaultdict**
+
+Тип `defaultdict` имеет дополнительный атрибут `default_factory` + атрибуты `dict`.
+
+```python
+d = defaultdict(list)
+
+# Специальный атрибут defaultdict
+print(d.default_factory)  # <class 'list'>
+print(len(d))  # 0 — количество пар ключ-значение
+print(type(len(d)))  # <class 'int'>
+
+# Нет атрибутов типа real/numerator
+try:
+    print(d.real)
+except AttributeError as e:
+    print(f"Ошибка: {e}")  # 'defaultdict' object has no attribute 'real'
+```
+
+## **Методы типа defaultdict**
+
+Тип `defaultdict` наследует все методы `dict` + добавляет автоматическое создание значений.
+
+### **Автоматическое создание значений**
+
+```python
+d = defaultdict(list)
+
+# Нет KeyError — создает автоматически
+d['missing'].append(42)  # defaultdict(<class 'list'>, {'missing': [42]})
+print(d['new'])  # [] (пустой список)
+
+d = defaultdict(int)
+d['counter'] += 1  # defaultdict(<class 'int'>, {'counter': 1})
+print(d['zero'])  # 0
+```
+
+### **Стандартные методы dict**
+
+```python
+d = defaultdict(list, {'a': [1, 2]})
+
+d.update({'b': [3]})  # defaultdict(<class 'list'>, {'a': [1, 2], 'b': [3]})
+print(d.get('c', []))  # [] (get() не вызывает default_factory!)
+print(list(d.keys()))  # ['a', 'b']
+```
+
+## **Поддерживаемые операции**
+
+```python
+d1 = defaultdict(list)
+d1['a'].append(1)
+
+d2 = defaultdict(int, {'a': 10})
+
+# 5.1 Обычные dict операции + автосоздание
+print(d1['a'])  # [1]
+print('x' in d1)  # True (создает [])
+
+# 5.2 Преобразование в dict (теряет default_factory)
+print(dict(d1))  # {'a': [1], 'x': []}
+
+# 5.3 Итерация как dict
+print(list(d1.items()))  # [('a', [1]), ('x', [])]
+
+# 5.4 Наследование dict методов
+d1.clear()  # Очищает
+```
+
+## **Операции сравнения**
+
+```python
+d1 = defaultdict(list, {'a': [1]})
+d2 = defaultdict(list, {'a': [1]})
+d3 = {'a': [1]}
+
+print(d1 == d2)  # True
+print(d1 == d3)  # True (игнорирует default_factory)
+print(d1 != defaultdict(int))  # True
+```
+
+## **Преобразование в другие типы и форматирование**
+
+```python
+d = defaultdict(list, {'a': [1, 2]})
+
+# 7.1 В другие коллекции
+print(dict(d))  # {'a': [1, 2]}
+print(list(d.keys()))  # ['a']
+print(list(d.values()))  # [[1, 2]]
+
+# 7.2 В строку
+print(str(d))  # "defaultdict(<class 'list'>, {'a': [1, 2]})"
+print(repr(d))  # "defaultdict(<class 'list'>, {'a': [1, 2]})"
+
+# 7.3 Стандартные операции
+print(len(d))  # 1
+print(sum(len(v) for v in d.values()))  # 2
+
+# 7.4 Популярные фабрики
+print(defaultdict(lambda: 0))  # defaultdict(<function <lambda> at ...>)
+```
+
+## **Важные особенности**
+
+```python
+# 1. Автосоздание только при __getitem__
+d = defaultdict(list)
+d['auto']  # [] (создает!)
+d.get('noauto')  # None (get() не вызывает!)
+
+# 2. Разные фабрики
+counter = defaultdict(int)
+groups = defaultdict(list)
+nested = defaultdict(lambda: defaultdict(list))
+
+# 3. Ссылочная семантика
+d1 = defaultdict(list)
+d2 = d1
+d2['key'].append(42)  # d1 тоже изменился!
+
+# 4. Копирование
+import copy
+
+d_copy = d1.copy()  # Копирует с default_factory
+d_deep = copy.deepcopy(d1)
+
+# 5. Ложные значения
+print(bool(defaultdict(list)))  # True (не пуст!)
+print(bool(dict(defaultdict(list))))  # False
+
+# 6. Вложенные defaultdict
+dd = defaultdict(lambda: defaultdict(int))
+dd['user']['posts'] += 1
+```
+
+## **Важные замечания:**
+
+1. **`default_factory` вызывается только в `__getitem__`**: `d['key']`, но не `d.get('key')`.
+2. **`dict(dd)` теряет `default_factory`** — становится обычным dict.
+3. **Ссылки**: `d1 = d2` — ссылка, используйте `copy()`.
+4. **Не хешируем**: Нельзя использовать как ключи словарей.
+5. **Производительность**: Такая же как dict + overhead фабрики.
+6. **Популярные фабрики**: `list`, `set`, `int` (0), `lambda: 0`.
+
+## **Ключевые выводы:**
+
+1. **`defaultdict` — dict без KeyError** с автоматическим созданием значений.
+2. **`d['missing']` → `default_factory()`** вместо исключения.
+3. **`get()` НЕ вызывает фабрику**, используйте `d['key']`.
+4. **`dict(dd)`** для обычного словаря (теряет магию).
+5. **Идеален для**: группировки, подсчета, вложенных структур.
+6. **`defaultdict(factory)`** — основной способ создания.
+
 [Содержание](/CONTENTS.md#содержание)
 
 ---
