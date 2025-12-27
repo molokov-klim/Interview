@@ -1782,12 +1782,214 @@ print(f"Функция: {status}")
 5. **Наследование от int**: Большинство методов унаследованы от `int`.
 6. **Использование**: Флаги состояния, условия, фильтрация, подсчеты.
 
-
 [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 ## NoneType
+
+## **Тип NoneType в Python (отсутствие значения)**
+
+Тип `NoneType` представляет единственный специальный объект `None`, обозначающий отсутствие значения или "ничего". Это
+встроенный тип данных, синглтон (всегда один и тот же объект), который используется для инициализации переменных,
+возвращаемых значений функций без результата и индикации неудачи операций. `NoneType` неизменяем и является ложным
+значением в булевом контексте.
+
+## **1. Создание объекта None**
+
+```python
+# 1.1 Прямое использование константы None
+n1 = None
+
+# 1.2 Через конструктор type(None)() (синглтон, всегда тот же объект)
+n2 = type(None)()
+print(n1 is n2)  # True — всегда один экземпляр
+
+
+# 1.3 Автоматическое возвращение функциями без return
+def no_return():
+    pass  # Неявно возвращает None
+
+
+result = no_return()
+print(result)  # None
+
+
+# 1.4 Явный возврат None
+def explicit_none():
+    return None
+
+
+print(explicit_none())  # None
+
+# Примечание: None чувствителен к регистру, None != 'none' или 'None'
+```
+
+## **2. Атрибуты типа NoneType**
+
+Тип `NoneType` не имеет публичных атрибутов или методов для чтения/записи. Попытка доступа вызовет AttributeError.
+
+```python
+n = None
+
+# Нет атрибутов real/imag как у complex
+try:
+    print(n.real)
+except AttributeError as e:
+    print(f"Ошибка: {e}")  # 'NoneType' object has no attribute 'real'
+
+# Нет numerator/denominator как у Fraction
+try:
+    print(n.numerator)
+except AttributeError as e:
+    print(f"Ошибка: {e}")
+```
+
+## **3. Методы типа NoneType**
+
+Тип `NoneType` не имеет собственных методов. Все попытки вызова методов приводят к TypeError.
+
+```python
+n = None
+
+# Нет conjugate() как у complex
+try:
+    n.conjugate()
+except TypeError as e:
+    print(f"Ошибка: {e}")  # 'NoneType' object has no attribute 'conjugate'
+
+# Нет as_integer_ratio() как у Fraction/bool
+try:
+    n.as_integer_ratio()
+except TypeError as e:
+    print(f"Ошибка: {e}")
+
+# Нет __bool__() переопределения (используется стандартное ложное значение)
+print(bool(n))  # False
+```
+
+## **5. Поддерживаемые и неподдерживаемые операции**
+
+```python
+n = None
+
+# 5.1 Поддерживаемые операции
+print(bool(n))  # False — ложное значение
+print(n == None)  # True — сравнение на равенство
+print(n is None)  # True — проверка идентичности (рекомендуется)
+print(str(n))  # 'None'
+print(repr(n))  # 'None'
+print(len(str(n)))  # 4
+
+# 5.2 Арифметические операции не поддерживаются
+try:
+    n + 1
+except TypeError as e:
+    print(f"Не поддерживается: {e}")  # unsupported operand type(s) for +: 'NoneType' and 'int'
+
+try:
+    n * 2
+except TypeError as e:
+    print(f"Не поддерживается: {e}")
+
+# 5.3 Сравнения порядка не поддерживаются
+try:
+    n < 1
+except TypeError as e:
+    print(f"Не поддерживается: {e}")  # '<' not supported between instances of 'NoneType' and 'int'
+```
+
+## **6. Операции сравнения**
+
+```python
+n1 = None
+n2 = None
+value = 42
+
+# 6.1 Поддерживается равенство/неравенство и идентичность
+print(n1 == n2)  # True
+print(n1 is n2)  # True (синглтон)
+print(n1 != value)  # True
+
+# 6.2 Операторы порядка (<, >, <=, >=) не работают
+try:
+    print(n1 < n2)
+except TypeError as e:
+    print(f"Ошибка сравнения: {e}")  # '<' not supported between instances of 'NoneType' and 'NoneType'
+
+# 6.3 Сравнение с другими типами
+print(None == False)  # False
+print(None == 0)  # False
+print(None == '')  # False
+print(bool(None) == False)  # True (ложное значение)
+```
+
+## **7. Преобразование в другие типы и форматирование**
+
+```python
+n = None
+
+# 7.1 Преобразование в строку
+print(str(n))  # 'None'
+print(repr(n))  # 'None'
+
+# 7.2 Форматирование через f-строки
+print(f"n = {n}")  # n = None
+print(f"n = {n!r}")  # n = None
+
+# 7.3 Преобразование типов
+print(bool(n))  # False
+print(int(n))  # TypeError: int() argument must be a string, a bytes-like object or a real number, not 'NoneType'
+print(float(n))  # TypeError
+print(complex(n))  # TypeError
+print(list(n))  # TypeError
+
+# 7.4 В контексте print() или функций без return
+print(print("test"))  # test\nNone
+```
+
+## **8. Отличия от других "пустых" значений**
+
+Важно понимать разницу между `None` и другими ложными значениями:
+
+```python
+# None vs другие ложные значения
+values = [None, False, 0, 0.0, '', [], {}]
+
+for v in values:
+    print(f"{repr(v)}: is None={v is None}, bool={bool(v)}")
+
+# Вывод:
+# None: is None=True, bool=False
+# False: is None=False, bool=False
+# 0: is None=False, bool=False
+# ...
+
+# Используйте 'is None' для точной проверки, bool() — только для истинностного значения
+result = None
+if result is None:
+    print("Точно None")
+if not result:
+    print("Ложное значение (может быть None, 0, '', и т.д.)")
+```
+
+## **Важные замечания:**
+
+1. **Синглтон**: В Python существует ровно один объект `None`. Все переменные с `None` ссылаются на один id.
+2. **Проверка через `is`**: Используйте `is None` / `is not None`, а не `== None` для проверки идентичности.
+3. **Ложное значение**: `bool(None) == False`, но `None != False`.
+4. **Нет методов/атрибутов**: Любая операция кроме сравнения и строкового представления вызовет ошибку.
+5. **Не наследуется**: Невозможно создать подкласс `NoneType` или новый экземпляр.
+6. **Стандартные использования**: Возврат функций без `return`, инициализация переменных, индикация неудачи.
+
+## **Ключевые выводы:**
+
+1. **`None` — единственный синглтон типа `NoneType`**, обозначающий отсутствие значения.
+2. **Проверяйте через `is None`**, а не `==` или `bool()` для точности.
+3. **Не поддерживает арифметику, методы или атрибуты** — только базовые сравнения и строковое представление.
+4. **Идеален для**: инициализации, возврата "пустого" результата, индикации ошибок без исключений.
+5. **Различайте от ложных значений** (`False`, `0`, `''`) — используйте `is` для точной идентификации.
+6. **Immutable и singleton**: всегда один объект, неизменяемый.
 
 [Содержание](/CONTENTS.md#содержание)
 
