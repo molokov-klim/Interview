@@ -4397,17 +4397,562 @@ dd['user']['posts'] += 1
 
 ## OrderedDict
 
+## **Тип OrderedDict в Python (упорядоченный словарь)**
+
+Тип `OrderedDict` из модуля `collections` представляет словарь, **сохраняющий порядок вставки ключей**. Это подкласс
+`dict` с
+дополнительными методами для управления порядком: `move_to_end()`, `popitem(last=False)`. Мутабелен, не хешируем,
+идеален для конфигураций, кэшей LRU, JSON-сериализации с сохранением порядка.
+
+## **Создание OrderedDict**
+
+```python
+from collections import OrderedDict
+
+# 1.1 Из итерируемых объектов
+od1 = OrderedDict([('a', 1), ('b', 2), ('c', 3)])
+od2 = OrderedDict(a=1, b=2, c=3)  # Порядок вставки
+od3 = OrderedDict()  # Пустой OrderedDict
+
+# 1.2 Из обычного dict (Python 3.7+ сохраняет порядок)
+d = {'x': 10, 'y': 20}
+od4 = OrderedDict(d)  # Сохраняет порядок d
+
+# 1.3 С повторяющимися ключами (последний побеждает)
+od5 = OrderedDict([('a', 1), ('a', 99)])  # OrderedDict([('a', 99)])
+```
+
+## **Атрибуты типа OrderedDict**
+
+Тип `OrderedDict` не имеет публичных атрибутов для чтения/записи данных. Размер доступен через `len()`.
+
+```python
+od = OrderedDict(a=1, b=2)
+
+# Нет атрибутов типа real/numerator
+try:
+    print(od.real)
+except AttributeError as e:
+    print(f"Ошибка: {e}")  # 'OrderedDict' object has no attribute 'real'
+
+print(len(od))  # 2 — количество пар ключ-значение
+print(type(len(od)))  # <class 'int'>
+```
+
+## **Методы типа OrderedDict**
+
+Тип `OrderedDict` расширяет `dict` методами управления порядком.
+
+### **Методы управления порядком**
+
+```python
+od = OrderedDict(a=1, b=2, c=3, d=4)
+
+od.move_to_end('a')  # a → конец: [('b', 2), ('c', 3), ('d', 4), ('a', 1)]
+od.move_to_end('b', last=False)  # b → начало: [('b', 2), ('c', 3), ('d', 4), ('a', 1)]
+
+od.popitem(last=False)  # Удаляет первый: ('b', 2) → [('c', 3), ('d', 4), ('a', 1)]
+od.popitem()  # Удаляет последний: ('a', 1)
+```
+
+### **Стандартные методы dict**
+
+```python
+od = OrderedDict(a=1, b=2)
+od.update({'c': 3})  # Сохраняет порядок
+od['d'] = 4  # Добавляет в конец
+print(list(od.keys()))  # ['a', 'b', 'c', 'd']
+```
+
+## **Поддерживаемые операции**
+
+```python
+od1 = OrderedDict(a=1, b=2)
+od2 = OrderedDict(c=3, d=4)
+
+# 5.1 Обычные dict операции (с сохранением порядка)
+print(od1['a'])  # 1
+print('x' in od1)  # False
+
+# 5.2 Итерация по порядку вставки
+print(list(od1))  # [('a', 1), ('b', 2)]
+
+# 5.3 Обновление сохраняет порядок
+od1.update(od2)  # [('a', 1), ('b', 2), ('c', 3), ('d', 4)]
+
+# 5.4 Нет неподдерживаемых операций (как dict)
+```
+
+## **Операции сравнения**
+
+```python
+od1 = OrderedDict(a=1, b=2)
+od2 = OrderedDict(a=1, b=2)
+od3 = OrderedDict(b=2, a=1)
+
+print(od1 == od2)  # True (содержимое одинаково)
+print(od1 == od3)  # True (Python 3.7+: dict сравнивает только содержимое)
+
+# Сравнение с dict
+print(od1 == {'a': 1, 'b': 2})  # True
+```
+
+## **Преобразование в другие типы и форматирование**
+
+```python
+od = OrderedDict(a=1, b=2, c=3)
+
+# 7.1 В другие коллекции
+print(dict(od))  # {'a': 1, 'b': 2, 'c': 3}
+print(list(od.keys()))  # ['a', 'b', 'c']
+print(list(od.values()))  # [1, 2, 3]
+
+# 7.2 В строку
+print(str(od))  # "OrderedDict([('a', 1), ('b', 2), ('c', 3)])"
+print(repr(od))  # "OrderedDict([('a', 1), ('b', 2), ('c', 3)])"
+
+# 7.3 Итерация по порядку
+print(*od)  # ('a', 1) ('b', 2) ('c', 3)
+print(len(od))  # 3
+```
+
+## **Важные особенности**
+
+```python
+# 1. Сохранение порядка вставки
+od = OrderedDict()
+od['first'] = 1
+od['second'] = 2
+od['third'] = 3
+print(list(od))  # [('first', 1), ('second', 2), ('third', 3)]
+
+# 2. Управление порядком
+od.move_to_end('first')  # [('second', 2), ('third', 3), ('first', 1)]
+od.move_to_end('second', last=False)  # [('second', 2), ('third', 3), ('first', 1)]
+
+# 3. LRU Cache паттерн
+od.popitem(last=False)  # Удаляет наименее недавно использованный
+
+# 4. Ссылочная семантика
+od1 = OrderedDict(a=1)
+od2 = od1
+od2['b'] = 2  # od1 тоже изменился!
+
+# 5. Ложные значения
+print(bool(OrderedDict()))  # False
+print(bool(OrderedDict(a=0)))  # True
+
+# 6. JSON сериализация с порядком
+import json
+
+print(json.dumps(od))  # {"second": 2, "third": 3, "first": 1}
+```
+
+## **Важные замечания:**
+
+1. **`move_to_end(key, last=True)`** — перемещает ключ в конец/начало.
+2. **`popitem(last=True)`** — удаляет последний/первый элемент.
+3. **Порядок сохраняется** при `update()`, новые ключи добавляются в конец.
+4. **Ссылки**: `od1 = od2` — ссылка, используйте `copy()`.
+5. **Не хешируем**: Нельзя использовать как ключи словарей.
+6. **Python 3.7+**: Обычный `dict` сохраняет порядок, но без специальных методов.
+
+## **Ключевые выводы:**
+
+1. **`OrderedDict` — dict с гарантированным порядком вставки**.
+2. **`move_to_end()`, `popitem(last=False)`** — управление порядком.
+3. **Идеален для**: LRU кэшей, конфигураций, JSON с порядком.
+4. **Сравнение игнорирует порядок** (как обычный dict).
+5. **Python 3.7+**: Обычный `dict` часто достаточно.
+6. **`OrderedDict(iter)`** — основной способ создания.
+
 [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 ## NamedTuple
 
+## **Тип NamedTuple в Python (типизированный именованный кортеж)**
+
+Тип `NamedTuple` из модуля `typing` представляет **типизированный класс** для неизменяемых структур данных с
+именованными полями.
+Это современная альтернатива `collections.namedtuple` с поддержкой аннотаций типов, автодополнения IDE, `_asdict()` и
+полной
+интеграцией с `mypy`. Иммутабелен, хешируем, идеален для типизированных DTO, конфигураций и API ответов.
+
+## **Создание NamedTuple**
+
+```python
+from typing import NamedTuple
+
+# 1.1 Классовый синтаксис (рекомендуемый)
+class Point(NamedTuple):
+    x: int
+    y: int
+
+p1 = Point(1, 2)  # Point(x=1, y=2)
+p2 = Point(x=3, y=4)  # По именам
+
+# 1.2 Наследование с методами
+class Circle(NamedTuple):
+    center: Point
+    radius: float = 1.0  # Значения по умолчанию
+
+c1 = Circle(Point(0, 0))  # Circle(center=Point(x=0, y=0), radius=1.0)
+
+# 1.3 Из итерируемых объектов
+data = [10, 20]
+p3 = Point._make(data)  # Point(x=10, y=20)
+```
+
+## **Атрибуты типа NamedTuple**
+
+Тип `NamedTuple` генерирует поля как атрибуты класса с типами.
+
+```python
+class Point(NamedTuple):
+    x: int
+    y: int
+
+p = Point(1, 2)
+
+# Поля как атрибуты
+print(p.x)  # 1
+print(p.y)  # 2
+print(p._fields)  # ('x', 'y')
+
+print(len(p))  # 2 — количество полей
+print(type(len(p)))  # <class 'int'>
+
+# Нет атрибутов типа real/numerator
+try:
+    print(p.real)
+except AttributeError as e:
+    print(f"Ошибка: {e}")
+```
+
+## **Методы типа NamedTuple**
+
+Тип `NamedTuple` наследует методы `tuple` + добавляет типизированные методы.
+
+### **Наследованные методы tuple**
+
+```python
+p = Point(1, 2)
+
+print(p.index(1))  # 0
+print(p.count(1))  # 1
+print(1 in p)  # True
+```
+
+### **Специальные методы NamedTuple**
+
+```python
+p = Point(1, 2)
+
+print(p._asdict())  # {'x': 1, 'y': 2}
+print(p._replace(x=10))  # Point(x=10, y=2)
+print(p._field_types)  # {'x': <class 'int'>, 'y': <class 'int'>}
+```
+
+## **Поддерживаемые операции**
+
+```python
+p1 = Point(1, 2)
+p2 = Point(3, 4)
+
+# 5.1 Доступ по индексу И по имени
+print(p1[0])  # 1
+print(p1.x)   # 1
+
+# 5.2 Распаковка
+x, y = p1  # 1, 2
+
+# 5.3 Сравнения (лексикографические)
+print(p1 < p2)  # True
+
+# 5.4 Нет мутации
+try:
+    p1.x = 99
+except AttributeError as e:
+    print(f"Не поддерживается: {e}")
+
+# 5.5 Итерируемость
+print(list(p1))  # [1, 2]
+```
+
+## **Операции сравнения**
+
+```python
+p1 = Point(1, 2)
+p2 = Point(1, 2)
+p3 = Point(1, 3)
+
+print(p1 == p2)  # True
+print(p1 < p3)  # True
+print(p1 == (1, 2))  # True (с tuple)
+
+# Типизированное сравнение
+print(Point(1, 2) == Point(x=1, y=2))  # True
+```
+
+## **Преобразование в другие типы и форматирование**
+
+```python
+p = Point(1, 2)
+
+# 7.1 В другие коллекции
+print(tuple(p))    # (1, 2)
+print(list(p))     # [1, 2]
+print(p._asdict()) # {'x': 1, 'y': 2}
+
+# 7.2 В строку
+print(str(p))  # 'Point(x=1, y=2)'
+print(repr(p)) # 'Point(x=1, y=2)'
+
+# 7.3 Распаковка
+print(*p)      # 1 2
+print(len(p))  # 2
+
+# 7.4 JSON сериализация
+import json
+print(json.dumps(p._asdict()))  # {"x": 1, "y": 2}
+```
+
+## **Важные особенности**
+
+```python
+# 1. Полная типизация
+p: Point = Point(1, 2)
+reveal_type(p.x)  # int (mypy видит тип!)
+
+# 2. Хешируемость
+s = {p: 'value'}
+print(s[Point(1, 2)])  # 'value'
+
+# 3. Значения по умолчанию
+class Config(NamedTuple):
+    host: str = 'localhost'
+    port: int = 8080
+
+cfg = Config()  # Config(host='localhost', port=8080)
+
+# 4. _replace() для "изменения"
+p2 = p._replace(x=99)  # Point(x=99, y=2)
+
+# 5. Метаданные типов
+print(Point.__annotations__)  # {'x': <class 'int'>, 'y': <class 'int'>}
+
+# 6. Наследование
+class ColoredPoint(Point):
+    color: str
+
+cp = ColoredPoint(1, 2, 'red')
+```
+
+## **Важные замечания:**
+
+1. **Типизация**: Полная поддержка `mypy`, автодополнение IDE.
+2. **Иммутабельность**: Нельзя изменять поля, используйте `_replace()`.
+3. **Хешируемость**: Можно использовать как ключи словарей.
+4. **`_asdict()`** возвращает обычный `dict`.
+5. **Значения по умолчанию**: Поддерживаются как в dataclass.
+6. **Совместимость**: Работает с `collections.namedtuple`.
+
+## **Ключевые выводы:**
+
+1. **`NamedTuple` — типизированный immutable класс** с именованными полями.
+2. **Полная типизация + IDE поддержка** — лучше `collections.namedtuple`.
+3. **`p.x` и `p[0]`**, `_replace()`, `_asdict()` — удобный API.
+4. **Аннотации типов** сохраняются в `__annotations__`.
+5. **Идеален для**: API ответов, конфигураций, типизированных DTO.
+6. **`class X(NamedTuple): x: int`** — основной способ создания.
+
 [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 ## array
+
+## **Тип array в Python (типизированный массив)**
+
+Тип `array` из модуля `array` представляет изменяемые упорядоченные последовательности **однотипных числовых данных**. Это встроенный тип данных,
+поддерживающий динамическое изменение размера, индексацию, срезы и компактное хранение чисел фиксированного типа (int, float). 
+`array` мутабелен, не хешируем и используется для экономии памяти при работе с большими числовыми массивами.
+
+## **Создание array**
+
+```python
+import array
+
+# 1.1 Литералы array с тип-кодом
+a1 = array.array('i', [1, 2, 3])  # signed int (4 байта)
+a2 = array.array('f', [1.5, 2.5]) # float (4 байта)
+a3 = array.array('b')              # Пустой signed char
+
+# 1.2 Из итерируемых объектов
+a4 = array.array('I', range(3))    # unsigned int: array('I', [0, 1, 2])
+a5 = array.array('B', b'abc')      # unsigned char: array('B', [97, 98, 99])
+
+# 1.3 Инициализация размером
+a6 = array.array('h', [0] * 5)     # signed short × 5
+
+# Тип-коды: 'bBhHiIlLqQfd' (char, short, int, long, float, double)
+```
+
+## **Атрибуты типа array**
+
+Тип `array` имеет публичный атрибут `typecode` для типа данных.
+
+```python
+a = array.array('i', [1, 2, 3])
+
+# Публичные атрибуты
+print(a.typecode)  # 'i'
+print(a.itemsize)  # 4 — размер элемента в байтах
+print(len(a))      # 3 — количество элементов
+print(type(len(a))) # <class 'int'>
+
+# Нет атрибутов типа real/numerator
+try:
+    print(a.real)
+except AttributeError as e:
+    print(f"Ошибка: {e}")
+```
+
+## **Методы типа array**
+
+Тип `array` имеет методы для мутации и неизменяемые операции.
+
+### **Методы изменения array (мутация)**
+
+```python
+a = array.array('i', [1, 2, 3])
+
+a.append(4)      # array('i', [1, 2, 3, 4])
+a.extend([5, 6]) # array('i', [1, 2, 3, 4, 5, 6])
+a.insert(1, 99)  # array('i', [1, 99, 2, 3, 4, 5, 6])
+a.pop()          # 6 → array('i', [1, 99, 2, 3, 4, 5])
+a.remove(99)     # array('i', [1, 2, 3, 4, 5])
+a.clear()        # array('i')
+```
+
+### **Методы поиска**
+
+```python
+a = array.array('i', [1, 2, 3, 2])
+
+print(a.index(2))    # 1
+print(a.count(2))    # 2
+print(99 in a)       # False (O(n))
+```
+
+## **Поддерживаемые операции**
+
+```python
+a1 = array.array('i', [1, 2])
+a2 = array.array('i', [3, 4])
+
+# 5.1 Конкатенация и повторение
+print(a1 + a2)  # array('i', [1, 2, 3, 4])
+print(a1 * 2)   # array('i', [1, 2, 1, 2])
+
+# 5.2 Индексация и срезы (int значения)
+print(a1[0])    # 1
+print(a1[-1])   # 2
+print(a1[1:])   # array('i', [2])
+
+# 5.3 Срезы с присваиванием (одинаковый тип!)
+a1[0:1] = array.array('i', [99])  # array('i', [99, 2])
+
+# 5.4 Сравнения
+print(array.array('i', [1, 2]) < array.array('i', [1, 3]))  # True
+```
+
+## **Операции сравнения**
+
+```python
+a1 = array.array('i', [1, 2, 3])
+a2 = array.array('i', [1, 2, 3])
+a3 = array.array('i', [1, 2, 4])
+
+print(a1 == a2)  # True
+print(a1 < a3)   # True
+print(a1 == [1, 2, 3])  # True (с list)
+```
+
+## **Преобразование в другие типы и форматирование**
+
+```python
+a = array.array('i', [1, 2, 3])
+
+# 7.1 В другие коллекции
+print(list(a))     # [1, 2, 3]
+print(bytes(a))    # b'\x00\x00\x00\x01\x00\x00\x00\x02\x00\x00\x00\x03'
+print(tuple(a))    # (1, 2, 3)
+
+# 7.2 В строку
+print(str(a))  # 'array('i', [1, 2, 3])'
+print(repr(a)) # 'array('i', [1, 2, 3])'
+
+# 7.3 Буферизация
+print(a.tobytes())     # b'\x00\x00\x00\x01...'
+print(a.tofile(open('test.bin', 'wb')))  # Запись в файл
+
+# 7.4 Array comprehension
+squares = array.array('i', (x**2 for x in range(3)))  # array('i', [0, 1, 4])
+```
+
+## **Важные особенности**
+
+```python
+# 1. Экономия памяти
+import sys
+nums = [1, 2, 3] * 1000
+print(sys.getsizeof(nums))           # ~40KB (указатели)
+a = array.array('i', nums)
+print(sys.getsizeof(a))              # ~4KB (4 байта × 1000)
+
+# 2. Строгая типизация
+try:
+    array.array('i', [1, 2, 'error'])  # TypeError!
+except TypeError as e:
+    print(f"Ошибка: {e}")
+
+# 3. Ссылочная семантика
+a1 = array.array('i', [1, 2])
+a2 = a1
+a2[0] = 99  # a1 тоже изменился!
+
+# 4. Копирование
+import copy
+a_copy = a1[:]        # Поверхностная
+a_deep = copy.deepcopy(a1)
+
+# 5. Ложные значения
+print(bool(array.array('i')))  # False
+print(bool(array.array('i', [0])))  # True
+
+# 6. Буферизация (frombytes/tobytes/fromfile/tofile)
+```
+
+## **Важные замечания:**
+
+1. **Тип-коды**: `'bBhHiIlLqQfd'` — строгое соответствие типов.
+2. **`itemsize`**: Фиксированный размер элемента (1-8 байт).
+3. **Память**: ~5-10x экономнее `list` для чисел.
+4. **Ссылки**: `a1 = a2` — ссылка, используйте `[:]`.
+5. **Не хешируем**: Нельзя использовать как ключи словарей.
+6. **`tobytes()`** для бинарных данных, `fromfile()` для чтения.
+
+## **Ключевые выводы:**
+
+1. **`array` — типизированный массив чисел** с компактным хранением.
+2. **`typecode` определяет тип**: `'i'` (int), `'f'` (float), `'B'` (uchar).
+3. **`itemsize × len()`** — точный размер в памяти.
+4. **O(1) доступ**, как `list`, но **5-10x экономнее памяти**.
+5. **Идеален для**: числовых данных, буферизации, NumPy-подготовки.
+6. **`array.array('i', iter)`** — основной способ создания.
 
 [Содержание](/CONTENTS.md#содержание)
 
