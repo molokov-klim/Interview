@@ -3430,11 +3430,395 @@ print(sys.getsizeof(b'hello'))  # 49 (компактно)
 
 ## bytearray
 
+Тип `bytearray` представляет изменяемые упорядоченные последовательности байтов (целые числа 0-255). Это встроенный тип
+данных,
+поддерживающий динамическое изменение размера, индексацию, срезы с присваиванием и методы для манипуляции бинарными
+данными.
+`bytearray` мутабелен, не хешируем и используется для модификации байтовых последовательностей in-place.
+
+## **Создание bytearray**
+
+```python
+# 1.1 Литералы bytearray (только через конструктор)
+ba1 = bytearray(b'hello')  # bytearray(b'hello')
+ba2 = bytearray([104, 101, 108, 108, 111])  # bytearray(b'hello')
+ba3 = bytearray()  # Пустой bytearray
+
+# 1.2 Через конструктор bytearray()
+ba4 = bytearray(5)  # bytearray(b'\x00\x00\x00\x00\x00')
+ba5 = bytearray(range(3))  # bytearray(b'\x00\x01\x02')
+ba6 = 'hello'.encode('utf-8')  # b'hello' → bytearray(b'hello')
+
+# 1.3 Из строк и итерируемых
+ba7 = bytearray('привет', 'utf-8')  # bytearray(b'\xd0\xbf\xd1\x80...')
+ba8 = bytearray([65, 66, 67] * 2)  # bytearray(b'ABCABC')
+
+# 1.4 Из bytes
+b = b'world'
+ba9 = bytearray(b)  # bytearray(b'world')
+```
+
+## **Атрибуты типа bytearray**
+
+Тип `bytearray` не имеет публичных атрибутов для чтения/записи данных. Размер доступен через `len()`.
+
+```python
+ba = bytearray(b'hello')
+
+# Нет атрибутов типа real/numerator
+try:
+    print(ba.real)
+except AttributeError as e:
+    print(f"Ошибка: {e}")  # 'bytearray' object has no attribute 'real'
+
+print(len(ba))  # 5 — количество байтов
+print(type(len(ba)))  # <class 'int'>
+```
+
+## **Методы типа bytearray**
+
+Тип `bytearray` имеет методы для мутации и неизменяемые операции.
+
+### **Методы изменения bytearray (мутация)**
+
+```python
+ba = bytearray(b'hello')
+
+ba.append(33)  # bytearray(b'hello!')
+ba.insert(0, 72)  # bytearray(b'Hello!')
+ba.pop()  # Удаляет '!', возвращает 33 → bytearray(b'Hello')
+ba.remove(72)  # bytearray(b'ello')
+ba.clear()  # bytearray(b'') — очищает
+ba.extend(b' world')  # bytearray(b'ello world')
+```
+
+### **Методы поиска и проверки**
+
+```python
+ba = bytearray(b'hello world')
+
+print(ba.find(b'world'))  # 6
+print(ba.count(b'l'))  # 3
+print(ba.startswith(b'hel'))  # True
+print(b'lo' in ba)  # True
+```
+
+### **Методы замены (возвращают новый bytearray)**
+
+```python
+ba = bytearray(b'hello||world')
+print(ba.replace(b'hello', b'hi'))  # bytearray(b'hi||world')
+
+# Мутация через присваивание
+ba[0:5] = b'Hi!!!'
+print(ba)  # bytearray(b'Hi!!!||world')
+```
+
+## **Поддерживаемые операции**
+
+```python
+ba1 = bytearray(b'hello')
+ba2 = bytearray(b' world')
+
+# 5.1 Конкатенация и повторение (новый bytearray)
+print(ba1 + ba2)  # bytearray(b'hello world')
+print(ba1 * 2)  # bytearray(b'hellohello')
+
+# 5.2 Индексация и срезы (чтение/запись)
+print(ba1[0])  # 104
+ba1[0] = 72  # bytearray(b'Hello')
+print(ba1[1:4])  # bytearray(b'ell')
+
+# 5.3 Срезы с присваиванием (мутация)
+ba1[0:2] = b'Hi'  # bytearray(b'Hi llo')
+
+# 5.4 Сравнения (лексикографические)
+print(bytearray(b'abc') < bytearray(b'def'))  # True
+```
+
+## **Операции сравнения**
+
+```python
+ba1 = bytearray(b'abc')
+ba2 = bytearray(b'abc')
+ba3 = bytearray(b'abd')
+
+print(ba1 == ba2)  # True
+print(ba1 < ba3)  # True
+print(ba1 == b'abc')  # True (с bytes)
+
+# Сравнение с bytes
+print(bytearray(b'\x01') < b'\x02')  # True
+```
+
+## **Преобразование в другие типы и форматирование**
+
+```python
+ba = bytearray(b'hello')
+
+# 7.1 В другие типы
+print(bytes(ba))  # b'hello'
+print(list(ba))  # [104, 101, 108, 108, 111]
+print(str(ba, 'utf-8'))  # 'hello'
+print(ba.decode('utf-8'))  # 'hello'
+
+# 7.2 В строку
+print(str(ba))  # "bytearray(b'hello')"
+print(repr(ba))  # "bytearray(b'hello')"
+
+# 7.3 Распаковка и методы
+print(*ba)  # 104 101 108 108 111
+print(sum(ba))  # 523
+print(ba.hex())  # '68656c6c6f'
+
+# 7.4 Bytearray из генератора
+ba_gen = bytearray(n for n in range(65, 68))  # bytearray(b'ABC')
+```
+
+## **Важные особенности**
+
+```python
+# 1. Мутабельность (можно изменять)
+ba = bytearray(b'hello')
+ba[0] = 72  # bytearray(b'Hello')
+ba.append(33)  # bytearray(b'Hello!')
+
+# 2. Ссылочная семантика
+ba1 = bytearray(b'abc')
+ba2 = ba1
+ba2[0] = 88  # ba1 тоже изменился! bytearray(b'Xbc')
+
+# 3. Копирование
+import copy
+
+ba_copy = ba1[:]  # Поверхностная копия
+ba_deep = copy.deepcopy(ba1)  # Глубокая копия
+
+# 4. Только значения 0-255
+try:
+    ba.append(256)  # ValueError!
+except ValueError as e:
+    print(f"Ошибка: {e}")
+
+# 5. Ложные значения
+print(bool(bytearray()))  # False
+print(bool(bytearray(b'\x00')))  # True
+
+# 6. Не хешируем
+try:
+    hash(ba1)
+except TypeError as e:
+    print(f"Не хешируется: {e}")
+```
+
+## **Важные замечания:**
+
+1. **Мутабельность**: Поддерживает `append`, `pop`, индексацию с присваиванием.
+2. **Диапазон**: Только 0-255, `256` → `ValueError`.
+3. **Не хешируем**: Нельзя использовать как ключи словарей.
+4. **Ссылки**: `ba1 = ba2` создаёт ссылку, используйте `[:]`, `copy()`.
+5. **Память**: Компактно, но с over-allocation для роста.
+6. **`bytes(ba)`** для финализации в неизменяемые байты.
+
+## **Ключевые выводы:**
+
+1. **`bytearray` — мутабельная упорядоченная коллекция байтов** (0-255).
+2. **Поддерживает индексацию, срезы с присваиванием** и мутацию in-place.
+3. **`[:]` и `copy()`** для безопасного копирования ссылок.
+4. **Пустой `bytearray()` — ложное значение**, остальные — истинные.
+5. **Идеален для**: модификации бинарных данных, буферов, протоколов.
+6. **`bytearray(b)`, `bytearray([0-255])`** — основные способы создания.
+
 [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 ## namedtuple
+
+Тип `namedtuple` из модуля `collections` представляет неизменяемые упорядоченные коллекции с именованными полями. Это
+подкласс `tuple`,
+поддерживающий индексацию по позиции **и по имени поля**, с автоматической генерацией `_asdict()`, `_fields` и других
+удобств.
+`namedtuple` иммутабелен, хешируем и используется для создания легковесных структур данных с читаемым доступом к полям.
+
+## **Создание namedtuple**
+
+```python
+from collections import namedtuple
+
+# 1.1 Создание класса namedtuple
+Point = namedtuple('Point', ['x', 'y'])
+p1 = Point(1, 2)  # Point(x=1, y=2)
+
+# 1.2 Альтернативные способы определения полей
+Point2 = namedtuple('Point2', 'x y')
+p2 = Point2(3, 4)
+
+# 1.3 Ключевые слова
+Circle = namedtuple('Circle', 'center radius', defaults=[Point(0, 0), 1.0])
+c1 = Circle()  # Circle(center=Point(x=0, y=0), radius=1.0)
+c2 = Circle(radius=5)  # Circle(center=Point(x=0, y=0), radius=5)
+
+# 1.4 Из итерируемых объектов
+data = [10, 20]
+p3 = Point._make(data)  # Point(x=10, y=20)
+```
+
+## **Атрибуты типа namedtuple**
+
+Тип `namedtuple` имеет классовые атрибуты для метаданных и экземплярные для полей.
+
+```python
+Point = namedtuple('Point', 'x y')
+p = Point(1, 2)
+
+# Классовые атрибуты
+print(Point._fields)  # ('x', 'y')
+print(Point.__doc__)  # Автогенерируемая документация
+
+# Экземплярные атрибуты (поля)
+print(p.x)  # 1
+print(p.y)  # 2
+
+print(len(p))  # 2 — количество полей
+print(type(len(p)))  # <class 'int'>
+```
+
+## **Методы типа namedtuple**
+
+Тип `namedtuple` наследует методы `tuple` + добавляет удобные методы.
+
+### **Наследованные методы tuple (неизменяемые)**
+
+```python
+p = Point(1, 2)
+
+print(p.index(1))  # 0 (позиция первого вхождения)
+print(p.count(1))  # 1
+print(1 in p)  # True
+```
+
+### **Специальные методы namedtuple**
+
+```python
+p = Point(1, 2)
+
+print(p._asdict())  # {'x': 1, 'y': 2} → OrderedDict
+print(p._replace(x=10))  # Point(x=10, y=2) — новый экземпляр
+print(p._fields)  # ('x', 'y')
+
+# _make() — классовый метод
+p2 = Point._make([3, 4])  # Point(x=3, y=4)
+```
+
+## **Поддерживаемые операции**
+
+```python
+p1 = Point(1, 2)
+p2 = Point(3, 4)
+
+# 5.1 Индексация по позиции И по имени
+print(p1[0])  # 1
+print(p1.x)   # 1
+
+# 5.2 Распаковка
+x, y = p1  # 1, 2
+
+# 5.3 Сравнения (лексикографические по полям)
+print(p1 < p2)  # True ((1,2) < (3,4))
+
+# 5.4 Нет мутации
+try:
+    p1.x = 99
+except AttributeError as e:
+    print(f"Не поддерживается: {e}")
+
+# 5.5 Итерируемость
+print(list(p1))  # [1, 2]
+```
+
+## **Операции сравнения**
+
+```python
+p1 = Point(1, 2)
+p2 = Point(1, 2)
+p3 = Point(1, 3)
+
+print(p1 == p2)  # True
+print(p1 < p3)  # True (2 < 3 на 2-й позиции)
+print(p1 == (1, 2))  # True (сравнение с tuple)
+
+# Разные типы namedtuple сравниваются корректно
+print(Point(1, 2) == Point2(1, 2))  # True
+```
+
+## **Преобразование в другие типы и форматирование**
+
+```python
+p = Point(1, 2)
+
+# 7.1 В другие коллекции
+print(tuple(p))  # (1, 2)
+print(list(p))  # [1, 2]
+print(p._asdict())  # {'x': 1, 'y': 2}
+
+# 7.2 В строку
+print(str(p))  # 'Point(x=1, y=2)'
+print(repr(p))  # 'Point(x=1, y=2)'
+
+# 7.3 Распаковка
+print(*p)  # 1 2
+print(len(p))  # 2
+
+# 7.4 Namedtuple factory
+Person = namedtuple('Person', 'name age', module='test')
+per = Person('Alice', 30)
+```
+
+## **Важные особенности**
+
+```python
+# 1. Иммутабельность (как tuple)
+p = Point(1, 2)
+# p.x = 99  # AttributeError!
+
+# 2. Хешируемость (как tuple)
+s = {p: 'value'}
+print(s[Point(1, 2)])  # 'value'
+
+# 3. Удобный доступ по имени
+p = Point(x=10, y=20)
+print(p.x, p.y)  # 10 20
+
+# 4. _replace() для "изменения"
+p2 = p._replace(x=99)  # Point(x=99, y=20) — новый объект
+
+# 5. Ложные значения (как tuple)
+print(bool(Point(0, 0)))  # True
+print(bool(Point(0, 0, 0)))  # True (только пустой tuple False)
+
+# 6. Автогенерируемые методы
+print(Point._fields)  # ('x', 'y')
+print(hasattr(Point, '_make'))  # True
+```
+
+## **Важные замечания:**
+
+1. **Иммутабельность**: Нельзя изменять поля, используйте `_replace()`.
+2. **Хешируемость**: Можно использовать как ключи словарей и элементы set.
+3. **Производительность**: Быстрее обычных классов (нет `__dict__`).
+4. **Память**: Компактнее классов (фиксированный размер).
+5. **Имена полей**: Не могут быть Python-ключевыми словами, начинаются с `_`.
+6. **`_asdict()`** возвращает `OrderedDict` с полями.
+
+## **Ключевые выводы:**
+
+1. **`namedtuple` — неизменяемый tuple с именованными полями** и хешируемостью.
+2. **Доступ по индексу `p[0]` И по имени `p.x`** — лучшее из двух миров.
+3. **`_replace()`, `_asdict()`, `_make()`** — мощные фабричные методы.
+4. **Быстрее и легче** обычных классов для простых структур данных.
+5. **Идеален для**: DTO, конфигураций, результатов запросов, констант.
+6. **`namedtuple('Name', 'fields')`** — основной способ создания.
 
 [Содержание](/CONTENTS.md#содержание)
 
