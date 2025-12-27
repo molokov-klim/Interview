@@ -3025,6 +3025,193 @@ except TypeError as e:
 
 ## frozenset
 
+Тип `frozenset` представляет неизменяемые неупорядоченные коллекции уникальных хешируемых объектов. Это встроенный тип
+данных,
+поддерживающий быстрый поиск и операции над множествами. `frozenset` иммутабелен, хешируем, элементы должны быть
+хешируемыми
+и не могут повторяться. Идеален для использования как ключи словарей или элементов множеств.
+
+## **Создание frozenset**
+
+```python
+# 1.1 Литералы frozenset (только через конструктор)
+fs1 = frozenset([1, 2, 3])
+fs2 = frozenset('abc')  # frozenset({'a', 'b', 'c'})
+fs3 = frozenset()  # Пустое frozenset
+
+# 1.2 Через конструктор frozenset()
+fs4 = frozenset(range(3))  # frozenset({0, 1, 2})
+fs5 = frozenset([1, 2, 2, 3])  # frozenset({1, 2, 3}) (дубликаты удалены)
+
+# 1.3 Из итерируемых объектов
+fs6 = frozenset((10, 20, 30))  # frozenset({10, 20, 30})
+fs7 = frozenset({'a', 'b', 'c'})  # frozenset({'a', 'b', 'c'})
+
+# 1.4 Из set
+s = {1, 2, 3}
+fs8 = frozenset(s)  # frozenset({1, 2, 3})
+```
+
+## **Атрибуты типа frozenset**
+
+Тип `frozenset` не имеет публичных атрибутов для чтения/записи данных. Размер доступен через `len()`.
+
+```python
+fs = frozenset([1, 2, 3])
+
+# Нет атрибутов типа real/numerator
+try:
+    print(fs.real)
+except AttributeError as e:
+    print(f"Ошибка: {e}")  # 'frozenset' object has no attribute 'real'
+
+print(len(fs))  # 3 — количество элементов
+print(type(len(fs)))  # <class 'int'>
+```
+
+## **Методы типа frozenset**
+
+Тип `frozenset` имеет **только неизменяемые методы** (нет мутации).
+
+### **Операции над множествами (неизменяемые)**
+
+```python
+fs1 = frozenset([1, 2, 3])
+fs2 = frozenset([3, 4, 5])
+
+print(fs1.union(fs2))  # frozenset({1, 2, 3, 4, 5})
+print(fs1.intersection(fs2))  # frozenset({3})
+print(fs1.difference(fs2))  # frozenset({1, 2})
+print(fs1.symmetric_difference(fs2))  # frozenset({1, 2, 4, 5})
+```
+
+### **Методы поиска и проверки**
+
+```python
+fs = frozenset([1, 2, 3, 2])
+
+print(2 in fs)  # True
+print(99 in fs)  # False
+print(fs.isdisjoint(frozenset([4, 5])))  # True
+print(frozenset([1, 2]).issubset(fs))  # True
+print(fs.issuperset(frozenset([1])))  # True
+```
+
+## **Поддерживаемые операции**
+
+```python
+fs1 = frozenset([1, 2])
+fs2 = frozenset([2, 3])
+
+# 5.1 Операции над множествами (неизменяемые)
+print(fs1 | fs2)  # frozenset({1, 2, 3})
+print(fs1 & fs2)  # frozenset({2})
+print(fs1 - fs2)  # frozenset({1})
+print(fs1 ^ fs2)  # frozenset({1, 3})
+
+# 5.2 Нет индексации/срезов
+try:
+    print(fs1[0])
+except TypeError as e:
+    print(f"Не поддерживается: {e}")  # 'frozenset' object is not subscriptable
+
+# 5.3 Нет мутации
+try:
+    fs1.add(4)
+except AttributeError as e:
+    print(f"Не поддерживается: {e}")
+
+# 5.4 Хешируемость!
+print(hash(fs1))  # Работает!
+```
+
+## **Операции сравнения**
+
+```python
+fs1 = frozenset([1, 2, 3])
+fs2 = frozenset([1, 2, 3])
+fs3 = frozenset([1, 2])
+
+print(fs1 == fs2)  # True
+print(fs1 != fs3)  # True
+print(fs3 < fs1)  # True (строгое подмножество)
+print(fs1 > fs3)  # True (надмножество)
+print(frozenset([1, 2]) <= fs1)  # True
+
+# Сравнение с set
+print(fs1 == frozenset([1, 2, 3]))  # True
+```
+
+## **Преобразование в другие типы и форматирование**
+
+```python
+fs = frozenset([1, 2, 3])
+
+# 7.1 В другие коллекции
+print(list(fs))  # [1, 2, 3] (порядок не гарантирован)
+print(tuple(fs))  # (1, 2, 3)
+print(set(fs))  # {1, 2, 3}
+
+# 7.2 В строку
+print(str(fs))  # 'frozenset({1, 2, 3})'
+print(repr(fs))  # 'frozenset({1, 2, 3})'
+
+# 7.3 Распаковка
+print(*fs)  # 1 2 3 (порядок не гарантирован)
+print(len(fs))  # 3
+print(sum(fs))  # 6
+
+# 7.4 Frozenset comprehension
+squares = frozenset(x ** 2 for x in range(3))  # frozenset({0, 1, 4})
+```
+
+## **Важные особенности**
+
+```python
+# 1. Неизменяемость (иммутабельность)
+fs = frozenset([1, 2])
+# fs.add(3)  # AttributeError!
+
+# 2. Хешируемость (можно использовать как ключ)
+d = {frozenset([1, 2]): "value"}
+print(d[frozenset([1, 2])])  # 'value'
+
+# 3. Ссылочная семантика (но неизменяемая)
+fs1 = frozenset([1, 2])
+fs2 = fs1  # Безопасно, т.к. неизменяемо
+print(fs1 is fs2)  # True
+
+# 4. Копирование (не нужно, но возможно)
+import copy
+
+fs_copy = copy.copy(fs1)  # Та же ссылка для immutable
+
+# 5. Ложные значения
+print(bool(frozenset()))  # False
+print(bool(frozenset([0])))  # True
+
+# 6. Вложенность в set
+s = {frozenset([1, 2]), frozenset([3, 4])}
+```
+
+## **Важные замечания:**
+
+1. **Иммутабельность**: Нет методов мутации (`add`, `remove`, `clear`).
+2. **Хешируемость**: Можно использовать как ключи словарей и элементы `set`.
+3. **Не индексируем**: Нет `fs[0]`, используйте `in` для проверки O(1).
+4. **Уникальность**: Автоматически удаляет дубликаты, порядок не гарантирован.
+5. **Память**: Хэш-таблица, компактнее `set` (нет места для роста).
+6. **Альтернатива `set`**: Когда нужна неизменяемость и хешируемость.
+
+## **Ключевые выводы:**
+
+1. **`frozenset` — неизменяемая хешируемая коллекция уникальных** хешируемых объектов.
+2. **Идеален для**: ключей словарей, элементов множеств, константных коллекций.
+3. **O(1) операции**: `in`, `union`, `intersection` благодаря хэш-таблице.
+4. **Пустое `frozenset()` — ложное значение**, непустые — истинные.
+5. **Только неизменяемые методы**, никаких мутаций.
+6. **`frozenset(iter)`** — основной способ создания.
+
 [Содержание](/CONTENTS.md#содержание)
 
 ---
