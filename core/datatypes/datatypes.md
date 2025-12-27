@@ -3218,6 +3218,212 @@ s = {frozenset([1, 2]), frozenset([3, 4])}
 
 ## bytes
 
+## **Тип bytes в Python (байтовые строки)**
+
+Тип `bytes` представляет неизменяемые упорядоченные последовательности байтов (целые числа 0-255). Это встроенный тип
+данных,
+поддерживающий индексацию, срезы и методы для работы с бинарными данными. `bytes` иммутабелен, хешируем и используется
+для
+работы с сырыми байтами, кодировками, файлами и сетевыми протоколами.
+
+## **Создание bytes**
+
+```python
+# 1.1 Литералы bytes (b'...')
+b1 = b'hello'  # b'hello'
+b2 = b'\x68\x65\x6c\x6c\x6f'  # b'hello' (hex)
+b3 = b''  # Пустые bytes
+b4 = b'caf\xe9'  # b'caf\xe9' (UTF-8)
+
+# 1.2 Через конструктор bytes()
+b5 = bytes([104, 101, 108, 108, 111])  # b'hello'
+b6 = bytes(range(3))  # b'\x00\x01\x02'
+b7 = bytes(5)  # b'\x00\x00\x00\x00\x00' (нулевые байты)
+
+# 1.3 Из строк с кодировкой
+b8 = 'hello'.encode('utf-8')  # b'hello'
+b9 = 'привет'.encode('utf-8')  # b'\xd0\xbf\xd1\x80\xd0\xb8\xd0\xb2\xd0\xb5\xd1\x82'
+
+# 1.4 Из памяти
+import array
+
+b10 = bytes(array.array('B', [65, 66, 67]))  # b'ABC'
+```
+
+## **Атрибуты типа bytes**
+
+Тип `bytes` не имеет публичных атрибутов для чтения/записи данных. Размер доступен через `len()`.
+
+```python
+b = b'hello'
+
+# Нет атрибутов типа real/numerator
+try:
+    print(b.real)
+except AttributeError as e:
+    print(f"Ошибка: {e}")  # 'bytes' object has no attribute 'real'
+
+print(len(b))  # 5 — количество байтов
+print(type(len(b)))  # <class 'int'>
+```
+
+## **Методы типа bytes**
+
+Тип `bytes` имеет методы для поиска, замены и кодирования (все неизменяемые).
+
+### **Методы поиска и проверки**
+
+```python
+b = b'hello world'
+
+print(b.find(b'world'))  # 6 (позиция)
+print(b.count(b'l'))  # 3
+print(b.startswith(b'hel'))  # True
+print(b.endswith(b'rld'))  # True
+print(b'lo' in b)  # True
+```
+
+### **Методы замены и разделения**
+
+```python
+b = b'hello||world'
+
+print(b.replace(b'hello', b'hi'))  # b'hi||world'
+print(b.split(b'||'))  # [b'hello', b'world']
+print(b.partition(b'||'))  # (b'hello', b'||', b'world')
+
+# Заглавные/строчные (ASCII)
+print(b.upper())  # b'HELLO||WORLD'
+print(b.lower())  # b'hello||world'
+print(b.strip(b'|'))  # b'hello world'
+```
+
+### **Методы кодирования**
+
+```python
+b = b'hello'
+
+print(b.decode('utf-8'))  # 'hello'
+print(b.decode('latin1'))  # 'hello' (побайтово)
+print(b.hex())  # '68656c6c6f'
+print(b.fromhex('68 65 6c 6c 6f'))  # b'hello'
+```
+
+## **Поддерживаемые операции**
+
+```python
+b1 = b'hello'
+b2 = b' world'
+
+# 5.1 Конкатенация и повторение
+print(b1 + b2)  # b'hello world'
+print(b1 * 3)  # b'hellohellohello'
+
+# 5.2 Индексация и срезы (только чтение)
+print(b1[0])  # 104 (int)
+print(b1[-1])  # 111 (int)
+print(b1[1:4])  # b'ell'
+print(b1[::-1])  # b'olleh'
+
+# 5.3 Нет присваивания (иммутабельно)
+try:
+    b1[0] = 65
+except TypeError as e:
+    print(f"Не поддерживается: {e}")
+
+# 5.4 Сравнения (лексикографические)
+print(b'abc' < b'def')  # True
+```
+
+## **Операции сравнения**
+
+```python
+b1 = b'abc'
+b2 = b'abc'
+b3 = b'abd'
+
+print(b1 == b2)  # True
+print(b1 < b3)  # True (c < d)
+print(b1 == b'abc')  # True
+
+# Разные типы
+print(b'1' == b'\x01')  # False ('1' = 49, '\x01' = 1)
+print(b'\x00' < b'\x01')  # True
+```
+
+## **Преобразование в другие типы и форматирование**
+
+```python
+b = b'hello'
+
+# 7.1 В другие типы
+print(list(b))  # [104, 101, 108, 108, 111]
+print(bytes(b))  # b'hello' (копия)
+print(memoryview(b))  # <memory at ...>
+print(b.decode())  # 'hello' (utf-8)
+
+# 7.2 В строку
+print(str(b))  # "b'hello'"
+print(repr(b))  # "b'hello'"
+
+# 7.3 Распаковка
+print(*b)  # 104 101 108 108 111
+print(sum(b))  # 523
+print(len(b))  # 5
+
+# 7.4 Bytes comprehension (нет, но list -> bytes)
+nums = [65, 66, 67]
+byte_arr = bytes([n for n in nums if n > 65])  # b'BC'
+```
+
+## **Важные особенности**
+
+```python
+# 1. Иммутабельность (нельзя изменять)
+b = b'hello'
+# b[0] = 65  # TypeError!
+
+# 2. Элементы — целые числа 0-255
+print(b[0])  # 104 (ord('h'))
+print(chr(b[0]))  # 'h'
+
+# 3. Хешируемость
+d = {b'key': 'value'}
+print(d[b'key'])  # 'value'
+
+# 4. Ссылочная семантика (безопасно)
+b1 = b'hello'
+b2 = b1
+print(b1 is b2)  # True (small string optimization)
+
+# 5. Ложные значения
+print(bool(b''))  # False
+print(bool(b'\x00'))  # True
+
+# 6. Эффективность памяти
+import sys
+
+print(sys.getsizeof(b'hello'))  # 49 (компактно)
+```
+
+## **Важные замечания:**
+
+1. **Иммутабельность**: Нет методов мутации, только новые `bytes`.
+2. **Диапазон**: Только значения 0-255, выход за пределы → `ValueError`.
+3. **Кодировки**: `encode('utf-8')` для str→bytes, `decode()` для bytes→str.
+4. **Сравнение**: Побайтовое (не семантическое), `b'10' != b'\x10'`.
+5. **Память**: Очень компактно, подходит для больших бинарных данных.
+6. **Литералы**: `b'...'` с escape-последовательностями `\xHH`, `\xHHH`.
+
+## **Ключевые выводы:**
+
+1. **`bytes` — неизменяемая упорядоченная коллекция байтов** (0-255).
+2. **Поддерживает индексацию, срезы, конкатенацию** и методы поиска/замены.
+3. **Хешируем**: Можно использовать как ключи словарей.
+4. **Пустые `b''` — ложное значение**, остальные — истинные.
+5. **Идеален для**: бинарных файлов, сетевых протоколов, кэширования.
+6. **`b'str'`, `str.encode()`, `bytes([0-255])`** — основные способы создания.
+
 [Содержание](/CONTENTS.md#содержание)
 
 ---
