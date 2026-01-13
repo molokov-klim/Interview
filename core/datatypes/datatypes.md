@@ -4585,18 +4585,22 @@ print(json.dumps(od))  # {"second": 2, "third": 3, "first": 1}
 ```python
 from typing import NamedTuple
 
+
 # 1.1 Классовый синтаксис (рекомендуемый)
 class Point(NamedTuple):
     x: int
     y: int
 
+
 p1 = Point(1, 2)  # Point(x=1, y=2)
 p2 = Point(x=3, y=4)  # По именам
+
 
 # 1.2 Наследование с методами
 class Circle(NamedTuple):
     center: Point
     radius: float = 1.0  # Значения по умолчанию
+
 
 c1 = Circle(Point(0, 0))  # Circle(center=Point(x=0, y=0), radius=1.0)
 
@@ -4613,6 +4617,7 @@ p3 = Point._make(data)  # Point(x=10, y=20)
 class Point(NamedTuple):
     x: int
     y: int
+
 
 p = Point(1, 2)
 
@@ -4663,7 +4668,7 @@ p2 = Point(3, 4)
 
 # 5.1 Доступ по индексу И по имени
 print(p1[0])  # 1
-print(p1.x)   # 1
+print(p1.x)  # 1
 
 # 5.2 Распаковка
 x, y = p1  # 1, 2
@@ -4702,20 +4707,21 @@ print(Point(1, 2) == Point(x=1, y=2))  # True
 p = Point(1, 2)
 
 # 7.1 В другие коллекции
-print(tuple(p))    # (1, 2)
-print(list(p))     # [1, 2]
-print(p._asdict()) # {'x': 1, 'y': 2}
+print(tuple(p))  # (1, 2)
+print(list(p))  # [1, 2]
+print(p._asdict())  # {'x': 1, 'y': 2}
 
 # 7.2 В строку
 print(str(p))  # 'Point(x=1, y=2)'
-print(repr(p)) # 'Point(x=1, y=2)'
+print(repr(p))  # 'Point(x=1, y=2)'
 
 # 7.3 Распаковка
-print(*p)      # 1 2
+print(*p)  # 1 2
 print(len(p))  # 2
 
 # 7.4 JSON сериализация
 import json
+
 print(json.dumps(p._asdict()))  # {"x": 1, "y": 2}
 ```
 
@@ -4730,10 +4736,12 @@ reveal_type(p.x)  # int (mypy видит тип!)
 s = {p: 'value'}
 print(s[Point(1, 2)])  # 'value'
 
+
 # 3. Значения по умолчанию
 class Config(NamedTuple):
     host: str = 'localhost'
     port: int = 8080
+
 
 cfg = Config()  # Config(host='localhost', port=8080)
 
@@ -4743,9 +4751,11 @@ p2 = p._replace(x=99)  # Point(x=99, y=2)
 # 5. Метаданные типов
 print(Point.__annotations__)  # {'x': <class 'int'>, 'y': <class 'int'>}
 
+
 # 6. Наследование
 class ColoredPoint(Point):
     color: str
+
 
 cp = ColoredPoint(1, 2, 'red')
 ```
@@ -4776,8 +4786,10 @@ cp = ColoredPoint(1, 2, 'red')
 
 ## **Тип array в Python (типизированный массив)**
 
-Тип `array` из модуля `array` представляет изменяемые упорядоченные последовательности **однотипных числовых данных**. Это встроенный тип данных,
-поддерживающий динамическое изменение размера, индексацию, срезы и компактное хранение чисел фиксированного типа (int, float). 
+Тип `array` из модуля `array` представляет изменяемые упорядоченные последовательности **однотипных числовых данных**.
+Это встроенный тип данных,
+поддерживающий динамическое изменение размера, индексацию, срезы и компактное хранение чисел фиксированного типа (int,
+float).
 `array` мутабелен, не хешируем и используется для экономии памяти при работе с большими числовыми массивами.
 
 ## **Создание array**
@@ -4787,15 +4799,15 @@ import array
 
 # 1.1 Литералы array с тип-кодом
 a1 = array.array('i', [1, 2, 3])  # signed int (4 байта)
-a2 = array.array('f', [1.5, 2.5]) # float (4 байта)
-a3 = array.array('b')              # Пустой signed char
+a2 = array.array('f', [1.5, 2.5])  # float (4 байта)
+a3 = array.array('b')  # Пустой signed char
 
 # 1.2 Из итерируемых объектов
-a4 = array.array('I', range(3))    # unsigned int: array('I', [0, 1, 2])
-a5 = array.array('B', b'abc')      # unsigned char: array('B', [97, 98, 99])
+a4 = array.array('I', range(3))  # unsigned int: array('I', [0, 1, 2])
+a5 = array.array('B', b'abc')  # unsigned char: array('B', [97, 98, 99])
 
 # 1.3 Инициализация размером
-a6 = array.array('h', [0] * 5)     # signed short × 5
+a6 = array.array('h', [0] * 5)  # signed short × 5
 
 # Тип-коды: 'bBhHiIlLqQfd' (char, short, int, long, float, double)
 ```
@@ -4810,8 +4822,8 @@ a = array.array('i', [1, 2, 3])
 # Публичные атрибуты
 print(a.typecode)  # 'i'
 print(a.itemsize)  # 4 — размер элемента в байтах
-print(len(a))      # 3 — количество элементов
-print(type(len(a))) # <class 'int'>
+print(len(a))  # 3 — количество элементов
+print(type(len(a)))  # <class 'int'>
 
 # Нет атрибутов типа real/numerator
 try:
@@ -4829,12 +4841,12 @@ except AttributeError as e:
 ```python
 a = array.array('i', [1, 2, 3])
 
-a.append(4)      # array('i', [1, 2, 3, 4])
-a.extend([5, 6]) # array('i', [1, 2, 3, 4, 5, 6])
+a.append(4)  # array('i', [1, 2, 3, 4])
+a.extend([5, 6])  # array('i', [1, 2, 3, 4, 5, 6])
 a.insert(1, 99)  # array('i', [1, 99, 2, 3, 4, 5, 6])
-a.pop()          # 6 → array('i', [1, 99, 2, 3, 4, 5])
-a.remove(99)     # array('i', [1, 2, 3, 4, 5])
-a.clear()        # array('i')
+a.pop()  # 6 → array('i', [1, 99, 2, 3, 4, 5])
+a.remove(99)  # array('i', [1, 2, 3, 4, 5])
+a.clear()  # array('i')
 ```
 
 ### **Методы поиска**
@@ -4842,9 +4854,9 @@ a.clear()        # array('i')
 ```python
 a = array.array('i', [1, 2, 3, 2])
 
-print(a.index(2))    # 1
-print(a.count(2))    # 2
-print(99 in a)       # False (O(n))
+print(a.index(2))  # 1
+print(a.count(2))  # 2
+print(99 in a)  # False (O(n))
 ```
 
 ## **Поддерживаемые операции**
@@ -4855,12 +4867,12 @@ a2 = array.array('i', [3, 4])
 
 # 5.1 Конкатенация и повторение
 print(a1 + a2)  # array('i', [1, 2, 3, 4])
-print(a1 * 2)   # array('i', [1, 2, 1, 2])
+print(a1 * 2)  # array('i', [1, 2, 1, 2])
 
 # 5.2 Индексация и срезы (int значения)
-print(a1[0])    # 1
-print(a1[-1])   # 2
-print(a1[1:])   # array('i', [2])
+print(a1[0])  # 1
+print(a1[-1])  # 2
+print(a1[1:])  # array('i', [2])
 
 # 5.3 Срезы с присваиванием (одинаковый тип!)
 a1[0:1] = array.array('i', [99])  # array('i', [99, 2])
@@ -4877,7 +4889,7 @@ a2 = array.array('i', [1, 2, 3])
 a3 = array.array('i', [1, 2, 4])
 
 print(a1 == a2)  # True
-print(a1 < a3)   # True
+print(a1 < a3)  # True
 print(a1 == [1, 2, 3])  # True (с list)
 ```
 
@@ -4887,20 +4899,20 @@ print(a1 == [1, 2, 3])  # True (с list)
 a = array.array('i', [1, 2, 3])
 
 # 7.1 В другие коллекции
-print(list(a))     # [1, 2, 3]
-print(bytes(a))    # b'\x00\x00\x00\x01\x00\x00\x00\x02\x00\x00\x00\x03'
-print(tuple(a))    # (1, 2, 3)
+print(list(a))  # [1, 2, 3]
+print(bytes(a))  # b'\x00\x00\x00\x01\x00\x00\x00\x02\x00\x00\x00\x03'
+print(tuple(a))  # (1, 2, 3)
 
 # 7.2 В строку
 print(str(a))  # 'array('i', [1, 2, 3])'
-print(repr(a)) # 'array('i', [1, 2, 3])'
+print(repr(a))  # 'array('i', [1, 2, 3])'
 
 # 7.3 Буферизация
-print(a.tobytes())     # b'\x00\x00\x00\x01...'
+print(a.tobytes())  # b'\x00\x00\x00\x01...'
 print(a.tofile(open('test.bin', 'wb')))  # Запись в файл
 
 # 7.4 Array comprehension
-squares = array.array('i', (x**2 for x in range(3)))  # array('i', [0, 1, 4])
+squares = array.array('i', (x ** 2 for x in range(3)))  # array('i', [0, 1, 4])
 ```
 
 ## **Важные особенности**
@@ -4908,10 +4920,11 @@ squares = array.array('i', (x**2 for x in range(3)))  # array('i', [0, 1, 4])
 ```python
 # 1. Экономия памяти
 import sys
+
 nums = [1, 2, 3] * 1000
-print(sys.getsizeof(nums))           # ~40KB (указатели)
+print(sys.getsizeof(nums))  # ~40KB (указатели)
 a = array.array('i', nums)
-print(sys.getsizeof(a))              # ~4KB (4 байта × 1000)
+print(sys.getsizeof(a))  # ~4KB (4 байта × 1000)
 
 # 2. Строгая типизация
 try:
@@ -4926,7 +4939,8 @@ a2[0] = 99  # a1 тоже изменился!
 
 # 4. Копирование
 import copy
-a_copy = a1[:]        # Поверхностная
+
+a_copy = a1[:]  # Поверхностная
 a_deep = copy.deepcopy(a1)
 
 # 5. Ложные значения
@@ -4962,7 +4976,10 @@ print(bool(array.array('i', [0])))  # True
 
 ## **Тип SimpleNamespace в Python**
 
-`SimpleNamespace` — это класс из модуля `types`, предоставляющий удобный способ создания объектов с атрибутами, доступными по точечной нотации. Он предназначен для замены словарей в случаях, когда нужен объектно-ориентированный стиль доступа к полям. `SimpleNamespace` мутабелен, поддерживает динамическое добавление/удаление атрибутов и имеет читаемое строковое представление.
+`SimpleNamespace` — это класс из модуля `types`, предоставляющий удобный способ создания объектов с атрибутами,
+доступными по точечной нотации. Он предназначен для замены словарей в случаях, когда нужен объектно-ориентированный
+стиль доступа к полям. `SimpleNamespace` мутабелен, поддерживает динамическое добавление/удаление атрибутов и имеет
+читаемое строковое представление.
 
 ## **Создание SimpleNamespace**
 
@@ -4989,7 +5006,8 @@ ns5 = SimpleNamespace(items=[1, 2, 3], optional=None)
 
 ## **Атрибуты типа SimpleNamespace**
 
-`SimpleNamespace` не имеет фиксированных публичных атрибутов — все атрибуты динамические. Доступны стандартные методы объекта.
+`SimpleNamespace` не имеет фиксированных публичных атрибутов — все атрибуты динамические. Доступны стандартные методы
+объекта.
 
 ```python
 ns = SimpleNamespace(a=1, b=2)
@@ -5009,7 +5027,8 @@ print(type(ns).__name__)  # 'SimpleNamespace'
 
 ## **Методы типа SimpleNamespace**
 
-У `SimpleNamespace` нет специальных методов мутации — используется прямое присваивание атрибутов. Поддерживает стандартные методы объекта.
+У `SimpleNamespace` нет специальных методов мутации — используется прямое присваивание атрибутов. Поддерживает
+стандартные методы объекта.
 
 ### **Добавление и удаление атрибутов**
 
@@ -5099,16 +5118,20 @@ print(vars(ns))  # {'a': 1, 'b': 2, 'c': [3, 4]}
 
 # 7.2 В JSON-подобный формат
 import json
+
 print(json.dumps(vars(ns)))  # {"a": 1, "b": 2, "c": [3, 4]}
 
 # 7.3 Копирование
 import copy
+
 ns_copy = copy.copy(ns)  # Поверхностная копия
 ns_deep = copy.deepcopy(ns)  # Глубокая копия
+
 
 # 7.4 Распаковка атрибутов
 def func(a, b):
     print(a, b)
+
 
 func(**vars(ns))  # 1 2
 ```
@@ -5169,7 +5192,9 @@ except TypeError:
 
 ## **Тип Path в Python (объектный путь)**
 
-`Path` — это класс из модуля `pathlib`, представляющий пути к файловой системе в объектно-ориентированном стиле. Это современная альтернатива `os.path`, поддерживающая кросс-платформенность (Windows/Unix), цепочки методов и богатый API для работы с файлами/директориями. `Path` неизменяем, хешируем и идеален для скриптов автоматизации.
+`Path` — это класс из модуля `pathlib`, представляющий пути к файловой системе в объектно-ориентированном стиле. Это
+современная альтернатива `os.path`, поддерживающая кросс-платформенность (Windows/Unix), цепочки методов и богатый API
+для работы с файлами/директориями. `Path` неизменяем, хешируем и идеален для скриптов автоматизации.
 
 ## **Создание объектов Path**
 
@@ -5184,11 +5209,12 @@ p4 = Path("dir", "subdir", "file.py")  # Многоуровневый
 
 # 1.2 Абсолютные пути
 p5 = Path.home()  # /home/user
-p6 = Path.cwd()   # /current/working/dir
+p6 = Path.cwd()  # /current/working/dir
 p7 = Path("/etc/passwd")
 
 # 1.3 Из строк и переменных
 import os
+
 p8 = Path(os.environ["HOME"]) / "projects"
 p9 = Path(*["usr", "bin", "python"])  # Распаковка
 
@@ -5204,16 +5230,16 @@ p10 = Path("nonexistent")  # Может не существовать
 p = Path("dir/file.txt")
 
 # Основные атрибуты пути
-print(p.name)        # 'file.txt' — имя файла
-print(p.stem)        # 'file' — имя без расширения
-print(p.suffix)      # '.txt' — расширение
-print(p.parent)      # 'dir' — родительская директория
-print(p.parts)       # ('dir', 'file.txt') — компоненты
+print(p.name)  # 'file.txt' — имя файла
+print(p.stem)  # 'file' — имя без расширения
+print(p.suffix)  # '.txt' — расширение
+print(p.parent)  # 'dir' — родительская директория
+print(p.parts)  # ('dir', 'file.txt') — компоненты
 
 # Метаданные (если существует)
-print(p.exists())    # False
-print(p.is_file())   # False
-print(p.is_dir())    # False
+print(p.exists())  # False
+print(p.is_file())  # False
+print(p.is_dir())  # False
 
 # Нет атрибутов типа real/numerator
 try:
@@ -5231,11 +5257,11 @@ except AttributeError as e:
 ```python
 p = Path("docs/project/README.md")
 
-print(p.parent)        # docs/project
-print(p.parents[1])    # docs
+print(p.parent)  # docs/project
+print(p.parents[1])  # docs
 print(p.with_name("main.md"))  # docs/project/main.md
-print(p.with_suffix(".txt"))   # docs/project/README.txt
-print(p.with_stem("INDEX"))    # docs/project/INDEX.md
+print(p.with_suffix(".txt"))  # docs/project/README.txt
+print(p.with_stem("INDEX"))  # docs/project/INDEX.md
 ```
 
 ### **Методы работы с файловой системой**
@@ -5245,12 +5271,12 @@ p = Path("test.txt")
 
 # Создание/проверка
 p.write_text("Hello")  # Создает файл
-p.read_text()          # 'Hello'
-p.unlink()             # Удаляет файл
+p.read_text()  # 'Hello'
+p.unlink()  # Удаляет файл
 
 dir_path = Path("temp_dir")
 dir_path.mkdir(exist_ok=True)  # Создает директорию
-dir_path.rmdir()               # Удаляет пустую директорию
+dir_path.rmdir()  # Удаляет пустую директорию
 ```
 
 ### **Методы поиска и итерации**
@@ -5258,10 +5284,10 @@ dir_path.rmdir()               # Удаляет пустую директори�
 ```python
 root = Path(".")
 
-print(root.exists())           # True
-print(root.is_dir())           # True
-print(list(root.glob("*.py"))) # Список .py файлов
-print(list(root.rglob("*.txt"))) # Рекурсивно *.txt
+print(root.exists())  # True
+print(root.is_dir())  # True
+print(list(root.glob("*.py")))  # Список .py файлов
+print(list(root.rglob("*.txt")))  # Рекурсивно *.txt
 
 # Итерация содержимого
 for child in root.iterdir():
@@ -5276,17 +5302,17 @@ p2 = Path("file.txt")
 p3 = Path("dir2/subdir")
 
 # 5.1 Оператор / для объединения путей
-p4 = p1 / p2          # dir1/file.txt
+p4 = p1 / p2  # dir1/file.txt
 print(p4)
 
 # 5.2 Сравнения путей
-print(p1 == p1)       # True
-print(p1 < p3)        # Лексикографическое
+print(p1 == p1)  # True
+print(p1 < p3)  # Лексикографическое
 
 # 5.3 Строковое представление
-print(str(p1))        # 'dir1'
+print(str(p1))  # 'dir1'
 print(p1.as_posix())  # 'dir1' (Unix-стиль)
-print(repr(p1))       # Path('dir1')
+print(repr(p1))  # Path('dir1')
 
 # 5.4 Неподдерживаемые: арифметика
 try:
@@ -5304,13 +5330,13 @@ p3 = Path("file2.txt")
 p4 = Path("dir/file.txt")
 
 # Нормализованное сравнение (case-sensitive)
-print(p1 == p2)       # True
-print(p1 == p3)       # False
-print(p1 < p3)        # True (лексикографически)
+print(p1 == p2)  # True
+print(p1 == p3)  # False
+print(p1 < p3)  # True (лексикографически)
 
 # Разные типы
 print(p1 == "file1.txt")  # False (разные типы)
-print(p1 == str(p1))      # False
+print(p1 == str(p1))  # False
 ```
 
 ## **Преобразование в другие типы и форматирование**
@@ -5319,21 +5345,22 @@ print(p1 == str(p1))      # False
 p = Path("docs/file.txt")
 
 # 7.1 В примитивы
-print(str(p))         # 'docs/file.txt'
-print(p.as_posix())   # 'docs/file.txt'
-print(bytes(p))       # b'docs/file.txt'
+print(str(p))  # 'docs/file.txt'
+print(p.as_posix())  # 'docs/file.txt'
+print(bytes(p))  # b'docs/file.txt'
 
 # 7.2 В другие коллекции
-print(p.parts)        # ('docs', 'file.txt')
-print(tuple(p.parts)) # ('docs', 'file.txt')
+print(p.parts)  # ('docs', 'file.txt')
+print(tuple(p.parts))  # ('docs', 'file.txt')
 print(list(p.glob("*")))  # [Path(...), ...]
 
 # 7.3 Абсолютный путь
-print(p.absolute())   # /full/absolute/path/docs/file.txt
-print(p.resolve())    # Разрешенный путь (симлинки)
+print(p.absolute())  # /full/absolute/path/docs/file.txt
+print(p.resolve())  # Разрешенный путь (симлинки)
 
 # 7.4 JSON сериализация
 import json
+
 print(json.dumps({"path": str(p)}))
 ```
 
@@ -5358,7 +5385,7 @@ print(p.resolve())  # Нормализованный путь
 
 # 4. Ложные значения
 print(bool(Path("nonexistent")))  # False
-print(bool(Path(".")))            # True
+print(bool(Path(".")))  # True
 
 # 5. Хешируемость (можно в set/dict)
 paths = {Path("a"), Path("b")}
@@ -5391,7 +5418,9 @@ print(len(paths))  # 2
 
 ## **Тип UUID в Python (универсальный идентификатор)**
 
-`UUID` — это класс из модуля `uuid`, представляющий универсальный уникальный идентификатор (Universally Unique Identifier). Это 128-битное значение в формате RFC 4122, используемое для создания уникальных идентификаторов без координации. `UUID` неизменяем, хешируем и поддерживает 5 версий генерации (v1-v5) для разных сценариев.
+`UUID` — это класс из модуля `uuid`, представляющий универсальный уникальный идентификатор (Universally Unique
+Identifier). Это 128-битное значение в формате RFC 4122, используемое для создания уникальных идентификаторов без
+координации. `UUID` неизменяем, хешируем и поддерживает 5 версий генерации (v1-v5) для разных сценариев.
 
 ## **Создание объектов UUID**
 
@@ -5427,14 +5456,14 @@ u6 = uuid.UUID('00000000-0000-0000-0000-000000000000')
 u = uuid.UUID('12345678-1234-5678-9abc-123456789abc')
 
 # Байт-компоненты (int)
-print(u.hex)         # '12345678123456789abcdef123456789abc'
-print(u.int)         # 32424403007676212263071501564589869012
-print(u.version)     # 1 (версия UUID)
-print(u.variant)     # 1 (вариант RFC 4122)
+print(u.hex)  # '12345678123456789abcdef123456789abc'
+print(u.int)  # 32424403007676212263071501564589869012
+print(u.version)  # 1 (версия UUID)
+print(u.variant)  # 1 (вариант RFC 4122)
 
 # Временные атрибуты (для v1)
-print(u.time_low)    # 305419896
-print(u.time_mid)    # 4660
+print(u.time_low)  # 305419896
+print(u.time_mid)  # 4660
 print(u.time_hi_version)  # 2232
 
 # Нет атрибутов типа real/numerator
@@ -5454,9 +5483,9 @@ except AttributeError as e:
 u = uuid.UUID('12345678-1234-5678-9abc-123456789abc')
 
 # Строковые представления
-print(u.urn)         # 'urn:uuid:12345678-1234-5678-9abc-123456789abc'
-print(u.bytes)       # b'\x12\x34\x56\x78\x12\x34\x56\x78\x9a\xbc\x12\x34\x56\x78\x9a\xbc'
-print(u.fields)      # (305419896, 4660, 2232, 1, 16)
+print(u.urn)  # 'urn:uuid:12345678-1234-5678-9abc-123456789abc'
+print(u.bytes)  # b'\x12\x34\x56\x78\x12\x34\x56\x78\x9a\xbc\x12\x34\x56\x78\x9a\xbc'
+print(u.fields)  # (305419896, 4660, 2232, 1, 16)
 
 # Проверка версии
 print(u.version == 1)  # True
@@ -5470,8 +5499,8 @@ print(isinstance(new_uuid, uuid.UUID))  # True
 
 ```python
 # Пространства имен
-print(uuid.NAMESPACE_DNS)    # 6ba7b810-9dad-11d1-80b4-00c04fd430c8
-print(uuid.NAMESPACE_URL)    # 6ba7b811-9dad-11d1-80b4-00c04fd430c8
+print(uuid.NAMESPACE_DNS)  # 6ba7b810-9dad-11d1-80b4-00c04fd430c8
+print(uuid.NAMESPACE_URL)  # 6ba7b811-9dad-11d1-80b4-00c04fd430c8
 
 # UUID версии 3 (MD5)
 u3 = uuid.uuid3(uuid.NAMESPACE_DNS, 'python.org')
@@ -5486,16 +5515,16 @@ u2 = uuid.UUID('12345678-1234-5678-9abc-123456789abc')
 u3 = uuid.UUID('87654321-4321-8765-cba9-abcdef012345')
 
 # 5.1 Сравнения
-print(u1 == u2)      # True
-print(u1 < u3)       # True (лексикографическое)
+print(u1 == u2)  # True
+print(u1 < u3)  # True (лексикографическое)
 
 # 5.2 Хеширование
-print(hash(u1))      # int хеш
-s = {u1, u2}         # Работает как ключ
+print(hash(u1))  # int хеш
+s = {u1, u2}  # Работает как ключ
 
 # 5.3 Строковое представление
-print(str(u1))       # '12345678-1234-5678-9abc-123456789abc'
-print(repr(u1))      # UUID('12345678-1234-5678-9abc-123456789abc')
+print(str(u1))  # '12345678-1234-5678-9abc-123456789abc'
+print(repr(u1))  # UUID('12345678-1234-5678-9abc-123456789abc')
 
 # 5.4 Неподдерживаемые: арифметика
 try:
@@ -5512,13 +5541,13 @@ u2 = uuid.UUID('00000000-0000-0000-0000-000000000002')
 u3 = uuid.UUID('00000000-0000-0000-0000-000000000000')
 
 # Лексикографическое сравнение по hex
-print(u1 == u1)      # True
-print(u1 > u3)       # True
-print(u1 < u2)       # True
+print(u1 == u1)  # True
+print(u1 > u3)  # True
+print(u1 < u2)  # True
 
 # Разные типы
 print(u1 == str(u1))  # False
-print(u1 == u1.bytes) # False
+print(u1 == u1.bytes)  # False
 
 # Случайные UUID уникальны
 print(uuid.uuid4() == uuid.uuid4())  # Почти всегда False
@@ -5530,17 +5559,18 @@ print(uuid.uuid4() == uuid.uuid4())  # Почти всегда False
 u = uuid.UUID('12345678-1234-5678-9abc-123456789abc')
 
 # 7.1 В примитивы
-print(str(u))        # '12345678-1234-5678-9abc-123456789abc'
-print(u.hex)         # '12345678123456789abcdef123456789abc'
-print(int(u))        # 32424403007676212263071501564589869012
-print(u.bytes)       # b'\x12\x34\x56\x78...'
+print(str(u))  # '12345678-1234-5678-9abc-123456789abc'
+print(u.hex)  # '12345678123456789abcdef123456789abc'
+print(int(u))  # 32424403007676212263071501564589869012
+print(u.bytes)  # b'\x12\x34\x56\x78...'
 
 # 7.2 В JSON
 import json
+
 print(json.dumps(str(u)))  # "12345678-1234-5678-9abc-123456789abc"
 
 # 7.3 Бинарные форматы
-print(u.hex.encode())      # bytes из hex
+print(u.hex.encode())  # bytes из hex
 print(uuid.UUID(bytes=u.bytes))  # Из bytes
 
 # 7.4 Сериализация
@@ -5558,9 +5588,9 @@ u = uuid.uuid4()
 # u.bytes = b'...'  # AttributeError!
 
 # 2. Версии UUID
-print(uuid.uuid1().version)   # 1 (время+MAC)
+print(uuid.uuid1().version)  # 1 (время+MAC)
 print(uuid.uuid3(uuid.NAMESPACE_DNS, 'test').version)  # 3 (MD5)
-print(uuid.uuid4().version)   # 4 (случайный)
+print(uuid.uuid4().version)  # 4 (случайный)
 print(uuid.uuid5(uuid.NAMESPACE_DNS, 'test').version)  # 5 (SHA1)
 
 # 3. Практическая уникальность
@@ -5601,7 +5631,9 @@ print(len(uuid_set))  # 3
 
 ## **Тип datetime в Python (дата и время)**
 
-`datetime` — это класс из модуля `datetime`, представляющий дату и время как единый объект. Поддерживает точность до микросекунд, часовые пояса, арифметику дат и богатый API для форматирования/парсинга. `datetime` неизменяем, хешируем и является основным типом для работы с временными метками в Python.
+`datetime` — это класс из модуля `datetime`, представляющий дату и время как единый объект. Поддерживает точность до
+микросекунд, часовые пояса, арифметику дат и богатый API для форматирования/парсинга. `datetime` неизменяем, хешируем и
+является основным типом для работы с временными метками в Python.
 
 ## **Создание объектов datetime**
 
@@ -5636,19 +5668,19 @@ dt8 = datetime.max  # 9999-12-31 23:59:59.999999
 dt = datetime(2023, 12, 25, 15, 30, 45, 123456)
 
 # Компоненты даты
-print(dt.year)     # 2023
-print(dt.month)    # 12
-print(dt.day)      # 25
+print(dt.year)  # 2023
+print(dt.month)  # 12
+print(dt.day)  # 25
 
 # Компоненты времени
-print(dt.hour)     # 15
-print(dt.minute)   # 30
-print(dt.second)   # 45
+print(dt.hour)  # 15
+print(dt.minute)  # 30
+print(dt.second)  # 45
 print(dt.microsecond)  # 123456
 
 # Дата и время отдельно
-print(dt.date())   # 2023-12-25
-print(dt.time())   # 15:30:45.123456
+print(dt.date())  # 2023-12-25
+print(dt.time())  # 15:30:45.123456
 
 # Нет атрибутов типа real/numerator
 try:
@@ -5670,7 +5702,7 @@ dt = datetime(2023, 12, 25, 15, 30)
 
 # Добавление/вычитание времени
 dt2 = dt + timedelta(days=1, hours=2)  # 2023-12-26 17:30:00
-dt3 = dt - timedelta(hours=1)          # 2023-12-25 14:30:00
+dt3 = dt - timedelta(hours=1)  # 2023-12-25 14:30:00
 
 # Разница между датами
 delta = dt2 - dt
@@ -5685,7 +5717,7 @@ dt = datetime(2023, 12, 25, 15, 30, 45)
 
 # В строку
 print(dt.strftime('%Y-%m-%d %H:%M:%S'))  # 2023-12-25 15:30:45
-print(dt.isoformat())                     # 2023-12-25T15:30:45
+print(dt.isoformat())  # 2023-12-25T15:30:45
 
 # Из строки (обратная операция)
 dt_parsed = datetime.strptime('2023-12-25 15:30:45', '%Y-%m-%d %H:%M:%S')
@@ -5705,11 +5737,11 @@ print(dt1 + delta)  # 2023-12-25 16:00:00
 print(dt2 - delta)  # 2023-12-25 15:00:00
 
 # 5.2 Сравнения
-print(dt1 < dt2)    # True
+print(dt1 < dt2)  # True
 
 # 5.3 Строковое представление
-print(str(dt1))     # '2023-12-25 15:00:00'
-print(repr(dt1))    # 'datetime.datetime(2023, 12, 25, 15, 0)'
+print(str(dt1))  # '2023-12-25 15:00:00'
+print(repr(dt1))  # 'datetime.datetime(2023, 12, 25, 15, 0)'
 
 # 5.4 Неподдерживаемые: //, %, *
 try:
@@ -5727,7 +5759,7 @@ dt3 = datetime(2023, 12, 25, 16, 0)
 
 # Полное сравнение (дата + время)
 print(dt1 == dt2)  # True
-print(dt1 < dt3)   # True
+print(dt1 < dt3)  # True
 
 # Разные типы
 print(dt1 == dt1.date())  # False
@@ -5742,8 +5774,8 @@ dt = datetime(2023, 12, 25, 15, 30, 45, 123456)
 # 7.1 В примитивы
 print(dt.timestamp())  # 1703524245.123456 (Unix timestamp)
 print(int(dt.timestamp()))  # 1703524245
-print(dt.date())       # date(2023, 12, 25)
-print(dt.time())       # time(15, 30, 45, 123456)
+print(dt.date())  # date(2023, 12, 25)
+print(dt.time())  # time(15, 30, 45, 123456)
 
 # 7.2 Строковые форматы
 print(dt.isoformat())  # '2023-12-25T15:30:45.123456'
@@ -5752,6 +5784,7 @@ print(dt.strftime('%d.%m.%Y'))  # '25.12.2023'
 # 7.3 JSON сериализация
 import json
 from datetime import date
+
 print(json.dumps({'dt': dt.isoformat()}))  # {"dt": "2023-12-25T15:30:45.123456"}
 ```
 
@@ -5809,7 +5842,9 @@ print(datetime.max.year)  # 9999
 
 ## **Тип Enum в Python (перечисление)**
 
-`Enum` — это класс из модуля `enum`, предоставляющий типобезопасные перечисления с именованными константами. Гарантирует уникальность членов, поддерживает хеширование, сравнение и итерацию. `Enum` неизменяем, идеален для замены констант `int`/строк и создания самодокументируемого кода.
+`Enum` — это класс из модуля `enum`, предоставляющий типобезопасные перечисления с именованными константами. Гарантирует
+уникальность членов, поддерживает хеширование, сравнение и итерацию. `Enum` неизменяем, идеален для замены констант
+`int`/строк и создания самодокументируемого кода.
 
 ## **Создание объектов Enum**
 
@@ -5817,27 +5852,32 @@ print(datetime.max.year)  # 9999
 from enum import Enum, auto
 import enum
 
+
 # 1.1 Классический Enum с явными значениями
 class Color(Enum):
     RED = 1
     GREEN = 2
     BLUE = 3
 
+
 c1 = Color.RED
 c2 = Color(2)  # По значению
 c3 = Color['RED']  # По имени
+
 
 # 1.2 Автоматические значения (auto())
 class Status(enum.Enum):
     PENDING = auto()  # 1
     RUNNING = auto()  # 2
-    DONE = auto()     # 3
+    DONE = auto()  # 3
+
 
 # 1.3 Enum с строками
 class HttpMethod(str, Enum):
     GET = "GET"
     POST = "POST"
     PUT = "PUT"
+
 
 # 1.4 Пустой/одиночный
 class Single(Enum):
@@ -5851,20 +5891,22 @@ Enum-члены имеют атрибуты `name` (имя) и `value` (знач
 ```python
 from enum import Enum
 
+
 class Color(Enum):
     RED = 1
     GREEN = 2
 
+
 c = Color.RED
 
 # Основные атрибуты
-print(c.name)    # 'RED'
-print(c.value)   # 1
-print(type(c))   # <enum 'Color'>
+print(c.name)  # 'RED'
+print(c.value)  # 1
+print(type(c))  # <enum 'Color'>
 
 # Классовые атрибуты
-print(Color.RED)           # <Color.RED: 1>
-print(Color.__members__)   # dict всех членов
+print(Color.RED)  # <Color.RED: 1>
+print(Color.__members__)  # dict всех членов
 
 # Нет атрибутов типа real/numerator
 try:
@@ -5885,9 +5927,10 @@ class Color(Enum):
     GREEN = 2
     BLUE = 3
 
+
 # Поиск по имени/значению
-print(Color['RED'])      # Color.RED
-print(Color(2))          # Color.GREEN
+print(Color['RED'])  # Color.RED
+print(Color(2))  # Color.GREEN
 
 # Проверки
 print(Color.RED in Color)  # True
@@ -5905,8 +5948,9 @@ class Status(Enum):
     PENDING = 1
     DONE = 2
 
+
 print(Status._member_names_)  # ['PENDING', 'DONE']
-print(Status._member_map_)    # OrderedDict всех членов
+print(Status._member_map_)  # OrderedDict всех членов
 print(Status._value2member_map_)  # {1: Status.PENDING, 2: Status.DONE}
 ```
 
@@ -5918,22 +5962,23 @@ class Color(Enum):
     GREEN = 2
     BLUE = 3
 
+
 c1 = Color.RED
 c2 = Color.GREEN
 c3 = Color.RED
 
 # 5.1 Сравнения (по идентичности)
-print(c1 == c3)      # True
-print(c1 is c3)      # True
-print(c1 < c2)       # True (по порядку объявления)
+print(c1 == c3)  # True
+print(c1 is c3)  # True
+print(c1 < c2)  # True (по порядку объявления)
 
 # 5.2 Хеширование
-colors = {c1, c2}    # Работает
-print(hash(c1))      # int
+colors = {c1, c2}  # Работает
+print(hash(c1))  # int
 
 # 5.3 Строковое представление
-print(str(c1))       # 'Color.RED'
-print(repr(c1))      # '<Color.RED: 1>'
+print(str(c1))  # 'Color.RED'
+print(repr(c1))  # '<Color.RED: 1>'
 
 # 5.4 Неподдерживаемые: арифметика
 try:
@@ -5950,21 +5995,22 @@ class Priority(Enum):
     MEDIUM = 2
     HIGH = 3
 
+
 low = Priority.LOW
 med = Priority.MEDIUM
 high = Priority.HIGH
 
 # Сравнение по идентичности/порядку
-print(low == low)        # True
-print(low != med)        # True
+print(low == low)  # True
+print(low != med)  # True
 print(low < med < high)  # True
 
 # Разные типы
-print(low == 1)          # False
-print(low == 'LOW')      # False
+print(low == 1)  # False
+print(low == 'LOW')  # False
 
 # Итерационный порядок
-print(list(Priority))    # [LOW, MEDIUM, HIGH]
+print(list(Priority))  # [LOW, MEDIUM, HIGH]
 ```
 
 ## **Преобразование в другие типы и форматирование**
@@ -5974,19 +6020,21 @@ class Color(Enum):
     RED = 1
     GREEN = 2
 
+
 c = Color.RED
 
 # 7.1 В примитивы
-print(c.name)      # 'RED'
-print(c.value)     # 1
+print(c.name)  # 'RED'
+print(c.value)  # 1
 print(int(c.value))  # 1
 
 # 7.2 JSON сериализация
 import json
+
 print(json.dumps(c.name))  # "RED"
 
 # 7.3 Итерация и списки
-print(list(Color))         # [<Color.RED: 1>, <Color.GREEN: 2>]
+print(list(Color))  # [<Color.RED: 1>, <Color.GREEN: 2>]
 names = [e.name for e in Color]  # ['RED', 'GREEN']
 
 # 7.4 Пользовательское форматирование
@@ -5999,9 +6047,12 @@ print(f"{c!s}")  # 'Color.RED'
 ```python
 from enum import Enum, auto
 
+
 # 1. Неизменяемость членов
 class Color(Enum):
     RED = 1
+
+
 # Color.RED = 2  # AttributeError!
 
 # 2. Уникальность значений (по умолчанию)
@@ -6012,10 +6063,12 @@ try:
 except ValueError:
     pass
 
+
 # 3. Автоматические значения
 class AutoEnum(Enum):
     A = auto()  # 1
     B = auto()  # 2
+
 
 # 4. Ложные значения
 print(bool(Color.RED))  # True
@@ -6049,11 +6102,722 @@ print(Color.RED in enum_set)  # True
 
 ## dataclass
 
+`dataclass` — это декоратор из модуля `dataclasses`, предоставляющий **автоматическую генерацию специальных методов**
+для классов, хранящих данные. Заменяет ручное создание `__init__`, `__repr__`, `__eq__`, экономя время и уменьшая
+вероятность ошибок. Поддерживает параметры инициализации, неизменяемость, постобработку и вложенность. Идеален для DTO,
+конфигураций и доменных моделей.
+
+## **Создание dataclass**
+
+```python
+from dataclasses import dataclass, field, asdict, astuple, replace
+from typing import List, Any, ClassVar
+
+
+# 1.1 Базовый dataclass
+@dataclass
+class Point:
+    x: int
+    y: int
+    z: int = 0  # Значение по умолчанию
+
+
+p1 = Point(1, 2)  # Point(x=1, y=2, z=0)
+p2 = Point(3, 4, 5)  # Point(x=3, y=4, z=5)
+
+
+# 1.2 Параметры декоратора
+@dataclass(init=True, repr=True, eq=True, order=True, unsafe_hash=False, frozen=False)
+class Config:
+    host: str = "localhost"
+    port: int = 8080
+
+
+# 1.3 Неизменяемый (frozen) dataclass
+@dataclass(frozen=True)
+class ImmutablePoint:
+    x: int
+    y: int
+
+
+# 1.4 Сложные поля и default_factory
+@dataclass
+class Inventory:
+    items: List[str] = field(default_factory=list)
+    metadata: dict = field(default_factory=dict)
+    id: int = field(init=False)  # Не включать в __init__
+
+
+# 1.5 Классовые переменные и метаданные
+@dataclass
+class Product:
+    name: str
+    price: float
+    category: ClassVar[str] = "general"  # Не поле экземпляра
+    weight: float = field(metadata={"unit": "kg"})  # Метаданные для поля
+```
+
+## **Атрибуты типа dataclass**
+
+`dataclass` не имеет специальных атрибутов, но генерирует поля как атрибуты экземпляра.
+
+```python
+@dataclass
+class Person:
+    name: str
+    age: int = 30
+
+
+p = Person("Alice")
+print(p.name)  # 'Alice'
+print(p.age)  # 30
+print(hasattr(p, "__dataclass_fields__"))  # True - метаданные класса
+
+# Нет атрибутов типа real/numerator
+try:
+    print(p.real)
+except AttributeError as e:
+    print(f"Ошибка: {e}")  # 'Person' object has no attribute 'real'
+```
+
+## **Методы типа dataclass**
+
+`dataclass` автоматически генерирует методы, но можно переопределять или добавлять свои.
+
+### **Автоматически генерируемые методы**
+
+```python
+@dataclass
+class Point:
+    x: int
+    y: int
+
+
+p = Point(1, 2)
+
+# __init__ - автоматически сгенерирован
+print(p)  # Point(x=1, y=2)
+
+# __repr__ - читаемое представление
+print(repr(p))  # 'Point(x=1, y=2)'
+
+# __eq__ - сравнение по полям
+p2 = Point(1, 2)
+print(p == p2)  # True
+
+
+# __lt__, __le__, __gt__, __ge__ (если order=True)
+@dataclass(order=True)
+class OrderedPoint:
+    x: int
+    y: int
+
+
+p1 = OrderedPoint(1, 2)
+p2 = OrderedPoint(1, 3)
+print(p1 < p2)  # True (сравнение по x, затем по y)
+```
+
+### **Пользовательские методы и post_init**
+
+```python
+from dataclasses import dataclass, field
+
+
+@dataclass
+class Circle:
+    radius: float
+    area: float = field(init=False)  # Вычисляемое поле
+
+    def __post_init__(self):
+        # Вызывается после __init__
+        self.area = 3.14159 * self.radius ** 2
+
+
+c = Circle(2.0)
+print(c.area)  # 12.56636
+
+
+# Переопределение методов
+@dataclass
+class Vector:
+    x: float
+    y: float
+
+    def __add__(self, other):
+        return Vector(self.x + other.x, self.y + other.y)
+
+    def magnitude(self):
+        return (self.x ** 2 + self.y ** 2) ** 0.5
+
+
+v1 = Vector(1, 2)
+v2 = Vector(3, 4)
+print(v1 + v2)  # Vector(x=4, y=6)
+print(v1.magnitude())  # 2.236...
+```
+
+## **Поддерживаемые операции**
+
+```python
+from dataclasses import dataclass, asdict, astuple, replace
+
+
+@dataclass
+class Point:
+    x: int
+    y: int
+
+
+p1 = Point(1, 2)
+p2 = Point(3, 4)
+
+# 5.1 Доступ к полям
+print(p1.x)  # 1
+print(p1.y)  # 2
+
+# 5.2 Сравнения (если eq=True)
+print(p1 == Point(1, 2))  # True
+print(p1 != p2)  # True
+
+# 5.3 Преобразование в dict/tuple
+print(asdict(p1))  # {'x': 1, 'y': 2}
+print(astuple(p1))  # (1, 2)
+
+# 5.4 Замена полей (для frozen=False)
+p3 = replace(p1, x=10)  # Point(x=10, y=2)
+print(p1)  # Point(x=1, y=2) - оригинал не изменился
+
+# 5.5 Неподдерживаемые: арифметика
+try:
+    p1 + p2
+except TypeError as e:
+    print(f"Не поддерживается: {e}")
+```
+
+## **Операции сравнения**
+
+```python
+from dataclasses import dataclass
+
+
+@dataclass(eq=True)
+class Person:
+    name: str
+    age: int
+
+
+p1 = Person("Alice", 30)
+p2 = Person("Alice", 30)
+p3 = Person("Bob", 25)
+
+print(p1 == p2)  # True (сравнение по всем полям)
+print(p1 == p3)  # False
+
+
+# Сравнение с order=True
+@dataclass(order=True)
+class Product:
+    price: float
+    name: str
+
+
+prod1 = Product(10.0, "Apple")
+prod2 = Product(20.0, "Banana")
+prod3 = Product(10.0, "Orange")
+
+print(prod1 < prod2)  # True (по price)
+print(prod1 < prod3)  # True (по price, затем по name)
+```
+
+## **Преобразование в другие типы и форматирование**
+
+```python
+from dataclasses import dataclass, asdict, astuple
+import json
+
+
+@dataclass
+class User:
+    id: int
+    name: str
+    email: str = None
+
+
+u = User(1, "Alice", "alice@example.com")
+
+# 7.1 В dict/tuple
+print(asdict(u))  # {'id': 1, 'name': 'Alice', 'email': 'alice@example.com'}
+print(astuple(u))  # (1, 'Alice', 'alice@example.com')
+
+# 7.2 В JSON
+print(json.dumps(asdict(u)))  # {"id": 1, "name": "Alice", "email": "alice@example.com"}
+
+# 7.3 Форматирование через f-строки
+print(f"User: {u.name}, ID: {u.id}")  # User: Alice, ID: 1
+
+
+# 7.4 Кастомное str представление
+@dataclass
+class Student:
+    name: str
+    grade: str
+
+    def __str__(self):
+        return f"{self.name} ({self.grade})"
+
+
+s = Student("John", "A")
+print(str(s))  # John (A)
+```
+
+## **Важные особенности**
+
+```python
+from dataclasses import dataclass, field
+import copy
+
+
+# 1. Поля без значений по умолчанию должны идти первыми
+@dataclass
+class BadClass:
+    default: int = 0
+    required: str  # SyntaxError! Поля без default должны идти первыми
+
+
+# 2. Наследование
+@dataclass
+class Base:
+    x: int
+    y: int = 0
+
+
+@dataclass
+class Derived(Base):
+    z: int
+    y: int = 1  # Переопределение значения по умолчанию
+
+
+d = Derived(1, 2)  # x=1, y=2, z=?
+
+
+# Ошибка! Порядок полей: x, z, y - не соответствует параметрам __init__
+
+# 3. Глубокое копирование
+@dataclass
+class Container:
+    items: list = field(default_factory=list)
+
+
+c1 = Container([1, 2, 3])
+c2 = copy.deepcopy(c1)
+c2.items.append(4)
+print(c1.items)  # [1, 2, 3] - оригинал не изменился
+
+
+# 4. Frozen dataclass (неизменяемый)
+@dataclass(frozen=True)
+class FrozenPoint:
+    x: int
+    y: int
+
+
+fp = FrozenPoint(1, 2)
+try:
+    fp.x = 10  # FrozenInstanceError!
+except dataclasses.FrozenInstanceError as e:
+    print(f"Ошибка: {e}")
+
+
+# 5. Хешируемость (если unsafe_hash=True или frozen=True)
+@dataclass(frozen=True)
+class HashablePoint:
+    x: int
+    y: int
+
+
+hp = HashablePoint(1, 2)
+print(hash(hp))  # Работает!
+s = {hp}
+print(hp in s)  # True
+```
+
+## **Важные замечания:**
+
+1. **Порядок полей**: Поля без значений по умолчанию должны идти **перед** полями со значениями по умолчанию.
+2. **Наследование**: При наследовании порядок полей определяется MRO, что может привести к неожиданному порядку в
+   `__init__`.
+3. **default_factory**: Всегда используйте `default_factory` для изменяемых значений по умолчанию (списки, словари).
+4. **Производительность**: `dataclass` компилируется в обычный класс, поэтому накладные расходы минимальны.
+5. **Frozen vs Hashable**: `frozen=True` автоматически делает класс хешируемым, `unsafe_hash=True` позволяет хешировать
+   изменяемые классы.
+6. **Метаданные полей**: `field(metadata=...)` позволяет хранить дополнительную информацию о полях для рефлексии.
+
+## **Ключевые выводы:**
+
+1. **`dataclass` — автоматическая генерация методов** для классов-контейнеров данных.
+2. **`@dataclass`** заменяет ручное написание `__init__`, `__repr__`, `__eq__`.
+3. **`field()`** для сложных настроек полей (изменяемые default, исключение из init).
+4. **`frozen=True`** создает неизменяемые классы с поддержкой хеширования.
+5. **`asdict()`, `astuple()`, `replace()`** — утилиты для преобразования и копирования.
+6. **`__post_init__()`** для постобработки после инициализации.
+7. **Идеален для**: DTO, конфигураций, доменных моделей, иммутабельных структур данных.
+
 [Содержание](/CONTENTS.md#содержание)
 
 ---
 
 ## re.Pattern & re.Match
+
+`re.Pattern` и `re.Match` — это типы из модуля `re`, представляющие **скомпилированные регулярные выражения** и 
+**результаты их поиска** соответственно. `Pattern` предоставляет интерфейс для поиска по строкам, а `Match` содержит
+информацию о найденных совпадениях, включая группы, позиции и именованные захваты. Оба типа неизменяемы, оптимизированы
+для повторного использования и поддерживают мощные операции с текстом.
+
+## **Создание Pattern и Match**
+
+```python
+import re
+from typing import Pattern, Match
+
+# 1.1 Скомпилированный Pattern
+pattern = re.compile(r'\d+')  # re.Pattern объект
+print(type(pattern))  # <class 're.Pattern'>
+
+# 1.2 Match через search()
+match = pattern.search("abc123def")  # re.Match объект
+print(type(match))  # <class 're.Match'>
+
+# 1.3 Прямое создание без компиляции
+match2 = re.search(r'\d+', "abc123def")  # Автоматически компилирует
+
+# 1.4 С флагами
+pattern_with_flags = re.compile(r'python', re.IGNORECASE | re.MULTILINE)
+
+# 1.5 Именованные группы
+pattern_named = re.compile(r'(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})')
+match_named = pattern_named.search("2023-12-25")
+```
+
+## **Атрибуты типа re.Pattern**
+
+`Pattern` имеет атрибуты для доступа к исходному шаблону и метаданным.
+
+```python
+pattern = re.compile(r'\w+@\w+\.\w+', re.IGNORECASE)
+
+# Основные атрибуты
+print(pattern.pattern)  # '\\w+@\\w+\\.\\w+' (исходный шаблон)
+print(pattern.flags)  # 2 (re.IGNORECASE = 2)
+print(pattern.groups)  # 0 (количество групп без имен)
+print(pattern.groupindex)  # {} (именованные группы)
+
+# Pattern с именованными группами
+pattern_named = re.compile(r'(?P<year>\d{4})-(?P<month>\d{2})')
+print(pattern_named.groups)  # 2
+print(pattern_named.groupindex)  # {'year': 1, 'month': 2}
+
+# Нет атрибутов типа real/numerator
+try:
+    print(pattern.real)
+except AttributeError as e:
+    print(f"Ошибка: {e}")  # 're.Pattern' object has no attribute 'real'
+```
+
+## **Методы типа re.Pattern**
+
+`Pattern` предоставляет методы для поиска и модификации строк.
+
+### **Методы поиска**
+
+```python
+pattern = re.compile(r'\d+')
+
+# search() - первое совпадение в любой позиции
+text = "abc123def456"
+match1 = pattern.search(text)
+print(match1)  # <re.Match object; span=(3, 6), match='123'>
+
+# match() - совпадение только с начала строки
+match2 = pattern.match(text)  # None (нет цифр в начале)
+match3 = pattern.match("123abc")  # <re.Match object; span=(0, 3), match='123'>
+
+# fullmatch() - полное совпадение всей строки
+print(pattern.fullmatch("123"))  # <re.Match object; span=(0, 3), match='123'>
+print(pattern.fullmatch("123abc"))  # None
+```
+
+### **Методы поиска всех совпадений**
+
+```python
+pattern = re.compile(r'\d+')
+text = "123 abc 456 def 789"
+
+# findall() - список всех совпадений
+print(pattern.findall(text))  # ['123', '456', '789']
+
+# findall() с группами
+pattern_groups = re.compile(r'(\d+)([a-z]+)')
+print(pattern_groups.findall(text))  # []
+
+# finditer() - итератор по Match объектам
+for match in pattern.finditer(text):
+    print(f"Найдено: {match.group()} на позициях {match.start()}-{match.end()}")
+# Найдено: 123 на позициях 0-3
+# Найдено: 456 на позициях 8-11
+# Найдено: 789 на позициях 16-19
+```
+
+### **Методы замены и разделения**
+
+```python
+pattern = re.compile(r'\s+')  # Пробельные символы
+
+# split() - разделение строки
+text = "a  b   c    d"
+print(pattern.split(text))  # ['a', 'b', 'c', 'd']
+
+# sub() - замена совпадений
+email_pattern = re.compile(r'\b[\w.]+@[\w]+\.[a-z]{2,4}\b')
+text = "Contact john@example.com and jane@domain.com"
+print(email_pattern.sub("[EMAIL]", text))
+
+
+# Contact [EMAIL] and [EMAIL]
+
+# sub() с функцией замены
+def replace_email(match):
+    email = match.group()
+    user, domain = email.split('@')
+    return f"[{user[:2]}***@{domain}]"
+
+
+print(email_pattern.sub(replace_email, text))
+# Contact [jo***@example.com] and [ja***@domain.com]
+
+# subn() - замена с подсчетом
+new_text, count = email_pattern.subn("[EMAIL]", text)
+print(f"Заменено {count} email адресов")  # Заменено 2 email адресов
+```
+
+## **Атрибуты и методы типа re.Match**
+
+`Match` содержит информацию о найденном совпадении.
+
+### **Основные атрибуты**
+
+```python
+pattern = re.compile(r'(\d{4})-(\d{2})-(\d{2})')
+match = pattern.search("Date: 2023-12-25")
+
+# Основная информация
+print(match.string)  # 'Date: 2023-12-25' (исходная строка)
+print(match.re)  # re.compile('(\\d{4})-(\\d{2})-(\\d{2})') (Pattern объект)
+print(match.pos)  # 0 (начальная позиция поиска)
+print(match.endpos)  # 19 (конечная позиция поиска)
+print(match.lastindex)  # 3 (индекс последней захваченной группы)
+print(match.lastgroup)  # None (имя последней группы, если есть)
+
+# С позиционными группами
+print(match.group())  # '2023-12-25' (все совпадение)
+print(match.group(0))  # '2023-12-25' (тоже все совпадение)
+print(match.group(1))  # '2023' (первая группа)
+print(match.group(2))  # '12' (вторая группа)
+print(match.group(3))  # '25' (третья группа)
+
+# С именованными группами
+pattern_named = re.compile(r'(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})')
+match_named = pattern_named.search("Date: 2023-12-25")
+print(match_named.group('year'))  # '2023'
+print(match_named.group('month'))  # '12'
+print(match_named.group('day'))  # '25'
+```
+
+### **Позиции совпадений**
+
+```python
+pattern = re.compile(r'(\d{4})-(\d{2})')
+match = pattern.search("Date: 2023-12-25")
+
+# Позиции групп
+print(match.start())  # 6 (начало всего совпадения)
+print(match.end())  # 13 (конец всего совпадения)
+print(match.span())  # (6, 13) (кортеж start, end)
+
+# Позиции отдельных групп
+print(match.start(1))  # 6 (начало первой группы)
+print(match.end(1))  # 10 (конец первой группы)
+print(match.span(1))  # (6, 10)
+
+print(match.start(2))  # 11 (начало второй группы)
+print(match.end(2))  # 13 (конец второй группы)
+print(match.span(2))  # (11, 13)
+
+# Именованные группы
+print(match_named.start('year'))  # 6
+print(match_named.span('month'))  # (11, 13)
+```
+
+### **Группы и словари**
+
+```python
+pattern = re.compile(r'(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})')
+match = pattern.search("2023-12-25")
+
+# groups() - кортеж всех групп
+print(match.groups())  # ('2023', '12', '25')
+
+# groupdict() - словарь именованных групп
+print(match.groupdict())  # {'year': '2023', 'month': '12', 'day': '25'}
+
+# expand() - форматирование с заменой групп
+print(match.expand(r"Year: \1, Month: \2"))  # Year: 2023, Month: 12
+print(match.expand(r"Month-Day: \g<month>-\g<day>"))  # Month-Day: 12-25
+```
+
+## **Поддерживаемые операции**
+
+```python
+pattern = re.compile(r'\d+')
+match = pattern.search("abc123def")
+
+# 5.1 Проверка наличия совпадения
+if match:
+    print("Совпадение найдено")
+else:
+    print("Совпадений нет")
+
+# 5.2 Доступ к совпадению
+print(match[0])  # '123' (аналог group(0))
+print(match[1])  # IndexError если нет групп
+
+# 5.3 Итерация по группам
+for i in range(len(match.groups()) + 1):
+    print(f"Группа {i}: {match.group(i)}")
+
+# 5.4 Логическое значение
+print(bool(match))  # True (если совпадение есть)
+print(bool(None))  # False (если совпадений нет)
+
+# 5.5 Неподдерживаемые: арифметика
+try:
+    match + match
+except TypeError as e:
+    print(f"Не поддерживается: {e}")
+```
+
+## **Операции сравнения**
+
+```python
+pattern1 = re.compile(r'\d+')
+pattern2 = re.compile(r'\d+')
+pattern3 = re.compile(r'[0-9]+')
+
+match1 = pattern1.search("123")
+match2 = pattern2.search("123")
+match3 = pattern3.search("123")
+
+# Сравнение Pattern объектов
+print(pattern1 == pattern2)  # False (разные объекты)
+print(pattern1.pattern == pattern2.pattern)  # True (одинаковые шаблоны)
+
+# Сравнение Match объектов
+print(match1 == match2)  # False (разные объекты)
+print(match1.group() == match2.group())  # True (одинаковое содержимое)
+
+# Сравнение с другими типами
+print(match1 == "123")  # False
+print(match1.group() == "123")  # True
+```
+
+## **Преобразование в другие типы и форматирование**
+
+```python
+pattern = re.compile(r'(\d{4})-(\d{2})-(\d{2})')
+match = pattern.search("2023-12-25")
+
+# 7.1 В строку
+print(str(match))  # "<re.Match object; span=(0, 10), match='2023-12-25'>"
+print(repr(match))  # "<re.Match object; span=(0, 10), match='2023-12-25'>"
+
+# 7.2 Преобразование групп
+print(int(match.group(1)))  # 2023
+print(list(match.groups()))  # ['2023', '12', '25']
+
+# 7.3 Форматирование результатов
+print(f"Дата: {match.group(1)}-{match.group(2)}-{match.group(3)}")
+# Дата: 2023-12-25
+
+# 7.4 Сериализация
+import json
+
+match_data = {
+    'match': match.group(),
+    'groups': match.groups(),
+    'span': match.span(),
+    'groupdict': match.groupdict()
+}
+print(json.dumps(match_data))
+# {"match": "2023-12-25", "groups": ["2023", "12", "25"], "span": [0, 10], "groupdict": {"year": "2023", "month": "12", "day": "25"}}
+```
+
+## **Важные особенности**
+
+```python
+import re
+
+# 1. Кэширование скомпилированных шаблонов
+# re.compile() кэширует последние 512 шаблонов
+re.search(r'\d+', "123")  # Автоматическая компиляция
+re.search(r'\d+', "456")  # Использует кэш
+
+# 2. Небезопасные шаблоны (ReDoS)
+# Осторожно с вложенными квантификаторами!
+pattern = re.compile(r'(a+)+b')
+# pattern.search('a' * 30 + 'c')  # Может зависнуть!
+
+# 3. Флаги компиляции
+pattern_multiline = re.compile(r'^line', re.MULTILINE)
+text = "line1\nline2\nline3"
+print(pattern_multiline.findall(text))  # ['line', 'line', 'line']
+
+# 4. Юникод и локаль
+pattern_unicode = re.compile(r'\w+', re.UNICODE)
+print(pattern_unicode.findall("привет world"))  # ['привет', 'world']
+
+# 5. Отладка шаблонов
+pattern_debug = re.compile(r'(\d{4})-(\d{2})', re.VERBOSE)
+# re.VERBOSE позволяет добавлять комментарии и пробелы
+pattern_debug = re.compile(r"""
+    (\d{4})   # Год
+    -         # Разделитель
+    (\d{2})   # Месяц
+""", re.VERBOSE)
+
+# 6. Разница между search() и match()
+print(re.match(r'\d+', "abc123"))  # None
+print(re.search(r'\d+', "abc123"))  # <re.Match object; span=(3, 6), match='123'>
+```
+
+## **Важные замечания:**
+
+1. **Компиляция vs прямой вызов**: `re.compile()` для повторного использования, `re.search()` для однократных операций.
+2. **Флаги компиляции**: `re.IGNORECASE`, `re.MULTILINE`, `re.DOTALL`, `re.UNICODE`, `re.VERBOSE` меняют поведение
+   шаблона.
+3. **Производительность**: Скомпилированные шаблоны быстрее, особенно при многократном использовании.
+4. **Безопасность**: Избегайте шаблонов с экспоненциальной сложностью (ReDoS-атаки).
+5. **Юникод**: Используйте `re.UNICODE` для корректной работы с не-ASCII символами (по умолчанию в Python 3).
+6. **Именованные группы**: `(?P<name>...)` делают код более читаемым и устойчивым к изменениям шаблона.
+
+## **Ключевые выводы:**
+
+1. **`re.Pattern` — скомпилированное регулярное выражение**, `re.Match` — результат поиска.
+2. **`compile()`** для оптимизации повторных поисков, **`search()/match()/fullmatch()`** для поиска.
+3. **`group()/groups()/groupdict()`** для доступа к захваченным группам, **`start()/end()/span()`** для позиций.
+4. **`findall()/finditer()`** для поиска всех совпадений, **`sub()/split()`** для замены и разделения.
+5. **Флаги (`re.IGNORECASE` и др.)** расширяют возможности шаблонов.
+6. **`(?P<name>...)`** для именованных групп — лучшая практика для сложных шаблонов.
+7. **Идеален для**: валидации данных, парсинга логов, извлечения информации, реформатирования текста.
 
 [Содержание](/CONTENTS.md#содержание)
 
