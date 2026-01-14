@@ -108,6 +108,14 @@
 - [Анализ покрытия](additional/analyze/analyze.md#анализ-покрытия)
 - [Бенчмаркинг](additional/benchmark/benchmark.md#бенчмаркинг)
 
+
+## Сети
+- [TCP/IP]()
+- [Маска сети]()
+- [MAC адрес]()
+- [Модель OSI]()
+
+
 ## Теория тестирования
 
 - [Пирамида тестирования](testing_theory/pyramide/pyramide.md#пирамида-тестирования)
@@ -158,3 +166,5 @@
 # Кодинг
 
 - [Работа с коллекциями](coding/collections/collections.md#collections)
+- [Рекурсия]()
+- [Декораторы]()
